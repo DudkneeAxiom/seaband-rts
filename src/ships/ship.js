@@ -91,9 +91,12 @@ export class Ship {
   get cargoUsed() { let n = 0; for (const k in this.cargo) n += this.cargo[k]; return n; }
   get cargoFree() { return this.cls.cargo - this.cargoUsed; }
 
+  /** Crew quality, multiplied by whatever the captain personally brings to it.
+      `capt` is set on the flagship from the answers given before the voyage. */
   crewSkill(key) {
     const need = Math.max(4, this.cls.crewMax * 0.38);
-    return clamp(crewPower(this.crew, key) / need, 0.25, 1.9);
+    const base = clamp(crewPower(this.crew, key) / need, 0.25, 1.9);
+    return base * (this.capt ? (1 + (this.capt[key] || 0)) : 1);
   }
   officerBonus(role) {
     return this.officers.some(o => o.role === role) ? 1 : 0;
@@ -166,7 +169,8 @@ export class Ship {
       this.groundedT += dt;
       if (this.groundedT > 0.55) {
         this.groundedT = 0;
-        this.damage(over * 9 + 2, 'round', null, true);
+        // a captain raised on a net knows where the water goes thin
+        this.damage((over * 9 + 2) * (this.shoalwise ? 0.35 : 1), 'round', null, true);
         if (world.onGround) world.onGround(this, over);
       }
     } else this.groundedT = 0;

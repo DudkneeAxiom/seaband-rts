@@ -5,6 +5,7 @@ import { $, el, clear, onTap, toast, modal } from './dom.js';
 import { GOODS, RANKS, RANK_ORDER, OFFICER_ROLES, HULLS, FACTIONS } from '../data/gamedata.js';
 import { repairCost, recruitCost, PROVISION_PRICE, SHOT_PRICE } from '../sim/economy.js';
 import { drawPortrait, officerLabel, officerEffect } from '../sim/officers.js';
+import { AMBITIONS, CHAPTERS } from '../data/origins.js';
 import { fmtCoin, clamp } from '../core/util.js';
 import { sfxCoin, toggleMute, audio } from '../core/audio.js';
 
@@ -449,6 +450,8 @@ export function openMenu() {
 
 function logTab(n) {
   const p = G.player;
+  storySection(n);
+
   n.appendChild(el('div', 'sec-title', 'STANDING'));
   const r = el('div', 'row');
   r.appendChild(el('div', 'rmain',
@@ -496,6 +499,47 @@ function logTab(n) {
   }
 }
 
+/** Who you are, what you are sailing for, and how far along you are. */
+function storySection(n) {
+  if (!G.origin) return;
+  const fx = G.originFx;
+  const ch = G.currentChapter;
+  const amb = AMBITIONS[G.origin.ambition];
+
+  n.appendChild(el('div', 'sec-title', 'YOUR STORY'));
+  const head = el('div', 'row');
+  head.appendChild(el('div', 'rmain',
+    `<div class="rtitle">${G.captainName}</div>
+     <div class="rsub">Sailing ${amb ? amb.line : 'for reasons of your own'}.</div>`));
+  n.appendChild(head);
+
+  const done = G.storyOver ? CHAPTERS.length : G.chapter;
+  const step = el('div', 'row');
+  step.appendChild(el('div', 'rmain',
+    `<div class="rtitle">${G.storyOver ? 'The account is closed' : G.chapterText(ch, 'title')}
+       <span class="pill">${Math.min(done + (G.storyOver ? 0 : 1), CHAPTERS.length)} / ${CHAPTERS.length}</span></div>
+     <div class="rsub">${G.storyOver ? 'Every chapter behind you. The Shoals are still open.' : G.chapterText(ch, 'obj')}</div>`));
+  n.appendChild(step);
+
+  if (fx.traits && fx.traits.length) {
+    const t = el('div', 'row');
+    t.appendChild(el('div', 'rmain',
+      `<div class="rsub">TRAITS</div>
+       <div class="rtitle">${fx.traits.map(x => x.name).join(' · ')}</div>`));
+    n.appendChild(t);
+  }
+  const bits = [];
+  for (const k of ['sail', 'gun', 'fight', 'trade']) {
+    if (fx.capt[k]) bits.push(`${SKILL_LABEL[k]} +${Math.round(fx.capt[k] * 100)}%`);
+  }
+  if (bits.length) {
+    const s = el('div', 'row');
+    s.appendChild(el('div', 'rmain', `<div class="rsub">THE CAPTAIN’S OWN</div><div class="rtitle">${bits.join(' · ')}</div>`));
+    n.appendChild(s);
+  }
+}
+const SKILL_LABEL = { sail: 'Seamanship', gun: 'Gunnery', fight: 'Boarding', trade: 'Haggling' };
+
 function helpTab(n) {
   n.appendChild(el('div', 'sec-title', 'SAILING'));
   n.appendChild(el('div', 'note',
@@ -538,7 +582,7 @@ function settingsTab(n) {
       title: 'Start Again?',
       text: 'Everything — your ship, your people, your prizes — goes to the bottom. There is no getting it back.',
       actions: [
-        { label: 'YES, NEW VOYAGE', cls: 'danger', fn: () => { closeSheet(); G.newGame(true); } },
+        { label: 'YES, NEW VOYAGE', cls: 'danger', fn: () => { closeSheet(); G.restart(); } },
         { label: 'NO', cls: 'dim', fn: () => { } },
       ],
     });

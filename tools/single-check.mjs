@@ -32,8 +32,17 @@ ok('single file loads from file:// with no server', await page.evaluate(() => !!
 ok('three.js came through the bundle', await page.evaluate(() => !!window.__renderer));
 await page.screenshot({ path: `${OUT}/single-title.png` });
 
+// through the questionnaire the way a player goes
 await page.click('#btn-new');
-await sleep(3500);
+await sleep(900);
+ok('the questionnaire opens in the single file too',
+  await page.evaluate(() => !document.getElementById('origin').classList.contains('hidden')));
+await page.click('#og-skip');
+await sleep(400);
+await page.click('.og-go');
+await sleep(1800);
+await page.click('#modal-actions .btn');
+await sleep(600);
 const st = await page.evaluate(() => {
   const g = window.__game;
   return { player: g.player && g.player.name, ships: g.ships.length, tris: window.__renderer.info.render.triangles };

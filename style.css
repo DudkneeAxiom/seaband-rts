@@ -509,6 +509,159 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .big-btn:active{transform:scale(.97); filter:brightness(1.15);}
 .tt-foot{margin-top:26px; font-size:12px; letter-spacing:1.5px; color:rgba(201,184,149,.55);}
 
+/* ---------- Take the Helm ---------- */
+#origin{
+  position:absolute; inset:0; z-index:45; overflow:hidden;
+  /* the sea keeps moving behind the questions — you are already aboard */
+  background:
+    radial-gradient(90% 70% at 50% 18%, rgba(6,20,28,.50), rgba(4,13,19,.78) 70%),
+    linear-gradient(180deg, rgba(4,12,18,.80), rgba(3,10,15,.90));
+  animation:fadeIn .4s ease-out;
+}
+#origin.out{animation:fadeOut .45s ease-in forwards;}
+@keyframes fadeIn{from{opacity:0;}}
+#og-inner{
+  position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:calc(14px + var(--st)) calc(16px + var(--sr)) calc(14px + var(--sb)) calc(16px + var(--sl));
+  display:flex; flex-direction:column;
+}
+/* margin auto rather than justify-content: a centred flex item that outgrows
+   its scroller has its top clipped away, and these can outgrow a small phone */
+#og-stack{width:100%; max-width:560px; margin:auto; flex:0 0 auto;}
+#og-body{animation:ogIn .42s cubic-bezier(.2,.9,.3,1);}
+@keyframes ogIn{from{opacity:0; transform:translateY(14px);}}
+
+#og-dots{display:flex; gap:7px; justify-content:center; padding:6px 0 14px; flex:0 0 auto;}
+#og-dots i{
+  width:7px; height:7px; border-radius:50%; background:rgba(230,178,94,.20);
+  transition:background .25s, transform .25s;
+}
+#og-dots i.past{background:rgba(230,178,94,.55);}
+#og-dots i.on{background:var(--brass); transform:scale(1.5);}
+
+.og-kicker{font-size:10.5px; letter-spacing:4px; color:var(--brass-dim); text-align:center;}
+.og-prompt{
+  font-family:var(--font-disp); font-weight:500; letter-spacing:.4px;
+  font-size:clamp(25px,6.4vw,34px); line-height:1.15; color:var(--parch);
+  margin:9px 0 0; text-align:center;
+}
+.og-lede{
+  font-size:13.5px; line-height:1.5; color:var(--parch-dim);
+  margin:10px 0 18px; text-align:center;
+}
+
+.og-opts{display:flex; flex-direction:column; gap:10px;}
+.og-opt{
+  display:block; width:100%; text-align:left; padding:13px 15px 12px;
+  border-radius:15px; border:1px solid var(--stroke);
+  background:linear-gradient(180deg, rgba(22,48,60,.92), rgba(11,28,36,.92));
+  box-shadow:var(--shadow); color:var(--parch);
+}
+.og-opt:active{transform:scale(.985); filter:brightness(1.16);}
+.og-opt.on{border-color:var(--brass); box-shadow:0 0 0 1px rgba(230,178,94,.4), var(--shadow);}
+.og-lbl{font-family:var(--font-disp); font-size:18px; line-height:1.2; color:var(--brass);}
+.og-txt{font-size:12.5px; line-height:1.48; color:var(--parch-dim); margin:6px 0 0;}
+.og-chips{display:flex; flex-wrap:wrap; gap:5px; margin-top:9px;}
+.og-chip{
+  font-size:10.5px; font-weight:700; letter-spacing:.3px; padding:3px 8px; border-radius:8px;
+  background:rgba(121,194,129,.13); border:1px solid rgba(121,194,129,.28); color:#a6dcaa;
+}
+.og-chip.warn{background:rgba(217,85,63,.13); border-color:rgba(217,85,63,.3); color:#eaa694;}
+
+/* ---- the summary ---- */
+.og-name{display:flex; gap:8px; margin:12px 0 16px;}
+.og-input{
+  flex:1 1 auto; min-width:0; min-height:52px; padding:0 14px; border-radius:14px;
+  background:rgba(255,255,255,.05); border:1px solid var(--stroke); color:var(--parch);
+  font-family:var(--font-disp); font-size:21px; letter-spacing:.3px; text-align:center;
+}
+.og-dice{
+  flex:0 0 auto; width:52px; min-height:52px; border-radius:14px; font-size:21px;
+  background:rgba(255,255,255,.05); border:1px solid var(--stroke); color:var(--brass);
+}
+.og-dice:active{transform:rotate(90deg); filter:brightness(1.3);}
+
+.og-sec{
+  font-size:10px; letter-spacing:2px; color:var(--brass-dim);
+  margin:16px 0 8px; padding-bottom:5px; border-bottom:1px solid rgba(230,178,94,.16);
+}
+.og-sum{display:flex; flex-direction:column;}
+.og-col{min-width:0;}
+.og-hist{display:flex; flex-direction:column; gap:1px;}
+.og-hrow{
+  display:flex; align-items:center; gap:10px; width:100%; min-height:44px;
+  padding:5px 11px; border-radius:11px; text-align:left;
+  background:rgba(255,255,255,.035); border:1px solid transparent; color:var(--parch);
+}
+.og-hrow:active{background:rgba(230,178,94,.12);}
+.og-hk{flex:0 0 34%; font-size:9.5px; letter-spacing:1.4px; color:var(--brass-dim);}
+.og-hv{flex:1 1 auto; font-size:13px; color:var(--parch);}
+
+.og-traits{display:flex; flex-direction:column; gap:6px;}
+.og-trait{
+  padding:9px 12px; border-radius:12px; background:rgba(230,178,94,.08);
+  border:1px solid rgba(230,178,94,.2);
+}
+.og-trait b{display:block; font-size:13px; color:var(--brass); letter-spacing:.3px;}
+.og-trait span{display:block; font-size:11.5px; color:var(--parch-dim); margin-top:2px; line-height:1.4;}
+
+.og-ledger{display:flex; flex-direction:column;}
+.og-lrow{
+  display:flex; gap:10px; align-items:baseline; padding:7px 2px;
+  border-bottom:1px solid rgba(255,255,255,.05);
+}
+.og-lk{flex:0 0 38%; font-size:11px; letter-spacing:.6px; color:var(--parch-dim);}
+.og-lv{flex:1 1 auto; font-size:13px; color:var(--parch);}
+
+.og-amb{font-size:13px; line-height:1.55; color:var(--parch-dim); margin:14px 2px 4px; text-align:center;}
+.og-amb em{color:var(--brass); font-style:normal;}
+.og-amb span{font-size:11.5px; color:var(--brass-dim);}
+
+.og-go{
+  width:100%; min-height:58px; margin:16px 0 4px; border-radius:15px;
+  background:linear-gradient(180deg,#d3a049,#8e6320); border:1px solid #f0c674;
+  color:#231704; font-size:16px; font-weight:800; letter-spacing:2px; box-shadow:var(--shadow);
+}
+.og-go:active{transform:scale(.97); filter:brightness(1.15);}
+
+#og-foot{
+  display:flex; gap:8px; justify-content:space-between;
+  align-items:center; margin-top:14px; padding-bottom:4px;
+}
+.og-nav{
+  min-height:44px; padding:0 14px; border-radius:11px; background:transparent;
+  border:1px solid transparent; color:var(--brass-dim);
+  font-size:11px; font-weight:700; letter-spacing:1.6px;
+}
+.og-nav:active{color:var(--brass);}
+#og-skip{margin-left:auto;}
+
+/* landscape phones are short and wide: lay the questions out side by side,
+   and split the summary so MAKE SAIL is never below the fold */
+@media (max-height:560px) and (min-width:680px){
+  #og-stack{max-width:960px;}
+  #og-dots{padding:2px 0 10px;}
+  .og-prompt{font-size:24px; margin-top:5px;}
+  .og-lede{margin:7px 0 12px; font-size:12.5px;}
+  .og-opts{flex-direction:row; align-items:stretch;}
+  .og-opts .og-opt{flex:1 1 0; min-width:0; padding:11px 13px 10px;}
+  .og-lbl{font-size:16px;}
+  .og-txt{font-size:11.5px; margin-top:5px;}
+  .og-sum{display:grid; grid-template-columns:1fr 1fr; column-gap:18px; align-items:start;}
+  .og-sec:first-child{margin-top:6px;}
+  .og-name{margin:6px 0 2px;}
+  .og-input, .og-dice{min-height:44px;}
+  .og-input{font-size:18px;}
+  .og-sec{margin:11px 0 6px;}
+  .og-hrow{min-height:40px; padding:3px 10px;}
+  .og-hv{font-size:12.5px;}
+  .og-trait{padding:7px 10px;}
+  .og-lrow{padding:5px 2px;}
+  .og-amb{margin:9px 2px 2px; font-size:12px;}
+  .og-go{min-height:50px; margin-top:10px;}
+  #og-foot{margin-top:8px;}
+}
+
 /* ---------- Loading ---------- */
 #loading{position:absolute; inset:0; z-index:60; display:grid; place-items:center; background:#07161f;}
 #loading.out{animation:fadeOut .5s ease-in forwards;}
@@ -566,3 +719,13 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   #shipstatus{width:250px;}
   .act-btn{min-width:132px;}
 }
+
+/* the next chapter, previewed inside the one you just closed */
+#modal-text .story-next{
+  margin-top:14px; padding-top:12px; border-top:1px solid rgba(230,178,94,.2);
+}
+#modal-text .story-next span{
+  display:block; font-family:var(--font-disp); font-size:16px; color:var(--brass);
+  margin-bottom:5px;
+}
+#modal-text hr{border:0; border-top:1px solid rgba(230,178,94,.2); margin:14px 0;}

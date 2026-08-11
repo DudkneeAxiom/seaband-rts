@@ -60,6 +60,7 @@ Designed for thumbs. Mouse mirrors touch for desk testing.
 | Fleet orders | **FOLLOW / ENGAGE / HOLD** (appear once you have a consort) | same |
 | Time | **❙❙ / 1× / 2×** bottom left | same |
 | Log, help, settings | ☰ top left | same |
+| Your story so far | ☰ → **VOYAGE** | same |
 
 Buttons only exist while they mean something, so the ocean keeps the screen.
 
@@ -67,7 +68,10 @@ Buttons only exist while they mean something, so the ocean keeps the screen.
 
 ## The arc the demo is built around
 
-1. Start off Ilo Vantu in a battered cutter with thirteen hands.
+0. **Take the helm.** Five questions before the first sail is set — where you were
+   born, what your household put in your hands, your first berth, what went wrong,
+   and what you want. Then a name.
+1. Start off Ilo Vantu in a battered cutter and whatever your answers were worth.
 2. Learn to sail — the wind matters, and the pale water is shallow.
 3. Make port. Repair, take on provisions and shot, recruit, hire an officer.
 4. Put to sea. Merchants, fishing boats, Admiralty patrols and Tally pirates are
@@ -77,7 +81,49 @@ Buttons only exist while they mean something, so the ocean keeps the screen.
 7. Win, and choose: give her to an officer on the spot, send her home as a prize,
    strip her, or scuttle her.
 8. Sail back with two ships under your flag. Look astern.
-9. Take the *Long Answer* contract in the tavern and go after Mireya Sant with a fleet.
+9. Go after the person your fourth answer named — Vell, Duhan or Nimm, depending on
+   what was done to you — and then after Mireya Sant, with a fleet.
+
+---
+
+## Where a captain comes from
+
+Five questions, one per screen, each with three answers. Nothing is cosmetic: every
+option prints what it does to you before you take it, and the print is generated from
+the effect itself, so the promise and the mechanic cannot drift apart.
+
+| The question | What it decides |
+|---|---|
+| Where were you born? | Faction standing, and a first leaning — seamanship, coin, or gunnery |
+| What did they put in your hands? | A trait: shoal-wise, sharp-pencilled, or hard-handed |
+| Where did you get your first berth? | The skill you carry off it, and what you sailed away with |
+| And then it went wrong? | **Who wronged you** — and therefore who the story is about |
+| So what do you want? | How rewards are scored, and how the story ends |
+
+A captain's own competence multiplies the crew's, so it is felt at the helm, on the
+gun deck, at the rail and at the harbourmaster's window rather than sitting on a sheet.
+The answers are the only thing saved; the skills, traits, nemesis and ending are all
+recomputed from them, so a save can never disagree with the questionnaire.
+
+**SKIP — ROLL ME A CAPTAIN** fills in whatever you have not answered and jumps to the
+summary. Tapping any answer on the summary takes you back to reconsider it.
+
+## The story
+
+Six chapters, always present, driven by state the game already keeps rather than by a
+parallel quest system. Each one closes with a scene, pays out, and opens the next in the
+same breath. The fifth is about the person your fourth answer named:
+
+- **Corran Vell**, in the lugger *Third Name* — he took the ship under you and did not
+  trouble to learn your name.
+- **Hesk Duhan**, in the *Debt Collector* — he collects Admiralty bounties, and there is
+  one with your description on it.
+- **Ovar Nimm**, in the *Widow's Portion* — he wrote the insurance, found a clause, and
+  fences for pirates now.
+
+Then Mireya Sant, and an epilogue written for whichever of the three things you said you
+wanted. A scene never interrupts a harbour, a boarding, another dialog or a fight — it
+waits for a quiet moment, which is where it reads best anyway.
 
 ---
 
@@ -221,6 +267,7 @@ power is visible in the world rather than in a number.
 All suites drive the real game in Chromium via Playwright.
 
 ```bash
+node tools/origin.mjs             # 46 checks: the questionnaire, its effects, the story
 node tools/playthrough.mjs phone   # 23 checks: the whole arc, with real UI clicks
 node tools/touch.mjs               # 9 checks: synthesised taps, drags, pinch, rotation
 node tools/systems.mjs             # 14 checks: contracts, discoveries, shoals, supplies…
@@ -314,13 +361,14 @@ style.css             the entire UI: mobile-first, safe-area aware
 src/main.js           boot, render loop, input wiring, attract mode
 src/game.js           game state, world simulation, rules, save/load, markers
 src/data/gamedata.js  factions, hulls, goods, crew, world layout — all tuning lives here
+src/data/origins.js   the five questions, their effects, the antagonists, the chapters
 src/core/             util, geometry helpers, camera, input, procedural audio
 src/world/            terrain + seabed bake, water shader, sky and clouds
 src/ships/            procedural ship meshes, the Ship entity, NPC captains
 src/combat/           ballistics, broadsides, boarding
 src/fx/               wake ribbons, pooled particles
 src/sim/              market, officers and portraits
-src/ui/               DOM helpers, HUD, bottom-sheet port screens
+src/ui/               DOM helpers, HUD, bottom-sheet port screens, the questionnaire
 tools/                the QA harnesses, the static build and the single-file bundler
 vendor/three.module.min.js   three.js r180, vendored — no CDN, no network at runtime
 dist/ + salt-and-tally-web.zip   the static build
@@ -345,6 +393,16 @@ A few decisions worth recording:
   bears and is loaded. They are tessellated and re-stamped from the wave field every
   frame so they ride the swell — a flat sheet at a fixed height gets sawn into shards by
   the sea it is meant to lie on.
+- **The questionnaire is the tutorial nobody notices.** Five questions teach the
+  vocabulary — seamanship, gunnery, boarding, standing, the Tally — before a single
+  button has to be pressed, and hand the player a reason to care about the first one
+  of them they meet.
+- **Only the answers are persisted.** Skills, traits, the nemesis and the ending are
+  derived every load. A save cannot drift out of agreement with the questions, and
+  rebalancing an answer retroactively fixes every voyage in progress.
+- **Story beats wait for quiet.** A chapter closes only when no harbour, dialog,
+  boarding or fight is in the way. Prose that interrupts a manoeuvre is not a story
+  beat, it is an obstacle.
 - **Capture is gated on officers, not on money.** It makes the tavern matter and makes
   the second ship an event rather than a purchase.
 - **Pirates scale to your notoriety.** Your first Tally captain is a thin-crewed cutter;

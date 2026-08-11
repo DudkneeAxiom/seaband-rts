@@ -1,6 +1,6 @@
 /* Systems test: contracts, discoveries, shoal water, supplies, reputation,
    crew progression, and the awkward states players actually hit. */
-import { launch, sleep, ff, shot } from './qa.mjs';
+import { launch, sleep, ff, shot, newVoyage } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -8,8 +8,7 @@ const ok = (m, c) => log.push(`${c ? 'PASS' : 'FAIL'}  ${m}`);
 const G = (fn, arg) => page.evaluate(fn, arg);
 
 await sleep(900);
-await page.click('#btn-new');
-await sleep(1200);
+await newVoyage(page);
 
 /* ---- cargo contract, end to end ---- */
 const q = await G(() => {
@@ -231,11 +230,8 @@ const corrupt = await page.evaluate(() => {
 void corrupt;
 await page.reload({ waitUntil: 'networkidle' });
 await sleep(1200);
-const recovered = await page.evaluate(async () => {
-  document.getElementById('btn-new').click();
-  await new Promise(r => setTimeout(r, 1500));
-  return !!window.__game && !!window.__game.player;
-});
+await newVoyage(page);
+const recovered = await page.evaluate(() => !!window.__game && !!window.__game.player);
 ok('a corrupt save does not brick the game', recovered);
 
 console.log(log.join('\n'));

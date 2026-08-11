@@ -54,6 +54,46 @@ export async function ff(page, seconds, step = 1 / 30) {
   await sleep(120);
 }
 
+/** Start a voyage the way a player does: tap NEW VOYAGE, answer the questions,
+    read the opening scene, and get on with it. `picks` names the answers to
+    give ({birth:'shore', …}); anything unnamed is rolled. */
+export async function newVoyage(page, picks = null) {
+  await page.click('#btn-new');
+  await waitFor(page, () => !document.getElementById('origin').classList.contains('hidden'));
+  if (picks) {
+    for (const opt of Object.values(picks)) {
+      await page.click(`.og-opt[data-opt="${opt}"]`);
+      await sleep(180);
+    }
+  }
+  // rolls whatever is still unanswered; gone once every question has an answer
+  if (await page.isVisible('#og-skip')) { await page.click('#og-skip'); await sleep(250); }
+  await page.click('.og-go');
+  // the opening scene: wait for it, then dismiss it like a player would
+  await waitFor(page, () => !document.getElementById('modal').classList.contains('hidden'));
+  await page.click('#modal-actions .btn');
+  await sleep(300);
+}
+
+/** Tap through any scene that has come up, the way a player would before
+    reaching for a button. Returns whether there was one. */
+export async function dismissModal(page) {
+  if (!await page.isVisible('#modal-actions .btn')) return false;
+  await page.click('#modal-actions .btn');
+  await sleep(320);
+  return true;
+}
+
+/** Poll for a condition in the page. Fixed sleeps lie on a software renderer. */
+export async function waitFor(page, fn, ms = 9000) {
+  const t0 = Date.now();
+  for (;;) {
+    if (await page.evaluate(fn)) return true;
+    if (Date.now() - t0 > ms) return false;
+    await sleep(120);
+  }
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const vp = process.argv[2] || 'phone';
   const { browser, page, errors } = await launch(vp);

@@ -1,11 +1,11 @@
 /* Visual QA: pose the game into interesting states and shoot them. */
-import { launch, shot, sleep } from './qa.mjs';
+import { launch, shot, sleep, newVoyage } from './qa.mjs';
 
 const vp = process.argv[2] || 'phone';
 const { browser, page, errors } = await launch(vp);
 await sleep(1200);
-await page.click('#btn-new');
-await sleep(2500);
+await newVoyage(page);
+await sleep(1200);
 
 // --- 1. close-up of the flagship ---
 await page.evaluate(() => {

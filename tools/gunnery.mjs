@@ -3,12 +3,12 @@
       but the firing ship and a pinned butt).
    2) Duel outcomes over several runs — the number that actually matters:
       is a first Tally fight winnable, and does it cost you something? */
-import { launch, sleep } from './qa.mjs';
+import { launch, sleep, newVoyage } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 await sleep(900);
-await page.click('#btn-new');
-await sleep(1200);
+// a captain with no gunnery of her own, so this measures the guns and not her
+await newVoyage(page, { birth: 'shore', youth: 'net', berth: 'oar', wrong: 'pressed', want: 'clear' });
 
 const acc = await page.evaluate(() => {
   const g = window.__game;
@@ -56,7 +56,8 @@ const duels = await page.evaluate(() => {
   const g = window.__game;
   const runs = [];
   for (let k = 0; k < 6; k++) {
-    g.newGame(true);
+    // the same plain captain every run, so the duel numbers stay comparable
+    g.newGame(true, { picks: { birth: 'shore', youth: 'net', berth: 'oar', wrong: 'pressed', want: 'clear' }, captain: 'Test Hand' });
     g.paused = false;
     const p = g.player;
     p.shot = 400;

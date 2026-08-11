@@ -2,15 +2,14 @@
    Poses the flagship on each point of sail and shoots her from astern, so
    the belly direction and the brace angle can be checked by eye, and asserts
    the deformation numerically at the same time. */
-import { launch, sleep, shot } from './qa.mjs';
+import { launch, sleep, shot, newVoyage } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
 const ok = (m, c) => log.push(`${c ? 'PASS' : 'FAIL'}  ${m}`);
 
 await sleep(900);
-await page.click('#btn-new');
-await sleep(1600);
+await newVoyage(page);
 
 /* Read the deformed canvas back out of the shader maths in JS, so we are
    testing the same rule the GPU runs rather than a screenshot. */

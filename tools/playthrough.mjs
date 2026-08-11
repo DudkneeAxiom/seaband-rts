@@ -1,7 +1,7 @@
 /* Full-arc functional test: new game → sail → dock → trade/recruit/hire
    → sea → combat → board → capture → two-ship fleet → save/load.
    Uses real UI clicks wherever a player would. */
-import { launch, shot, sleep, ff } from './qa.mjs';
+import { launch, shot, sleep, ff, newVoyage, dismissModal } from './qa.mjs';
 
 const vp = process.argv[2] || 'phone';
 const { browser, page, errors } = await launch(vp);
@@ -10,8 +10,7 @@ const ok = (m, cond) => { log.push(`${cond ? 'PASS' : 'FAIL'}  ${m}`); if (!cond
 const G = fn => page.evaluate(fn);
 
 await sleep(1000);
-await page.click('#btn-new');
-await sleep(1500);
+await newVoyage(page);
 ok('game boots with a flagship', await G(() => !!window.__game.player));
 
 /* ---------- 1. sail to the port ---------- */
@@ -30,6 +29,7 @@ ok('sailed to Ilo Vantu and the DOCK prompt appeared', docked);
 await shot(page, `p1-approach-${vp}`);
 
 /* ---------- 2. dock, use every service ---------- */
+await dismissModal(page);
 await page.click('.act-btn.dock');
 await sleep(900);
 ok('port sheet opened', await G(() => !document.getElementById('sheet').classList.contains('hidden')));
@@ -176,6 +176,7 @@ await G(() => {
   g.player.crew.marine += 10; g.player.crew.veteran += 6;
 });
 await sleep(700);
+await dismissModal(page);      // a chapter may have closed while we sailed
 const boardable = await G(() => window.__game.boardable);
 ok('BOARD becomes available alongside a slowed enemy', boardable);
 if (boardable) await page.click('.act-btn.board');

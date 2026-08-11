@@ -18,7 +18,10 @@ import {
 } from './combat/combat.js';
 import { Market, repairCost } from './sim/economy.js';
 import { makeOfficer, rollTavernOfficers, addOfficerXP, officerLabel } from './sim/officers.js';
-import { toast, hint, hideHint, modal, setObjective } from './ui/dom.js';
+import {
+  CHAPTERS, NEMESES, ENDINGS, AMBITIONS, sumOrigin, rollOrigin, rollCaptainName, findOption,
+} from './data/origins.js';
+import { toast, hint, hideHint, modal, isModalOpen, setObjective } from './ui/dom.js';
 import { openPort, closeSheet, isSheetOpen } from './ui/sheet.js';
 import {
   sfxCannon, sfxWood, sfxSplash, sfxClash, sfxBell, sfxHorn, sfxCoin, sfxClick, updateAudio,
@@ -81,6 +84,13 @@ export class Game {
     this.speed = 1;              // 0 = paused, 1 = normal, 2 = double
     this.PORTS = PORTS;
 
+    // ---- who you are, and how far into your own story ----
+    this.origin = null;
+    this.chapter = 0;
+    this.nemesisDown = false;
+    this.santDown = false;
+    this.storyOver = false;
+
     this.ctx = {
       fx: this.fx,
       projectiles: this.projectiles,
@@ -103,10 +113,11 @@ export class Game {
   /* =========================================================
      lifecycle
      ========================================================= */
-  newGame(clearSave = false) {
+  newGame(clearSave = false, origin = null) {
     if (clearSave) { try { localStorage.removeItem(SAVE_KEY); } catch (e) { void e; } }
     for (const s of this.ships.slice()) this.removeShip(s, true);
     this.ships.length = 0; this.fleet.length = 0;
+    this.setOrigin(origin);
     this.coin = 240; this.prestige = 0; this.infamy = 0;
     this.standing = { freehold: 6, admiralty: 0, compact: 0 };
     this.crewXP = 0;
@@ -121,24 +132,80 @@ export class Game {
     this.hintState = {};
     this.fleetOrder = 'follow';
     this.target = null;
+    this.chapter = 0;
+    this.nemesisDown = false; this.santDown = false; this.storyOver = false;
 
+    const fx = this.originFx;
     const crew = emptyCrew();
     crew.deckhand = 6; crew.sailor = 5; crew.gunner = 1; crew.marine = 1;
+    for (const k in fx.crew) crew[k] = (crew[k] || 0) + fx.crew[k];
     const p = new Ship({
       classId: 'cutter', faction: 'player', name: NAMES.ship_player[0], isPlayer: true,
       x: -110, z: 236, yaw: 2.5, crew, role: 'player',
       colors: { hull: 0x7d5230, trim: 0xe6b25e, sail: 0xefe3c8, flag: 0xc94f2f },
     });
-    p.provisions = 42; p.shot = 16;
-    p.hull = p.hullMax * 0.78; p.sails = p.sailMax * 0.9;
+    p.provisions = 42 + fx.provisions; p.shot = 16 + fx.shot;
+    p.hull = p.hullMax * Math.min(1, 0.78 + fx.hull); p.sails = p.sailMax * 0.9;
     this.addShip(p);
     this.fleet.push(p);
     this.player = p; this.world.player = p;
+
+    this.coin += fx.coin;
+    for (const k in fx.standing) this.standing[k] = (this.standing[k] || 0) + fx.standing[k];
+    this.equipCaptain();
 
     this.quests.push(makeQuest('cargo_first'));
     this.seedTraffic();
     this.setupIntro();
     this.save();
+  }
+
+  /* ---------- who you are ----------
+     The answers given before the first sail. Everything derived from them
+     is recomputed from the answers themselves, never persisted, so a save
+     can never disagree with the questionnaire. */
+  setOrigin(origin) {
+    const picks = (origin && origin.picks) || rollOrigin();
+    this.origin = {
+      picks,
+      captain: (origin && origin.captain) || rollCaptainName(),
+      nemesis: 'vell',
+      ambition: 'clear',
+    };
+    this.originFx = sumOrigin(picks);
+    this.origin.nemesis = this.originFx.nemesis || 'vell';
+    this.origin.ambition = this.originFx.ambition || 'clear';
+  }
+  /** Push the captain's own competence onto the flagship and the harbour books. */
+  equipCaptain() {
+    const fx = this.originFx;
+    if (this.player) {
+      this.player.capt = fx.capt;
+      this.player.shoalwise = this.origin.picks.youth === 'net';
+    }
+    this.market.haggle = fx.capt.trade || 0;
+  }
+  /** Contract money and salvage, after what you told them you wanted. */
+  get coinMult() { return this.origin && this.origin.ambition === 'clear' ? 1.2 : 1; }
+  prestigeMult(fromPirate = false) {
+    const a = this.origin && this.origin.ambition;
+    if (a === 'settle' && fromPirate) return 1.5;
+    if (a === 'known') return 1.25;
+    return 1;
+  }
+  gainCoin(n) { const v = Math.round(n * this.coinMult); this.coin += v; return v; }
+  gainPrestige(n, fromPirate = false) {
+    const v = Math.round(n * this.prestigeMult(fromPirate) * 10) / 10;
+    this.prestige += v; return v;
+  }
+  get captainName() { return (this.origin && this.origin.captain) || 'the captain'; }
+  /** Ask the questions again. Falls back to a rolled captain if nothing wired it. */
+  restart() { if (this.onRestart) this.onRestart(); else this.newGame(true); }
+  get nemesisDef() { return NEMESES[this.origin ? this.origin.nemesis : 'vell'] || NEMESES.vell; }
+  /** Ship names the story owns. All three antagonists are held back, not just
+      yours — meeting a random "Third Name" would muddy the one that matters. */
+  reservedNames() {
+    return [...Object.values(NEMESES).map(n => n.ship), 'Long Answer'];
   }
 
   /** Populate the sea and let it run behind the title screen. */
@@ -148,8 +215,22 @@ export class Game {
   }
 
   setupIntro() {
-    setObjective('Make for <b>Ilo Vantu</b> — the free port on the big island.');
-    setTimeout(() => hint('Tap the water to set your course.', 6500), 900);
+    this.refreshObjective();
+    const opening = findOption('wrong', this.origin.picks.wrong);
+    const amb = AMBITIONS[this.origin.ambition];
+    setTimeout(() => {
+      modal({
+        title: this.captainName,
+        text: `${opening ? opening.text + '<br><br>' : ''}`
+          + `What is left is a tired cutter called the <em>Marlin’s Debt</em>, `
+          + `${crewCount(this.player.crew)} hands who have not been paid yet, and `
+          + `<em>${amb ? amb.line : 'a reason to go'}</em>.<br><br>`
+          + 'Ilo Vantu is under your lee. Start there.',
+        actions: [{ label: 'MAKE SAIL', cls: 'gold', fn: () => { this.paused = false; } }],
+      });
+      this.paused = true;
+      setTimeout(() => hint('Tap the water to set your course.', 6500), 400);
+    }, 700);
   }
 
   /* ---------- persistence ---------- */
@@ -169,6 +250,12 @@ export class Game {
         market: this.market.save(),
         hintState: this.hintState,
         fleetOrder: this.fleetOrder,
+        // only the answers are stored; everything they imply is recomputed
+        origin: { picks: this.origin.picks, captain: this.origin.captain },
+        chapter: this.chapter,
+        nemesisDown: this.nemesisDown,
+        santDown: this.santDown,
+        storyOver: this.storyOver,
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     } catch (e) { void e; }
@@ -183,6 +270,12 @@ export class Game {
     try {
       for (const s of this.ships.slice()) this.removeShip(s, true);
       this.ships.length = 0; this.fleet.length = 0;
+      // a voyage begun before the questionnaire existed gets a captain rolled
+      this.setOrigin(data.origin || null);
+      this.chapter = data.chapter || 0;
+      this.nemesisDown = !!data.nemesisDown;
+      this.santDown = !!data.santDown;
+      this.storyOver = !!data.storyOver;
       this.coin = data.coin ?? 200;
       this.prestige = data.prestige ?? 0; this.infamy = data.infamy ?? 0;
       this.standing = data.standing || { freehold: 0, admiralty: 0, compact: 0 };
@@ -230,6 +323,7 @@ export class Game {
       let slot = 1;
       for (const s of this.fleet) if (!s.isPlayer) s.formSlot = slot++;
       this.gameOver = false;
+      this.equipCaptain();
       this.seedTraffic();
       setObjective(null);
       this.refreshObjective();
@@ -293,13 +387,15 @@ export class Game {
       faction = 'freehold'; classId = 'cutter'; role = 'fisher'; names = NAMES.ship_freehold;
     } else if (kind === 'pirate') {
       // the Tally send bigger hulls after captains who have earned the attention
-      const notoriety = this.stats.captured + this.stats.sunk + (this.fleet.length - 1) * 2;
+      // a captain who set out to be talked about gets bigger visitors sooner
+      const notoriety = this.stats.captured + this.stats.sunk + (this.fleet.length - 1) * 2
+        + (this.origin && this.origin.ambition === 'known' ? 2 : 0);
       const heavy = clamp01((notoriety - 1) / 5) * 0.7;
       faction = 'pirate'; classId = r() < heavy ? 'lugger' : 'cutter'; role = 'pirate'; names = NAMES.ship_pirate;
     } else {
       faction = 'admiralty'; classId = r() > 0.6 ? 'frigate' : 'brig'; role = 'patrol'; names = NAMES.ship_admiralty;
     }
-    const used = new Set(this.ships.map(s => s.name));
+    const used = new Set([...this.ships.map(s => s.name), ...this.reservedNames()]);
     let name = names[(r() * names.length) | 0];
     let g2 = 0;
     while (used.has(name) && g2++ < 12) name = names[(r() * names.length) | 0];
@@ -432,7 +528,107 @@ export class Game {
     // keep the hunt's quarry in the world while the contract is live
     const hunt = this.quests.find(q => q.active && q.kind === 'hunt' && !q.done);
     if (hunt && !this.ships.some(s => s.isSant)) this.spawnSant();
+    // and keep whoever the story is currently pointing you at
+    const ch = this.currentChapter;
+    if (ch && ch.id === 'nemesis' && !this.nemesisDown && !this.ships.some(s => s.nemesisId)) {
+      this.spawnNemesis();
+    }
+    this.updateStory();
     this.refreshObjective();
+  }
+
+  /* =========================================================
+     the story spine
+     ========================================================= */
+  get currentChapter() { return this.storyOver ? null : CHAPTERS[this.chapter] || null; }
+
+  /** Busy with somebody. Guns lately, a ship marked and close, or a hostile
+      in your lap — no time to be handed a page of prose. */
+  get engaged() {
+    const p = this.player;
+    if (!p) return false;
+    if (this.combatHeat > 0) return true;
+    const t = this.target;
+    if (t && t.alive && !t.captured && dist(p.x, p.z, t.x, t.z) < 520) return true;
+    return this.ships.some(s => s.alive && !s.captured && !s.isPlayer && s.hostileToPlayer
+      && !this.fleet.includes(s) && dist(p.x, p.z, s.x, s.z) < 420);
+  }
+  /** Chapter text can depend on who you are, so everything is a call. */
+  chapterText(ch, key) {
+    const v = ch && ch[key];
+    return typeof v === 'function' ? v(this) : (v || '');
+  }
+
+  updateStory() {
+    const ch = this.currentChapter;
+    if (!ch || this.gameOver) return;
+    // never interrupt a harbour, a boarding, another dialog — or a fight.
+    // The scene keeps until the guns are quiet; it reads better there anyway.
+    if (isSheetOpen() || isModalOpen() || this.boardings.length || this.engaged) return;
+    if (!ch.done(this)) return;
+
+    const coin = ch.coin ? this.gainCoin(ch.coin) : 0;
+    const pres = ch.prestige ? this.gainPrestige(ch.prestige) : 0;
+    this.chapter++;
+    const next = this.currentChapter;
+    if (next && next.onOpen) next.onOpen(this);
+
+    const loot = (coin || pres)
+      ? `<div class="loot">${coin ? `<span>◆ ${coin}</span>` : ''}${pres ? `<span>★ ${pres} prestige</span>` : ''}</div>`
+      : '';
+    const opening = next ? this.chapterText(next, 'open') : '';
+    const body = `${this.chapterText(ch, 'close')}${loot}`
+      + (opening ? `<div class="story-next"><span>${this.chapterText(next, 'title')}</span>${opening}</div>` : '');
+
+    if (!next) { this.endStory(body); return; }
+    this.paused = true;
+    sfxBell();
+    modal({
+      title: this.chapterText(ch, 'title'),
+      text: body,
+      actions: [{ label: 'ON', cls: 'gold', fn: () => { this.paused = false; this.refreshObjective(); } }],
+    });
+    this.save();
+  }
+
+  /** The last chapter closes on the ambition you named at the start. */
+  endStory(body) {
+    this.storyOver = true;
+    const end = ENDINGS[this.origin.ambition] || ENDINGS.clear;
+    this.paused = true;
+    sfxBell();
+    modal({
+      title: end.title,
+      text: `${body}<hr>${end.text}<br><br><em>${this.captainName}</em> — ${this.stats.sunk} sunk, `
+        + `${this.stats.captured} taken, ${Math.round(this.stats.distance / 100)} leagues sailed.<br><br>`
+        + 'The Shoals are still here. So are you. Keep sailing as long as you like.',
+      actions: [{ label: 'KEEP SAILING', cls: 'gold', fn: () => { this.paused = false; this.refreshObjective(); } }],
+    });
+    this.save();
+  }
+
+  /** Sunk or taken — if she was the story's, the story moves on. */
+  markStoryTarget(s) {
+    if (s.nemesisId && s.nemesisId === this.origin.nemesis) this.nemesisDown = true;
+    if (s.isSant) this.santDown = true;
+  }
+
+  /** Put the person you are owed an answer by into the world. */
+  spawnNemesis() {
+    const def = this.nemesisDef;
+    if (this.nemesisDown || this.ships.some(s => s.nemesisId === def.id)) return;
+    const a = Math.random() * TAU;
+    const px = this.player.x + Math.cos(a) * 850, pz = this.player.z + Math.sin(a) * 850;
+    const s = new Ship({
+      classId: def.classId, faction: 'pirate', name: def.ship, role: 'pirate',
+      x: clamp(px, -this.limit * 0.8, this.limit * 0.8), z: clamp(pz, -this.limit * 0.8, this.limit * 0.8),
+      yaw: Math.random() * TAU,
+      colors: { hull: 0x33291f, trim: 0x8f2f2a, sail: 0xb3a48c, flag: 0x8f2f2a },
+    });
+    s.nemesisId = def.id;
+    s.captainName = def.name;
+    for (const k in def.crew) s.crew[k] += def.crew[k];
+    this.addShip(s);
   }
 
   cullDistant() {
@@ -670,12 +866,13 @@ export class Game {
     if (s.rewarded) return;
     s.rewarded = true;
     this.stats.sunk++;
+    this.markStoryTarget(s);
     const value = Math.round(HULLS[s.classId].value * 0.10 + s.cls.guns * 6);
     if (s.faction === 'pirate') {
-      this.prestige += 6 + s.cls.guns * 0.5;
+      const pres = this.gainPrestige(6 + s.cls.guns * 0.5, true);
       this.standing.admiralty += 3; this.standing.freehold += 2;
-      this.coin += value;
-      toast(`${s.name} goes down. Prestige +${Math.round(6 + s.cls.guns * 0.5)} · ◆${value} in salvage`, 'gold');
+      const got = this.gainCoin(value);
+      toast(`${s.name} goes down. Prestige +${pres} · ◆${got} in salvage`, 'gold');
       this.progressQuest('hunt', s);
       sfxCoin();
     } else {
@@ -815,7 +1012,8 @@ export class Game {
     this.paused = false;
     this.target = null;
     this.stats.captured++;
-    this.prestige += 10;
+    this.markStoryTarget(prize);
+    this.gainPrestige(10, prize.faction === 'pirate');
     if (prize.faction === 'pirate') { this.standing.admiralty += 4; this.progressQuest('hunt', prize); }
     else this.infamy += 6;
     for (const o of this.player.officers) addOfficerXP(o, 40);
@@ -903,7 +1101,7 @@ export class Game {
       title: 'The Sea Keeps Her Books',
       text: `${reason}<br><br>You sailed <b>${Math.round(this.stats.distance / 100)}</b> leagues, sank <b>${this.stats.sunk}</b> ships and took <b>${this.stats.captured}</b>.`,
       actions: [
-        { label: 'BEGIN A NEW VOYAGE', cls: 'gold', fn: () => { this.paused = false; this.newGame(true); } },
+        { label: 'BEGIN A NEW VOYAGE', cls: 'gold', fn: () => { this.paused = false; this.restart(); } },
         ...(Game.hasSave() ? [{ label: 'RETURN TO THE LAST LOG', fn: () => { this.paused = false; if (!this.load()) this.newGame(true); } }] : []),
       ],
     });
@@ -1108,10 +1306,10 @@ export class Game {
       if (p.cargo[q.good] <= 0) delete p.cargo[q.good];
     }
     q.done = true; q.active = false;
-    this.coin += q.reward;
-    this.prestige += q.prestige;
+    const got = this.gainCoin(q.reward);
+    const pres = this.gainPrestige(q.prestige);
     sfxCoin();
-    toast(`${q.title} — settled. ◆${q.reward}, prestige +${q.prestige}`, 'gold', 4000);
+    toast(`${q.title} — settled. ◆${got}, prestige +${pres}`, 'gold', 4000);
     this.refreshObjective();
     this.save();
   }
@@ -1122,11 +1320,11 @@ export class Game {
         if (payload.isSant || payload.name === q.targetName) {
           q.progress = (q.progress || 0) + 1;
           if (q.progress >= q.count) {
-            this.coin += q.reward; this.prestige += q.prestige;
+            const got = this.gainCoin(q.reward), pres = this.gainPrestige(q.prestige, true);
             q.done = true; q.active = false;
             modal({
               title: 'The Tally is Settled',
-              text: `<b>${q.targetName}</b> is finished. The Admiralty pays without argument, which is rarer than the money.<br><br><em>◆${q.reward}</em> and <em>${q.prestige} prestige</em>.<br><br>Word of this will travel further than you think. Captains talk.`,
+              text: `<b>${q.targetName}</b> is finished. The Admiralty pays without argument, which is rarer than the money.<br><br><em>◆${got}</em> and <em>${pres} prestige</em>.<br><br>Word of this will travel further than you think. Captains talk.`,
               actions: [{ label: 'GOOD', cls: 'gold', fn: () => { } }],
             });
             this.refreshObjective();
@@ -1158,18 +1356,18 @@ export class Game {
     let reward = 0, extra = '';
     if (poi.id === 'bellcove') {
       reward = 420;
-      this.prestige += 8;
+      this.gainPrestige(8);
       extra = 'Bar silver, a sealed case of pepper, and a ship’s bell with another vessel’s name on it.';
       this.player.cargo.spice = (this.player.cargo.spice || 0) + Math.min(8, this.player.cargoFree);
     } else {
       reward = 260;
-      this.prestige += 6;
+      this.gainPrestige(6);
       const o = makeOfficer(9001 + this.discovered.size * 37, 'navigator');
       o.hire = 0;
       this.officers.push(o); this.player.officers.push(o);
       extra = `The keeper is still here, in a manner of speaking — ${o.name} has been living off gull eggs and is very glad to see a sail. They sign on as Navigator.`;
     }
-    this.coin += reward;
+    reward = this.gainCoin(reward);
     sfxBell();
     modal({
       title: poi.title,
@@ -1181,6 +1379,9 @@ export class Game {
   poiById(id) { return POIS.find(p => p.id === id); }
 
   refreshObjective() {
+    // the story comes first — it is the thread the whole voyage hangs on
+    const ch = this.currentChapter;
+    if (ch) { setObjective(this.chapterText(ch, 'obj')); return; }
     const q = this.quests.find(x => x.active && !x.done);
     if (q) { setObjective(this.questStatus(q)); return; }
     if (this.prizes.length) {

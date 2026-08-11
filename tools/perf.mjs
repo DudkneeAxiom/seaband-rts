@@ -1,11 +1,11 @@
 /* Render budget: draw calls, triangles and CPU frame cost in the worst
    case the game can produce (full traffic, a battle, smoke everywhere). */
-import { launch, sleep, ff } from './qa.mjs';
+import { launch, sleep, ff, newVoyage } from './qa.mjs';
 
 const { browser, page, errors } = await launch('phone');
 await sleep(900);
-await page.click('#btn-new');
-await sleep(2500);
+await newVoyage(page);
+await sleep(1500);
 
 const idle = await page.evaluate(() => {
   const r = window.__renderer;

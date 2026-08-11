@@ -1,7 +1,7 @@
 /* HUD layout audit: measures every visible control across viewports and
    reports anything that overflows the screen, overlaps another control,
    or is smaller than a comfortable touch target. */
-import { launch, sleep, ff, VIEWPORTS } from './qa.mjs';
+import { launch, sleep, ff, newVoyage, VIEWPORTS } from './qa.mjs';
 
 const TARGETS = [
   '#topbar', '#compass', '#leftstack', '#shipstatus', '#speedctl', '#actions',
@@ -15,8 +15,7 @@ let bad = 0;
 for (const vp of Object.keys(VIEWPORTS)) {
   const { browser, page } = await launch(vp);
   await sleep(900);
-  await page.click('#btn-new');
-  await sleep(1200);
+  await newVoyage(page);
   // force the busiest possible HUD: target + board + dock + fleet + hint + objective
   await page.evaluate(() => {
     const g = window.__game;

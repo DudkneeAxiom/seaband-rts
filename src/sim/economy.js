@@ -7,6 +7,7 @@ import { clamp, lerp, makeRNG } from '../core/util.js';
 export class Market {
   constructor(saved) {
     this.ports = {};
+    this.haggle = 0;          // the captain's own way with a harbourmaster
     const rng = makeRNG(20260811);
     for (const p of PORTS) {
       const st = { stock: {}, demand: {} };
@@ -32,6 +33,9 @@ export class Market {
     const scar = clamp(1.45 - s / 110, 0.74, 1.42);
     let v = this.base(portId, goodId) * scar;
     v *= forSale ? 1.08 : 0.92;      // the harbour takes its cut both ways
+    // a haggler buys cheaper and sells dearer, both by the same margin
+    const h = clamp(this.haggle, 0, 0.6) * 0.35;
+    v *= forSale ? 1 - h : 1 + h;
     return Math.max(2, Math.round(v));
   }
   buyPrice(portId, goodId) { return this.price(portId, goodId, true); }

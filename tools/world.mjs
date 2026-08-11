@@ -1,12 +1,11 @@
 /* Does the ocean live without the player?
    Run the sim for ten minutes with the player parked and see what the
    NPC captains got up to on their own. Also measures frame cost. */
-import { launch, sleep, shot } from './qa.mjs';
+import { launch, sleep, shot, newVoyage } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 await sleep(900);
-await page.click('#btn-new');
-await sleep(1500);
+await newVoyage(page);
 
 const report = await page.evaluate(() => {
   const g = window.__game;

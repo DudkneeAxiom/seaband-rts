@@ -8,6 +8,7 @@ import { Input, screenToSea, pickShip } from './core/input.js';
 import { HUD } from './ui/hud.js';
 import { initSheet, openMenu, isSheetOpen, closeSheet } from './ui/sheet.js';
 import { $, onTap, isModalOpen, hint, hideHint, setObjective } from './ui/dom.js';
+import { openOrigin, isOriginOpen } from './ui/origin.js';
 import { initAudio, resumeAudio, updateAudio } from './core/audio.js';
 import { clamp } from './core/util.js';
 
@@ -43,7 +44,7 @@ window.addEventListener('resize', () => { rect = canvas.getBoundingClientRect();
 
 new Input(canvas, {
   onTap: (x, y) => {
-    if (!game || isModalOpen() || isSheetOpen() || game.gameOver) return;
+    if (!game || isModalOpen() || isSheetOpen() || isOriginOpen() || game.gameOver) return;
     resumeAudio();
     rect = canvas.getBoundingClientRect();
     const s = pickShip(rig.cam, game.ships, x, y, rect, isMobile ? 64 : 48);
@@ -94,6 +95,7 @@ function boot() {
   game.onBoardUI = boardUI;
   game.onBoardEndUI = boardEnd;
   hud = new HUD(game);
+  game.onRestart = restart;
   initSheet(game);
   onTap($('btn-menu'), () => { if (isSheetOpen()) closeSheet(); else openMenu(); }, 500);
   sizeRenderer();
@@ -107,10 +109,22 @@ function boot() {
   window.__ui = { hint, hideHint, setObjective };
 }
 
+/** New voyages go through the questionnaire first; a saved one resumes. */
 function startGame(loadSave) {
   initAudio();
   resumeAudio();
-  if (!loadSave || !game.load()) game.newGame(!loadSave);
+  if (loadSave && game.load()) { enterWorld(); return; }
+  $('title').classList.add('out');
+  setTimeout(() => $('title').classList.add('hidden'), 700);
+  openOrigin(origin => { game.newGame(true, origin); enterWorld(); });
+}
+
+/** Any road back to a new voyage goes through the questions. */
+function restart() {
+  openOrigin(origin => { game.newGame(true, origin); enterWorld(); });
+}
+
+function enterWorld() {
   hud.show();
   const t = $('title');
   t.classList.add('out');

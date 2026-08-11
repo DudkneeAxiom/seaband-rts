@@ -1,14 +1,13 @@
 /* Touch input: real synthesised taps, drags and pinches on the canvas.
    This is the control path everything else depends on. */
-import { launch, sleep, ff, shot } from './qa.mjs';
+import { launch, sleep, ff, shot, newVoyage } from './qa.mjs';
 
 const { browser, page, errors } = await launch('phone');
 const log = [];
 const ok = (m, c) => log.push(`${c ? 'PASS' : 'FAIL'}  ${m}`);
 
 await sleep(1000);
-await page.click('#btn-new');
-await sleep(1800);
+await newVoyage(page);
 
 const box = await page.evaluate(() => {
   const r = document.getElementById('scene').getBoundingClientRect();

@@ -57,8 +57,9 @@ export function setNoticesLow(low) {
 }
 
 /* ---------------- modal ---------------- */
-let modalOpen = false;
-export const isModalOpen = () => modalOpen;
+/* Asked of the DOM, not of a flag beside it: anything that hides the card —
+   including code that never heard of closeModal — leaves the game unblocked. */
+export const isModalOpen = () => !$('modal').classList.contains('hidden');
 
 export function modal({ title, text, actions = [], dismissable = false }) {
   const m = $('modal');
@@ -72,14 +73,12 @@ export function modal({ title, text, actions = [], dismissable = false }) {
     box.appendChild(b);
   }
   m.classList.remove('hidden');
-  modalOpen = true;
   if (dismissable) {
     m.onclick = e => { if (e.target === m) closeModal(); };
   } else m.onclick = null;
 }
 export function closeModal() {
   $('modal').classList.add('hidden');
-  modalOpen = false;
 }
 
 /* ---------------- objective chip ---------------- */
