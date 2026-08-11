@@ -19,7 +19,20 @@ npx http-server . -p 8080 -c-1
 Any static file server works — the game is plain ES modules and one vendored copy of
 three.js. Open it on a phone on the same network for the real thing.
 
-To produce an itch.io upload:
+### Without a server
+
+```bash
+node tools/bundle.mjs     # writes dist-single/salt-and-tally.html — the whole game in one file
+```
+
+That single ~1 MB file has three.js, every module, the stylesheet and the markup
+flattened into one classic `<script>`. Open it straight from `file://`, e-mail it to
+yourself, drop it in iCloud Drive and tap it on an iPad — it needs no server, no network
+and no build step. Saves still work (localStorage). It also produces
+`dist-single/artifact.html`, the same page without the `<html>/<head>/<body>` wrapper,
+for hosts that supply their own document skeleton.
+
+### For itch.io
 
 ```bash
 node tools/build.mjs      # writes dist/ and salt-and-tally-web.zip (~267 KB)
@@ -189,6 +202,7 @@ node tools/world.mjs               # ten simulated minutes of NPC behaviour + si
 node tools/gunnery.mjs             # accuracy-vs-range curve and duel outcomes
 node tools/perf.mjs                # draw calls / triangles, idle and worst case
 node tools/scenes.mjs phone        # visual QA screenshots of key moments
+node tools/single-check.mjs        # 7 checks: the one-file build, run from file://
 ```
 
 Current results:
@@ -198,6 +212,7 @@ Current results:
 | Full playthrough (new game → sail → dock → trade → recruit → hire → combat → board → capture → 2-ship fleet → save/reload → death) | **23/23** |
 | Systems (contracts, two discoveries, reef draft, starvation, empty lockers, reputation, crew promotion, wind, corrupt save) | **14/14** |
 | Touch input (tap-to-sail, tap-to-target, drag-orbit, zoom, no page scroll, rapid tapping, rotation) | **9/9** |
+| Single-file build run from `file://` at iPad resolution (load, three.js, new voyage, touch, harbour, broadside, save) | **7/7** |
 | Layout audit (phone landscape/portrait, small phone, tablet, desktop) | **0 problems** |
 | Console errors across all suites | **none** |
 
@@ -250,7 +265,8 @@ labels; and colliding hint/objective/target panels on narrow screens.
 - **Audio is entirely procedural** — WebAudio oscillators and filtered noise, no samples.
   It is atmospheric rather than rich, and it needs one tap to start (browser policy).
 - **Weather is wind only.** No storms, fog banks or currents.
-- **No accessibility options yet** — no colour-blind palette, text scaling or remapping.
+- **Limited accessibility options** — keyboard focus rings and `prefers-reduced-motion`
+  are honoured, but there is no colour-blind palette, text scaling or key remapping.
 
 ---
 
@@ -269,9 +285,10 @@ src/combat/           ballistics, broadsides, boarding
 src/fx/               wake ribbons, pooled particles
 src/sim/              market, officers and portraits
 src/ui/               DOM helpers, HUD, bottom-sheet port screens
-tools/                the QA harnesses and the build script
+tools/                the QA harnesses, the static build and the single-file bundler
 vendor/three.module.min.js   three.js r180, vendored — no CDN, no network at runtime
 dist/ + salt-and-tally-web.zip   the static build
+dist-single/salt-and-tally.html  the whole game as one self-contained file
 ```
 
 No bundler, no transpiler, no runtime dependencies beyond three.js.

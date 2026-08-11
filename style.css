@@ -31,6 +31,22 @@
 }
 
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+
+/* keyboard users get a visible focus ring; pointer users never see it */
+:focus{outline:none;}
+:focus-visible{
+  outline:2px solid var(--brass);
+  outline-offset:2px;
+  border-radius:11px;
+}
+
+/* the sea keeps moving — it is the content — but the interface stops fidgeting */
+@media (prefers-reduced-motion: reduce){
+  #sheet-body, #modal-card, #hint, .toast, #title-inner{animation:none !important;}
+  #notices, #wind-arrow, .bar > i, .tbar > i, #brd-fill, #objective{transition:none !important;}
+  .act-btn, .btn, .icon-btn, .ammo-btn, .fleet-btn, .tab{transition:none !important;}
+  .ld-wave{animation:none !important;}
+}
 html,body{
   margin:0; padding:0; height:100%; width:100%;
   overflow:hidden; position:fixed; inset:0;
