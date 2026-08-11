@@ -78,6 +78,7 @@ export class Game {
     this.spawnTimer = 3;
     this.saveTimer = 0;
     this.combatHeat = 0;
+    this.speed = 1;              // 0 = paused, 1 = normal, 2 = double
     this.PORTS = PORTS;
 
     this.ctx = {
@@ -450,8 +451,18 @@ export class Game {
     const p = this.player;
     // dockable port
     let dock = null;
-    for (const port of PORTS) {
-      if (dist(p.x, p.z, port.x, port.z) < port.dockR && p.speed < 7.5) { dock = port; break; }
+    // no putting into port with a hostile inside gun range — you would be
+    // warping alongside a quay under fire, and it keeps the control stack short
+    let underThreat = false;
+    for (const s of this.ships) {
+      if (!s.alive || s.captured || s.isPlayer || this.fleet.includes(s)) continue;
+      if (!isHostile(p, s) && !s.hostileToPlayer) continue;
+      if (dist(p.x, p.z, s.x, s.z) < 210) { underThreat = true; break; }
+    }
+    if (!underThreat) {
+      for (const port of PORTS) {
+        if (dist(p.x, p.z, port.x, port.z) < port.dockR && p.speed < 7.5) { dock = port; break; }
+      }
     }
     if (dock !== this.dockablePort) {
       this.dockablePort = dock;
@@ -472,6 +483,62 @@ export class Game {
       if (dist(p.x, p.z, poi.x, poi.z) < poi.r) this.discoverPOI(poi);
     }
     void dt;
+  }
+
+  /* =========================================================
+     fighting weight — what a captain sizes another ship up by
+     ========================================================= */
+  /** Everything sailing under your flag, added together. */
+  get fleetStrength() {
+    let n = 0;
+    for (const s of this.fleet) if (s.alive) n += strength(s);
+    return n;
+  }
+  /** Ratio of their weight to yours, and the verdict a sailing master would give. */
+  weighUp(other) {
+    const mine = Math.max(1, this.fleetStrength);
+    const theirs = strength(other);
+    const ratio = theirs / mine;
+    let tier, verdict;
+    if (ratio < 0.55) { tier = 0; verdict = 'FAR WEAKER'; }
+    else if (ratio < 0.85) { tier = 1; verdict = 'WEAKER'; }
+    else if (ratio < 1.25) { tier = 2; verdict = 'EVEN'; }
+    else if (ratio < 2.0) { tier = 3; verdict = 'STRONGER'; }
+    else { tier = 4; verdict = 'FAR STRONGER'; }
+    return { mine: Math.round(mine), theirs: Math.round(theirs), ratio, tier, verdict };
+  }
+
+  /** Where the current objective is, for the on-screen pointer. */
+  objectiveMarker() {
+    const p = this.player;
+    if (!p || !p.alive) return null;
+    const q = this.quests.find(x => x.active && !x.done);
+    if (q && q.kind === 'cargo') {
+      const port = PORTS.find(x => x.id === q.toPort);
+      if (port) return { x: port.x, z: port.z, label: port.name };
+    }
+    if (q && q.kind === 'hunt') {
+      const sant = this.ships.find(s => s.isSant && s.alive);
+      if (sant) return { x: sant.x, z: sant.z, label: sant.name };
+    }
+    if (this.prizes.length) {
+      const yard = PORTS.find(x => x.services.includes('shipyard'));
+      if (yard) return { x: yard.x, z: yard.z, label: yard.name };
+    }
+    if (!this.hintState.docked) {
+      const port = PORTS[0];
+      return { x: port.x, z: port.z, label: port.name };
+    }
+    if (this.stats.captured === 0) {
+      let best = null, bd = 2600;
+      for (const s of this.ships) {
+        if (!s.alive || s.faction !== 'pirate' || s.captured) continue;
+        const d = dist(p.x, p.z, s.x, s.z);
+        if (d < bd) { bd = d; best = s; }
+      }
+      if (best) return { x: best.x, z: best.z, label: 'Tally sail' };
+    }
+    return null;
   }
 
   nearestPortDist(s) {
@@ -1105,10 +1172,31 @@ export class Game {
   refreshObjective() {
     const q = this.quests.find(x => x.active && !x.done);
     if (q) { setObjective(this.questStatus(q)); return; }
-    if (this.prizes.length) { setObjective('Take your prize to the <b>shipyard at Ilo Vantu</b> and find her a captain.'); return; }
-    if (this.fleet.length > 1) { setObjective('Two ships under your flag. Use the fleet orders and take something bigger.'); return; }
-    if (this.stats.captured === 0) { setObjective('Find a <b>Tally</b> ship and take her.'); return; }
-    setObjective(null);
+    if (this.prizes.length) {
+      setObjective('Your prize is waiting at <b>Ilo Vantu</b>. Dock there, open the <b>SHIPYARD</b>, and give her a captain.');
+      return;
+    }
+    if (!this.hintState.docked) {
+      setObjective('Sail to <b>Ilo Vantu</b> and dock. Buy shot and provisions before you go hunting.');
+      return;
+    }
+    if (this.stats.captured === 0) {
+      // the step players were getting stuck on: say who, where, and how
+      const p = this.player;
+      const near = this.ships.find(s => s.alive && s.faction === 'pirate' && !s.captured
+        && dist(p.x, p.z, s.x, s.z) < 700);
+      if (near) {
+        setObjective(`A <b>Tally</b> raider is close — <b>${near.name}</b>. Tap her to mark her, then work up onto her beam and fire.`);
+      } else {
+        setObjective('Hunt a <b>Tally</b> raider: black hull, red trim, a red flag. Follow the arrow, then <b>tap her</b> to mark her.');
+      }
+      return;
+    }
+    if (this.fleet.length > 1) {
+      setObjective('Two ships under your flag. Try <b>ENGAGE</b>, and take something bigger than you could alone.');
+      return;
+    }
+    setObjective('Ask after work at the harbourmaster, or a name at the tavern.');
   }
 
   /* =========================================================
@@ -1261,6 +1349,11 @@ class Markers {
     this.arcs.visible = false;
     scene.add(this.arcs);
 
+    // fighting-weight pips: one shared texture per tier, sprites pooled per ship
+    this.pipTex = PIP_TIERS.map(makePip);
+    this.pips = new Map();     // ship.id -> Sprite
+    this.pipPool = [];
+
     // port pennants
     this.labels = [];
     for (const p of PORTS) {
@@ -1277,6 +1370,48 @@ class Markers {
     this.grappleLines.frustumCulled = false;
     scene.add(this.grappleLines);
     this.grapplePair = null;
+  }
+
+  /** A pip over every ship that is not yours, coloured by how she compares. */
+  updatePips(game, p) {
+    this._pipT = (this._pipT || 0) - 0.016;
+    const RANGE = 1150;
+    const live = new Set();
+    for (const s of game.ships) {
+      if (!s.alive || s.captured || s.isPlayer || game.fleet.includes(s)) continue;
+      const d = dist(p.x, p.z, s.x, s.z);
+      if (d > RANGE) continue;
+      live.add(s.id);
+      let spr = this.pips.get(s.id);
+      if (!spr) {
+        spr = this.pipPool.pop();
+        if (!spr) {
+          spr = new THREE.Sprite(new THREE.SpriteMaterial({
+            transparent: true, depthTest: false, depthWrite: false,
+          }));
+          spr.renderOrder = 9;
+          this.scene.add(spr);
+        }
+        spr.visible = true;
+        this.pips.set(s.id, spr);
+      }
+      const w = game.weighUp(s);
+      if (spr.material.map !== this.pipTex[w.tier]) {
+        spr.material.map = this.pipTex[w.tier];
+        spr.material.needsUpdate = true;
+      }
+      const top = (s.mesh.userData.mastTop || s.cls.len * 0.9) + 7;
+      spr.position.set(s.x, waveHeight(s.x, s.z) + top, s.z);
+      const sc = clamp(d * 0.032, 11, 26);
+      spr.scale.set(sc * 2, sc, 1);
+      spr.material.opacity = clamp01(1 - (d - RANGE * 0.8) / (RANGE * 0.2)) * 0.92;
+    }
+    for (const [id, spr] of this.pips) {
+      if (live.has(id)) continue;
+      spr.visible = false;
+      this.pips.delete(id);
+      this.pipPool.push(spr);
+    }
   }
 
   pingMove(x, z) {
@@ -1324,6 +1459,8 @@ class Markers {
       this.targetRing.material.opacity = 0.55 + 0.35 * Math.sin(game.time * 3);
     } else this.targetRing.visible = false;
 
+    this.updatePips(game, p);
+
     // pennant labels fade with distance
     for (const l of this.labels) {
       const d = dist(p.x, p.z, l.port.x, l.port.z);
@@ -1350,6 +1487,36 @@ class Markers {
       this.grappleLines.geometry.attributes.position.needsUpdate = true;
     }
   }
+}
+
+/* ---------- fighting-weight pips ----------
+   Five tiers, drawn once and shared. Chevrons rather than words: they stay
+   legible at the size a ship half a mile off deserves on a phone screen. */
+const PIP_TIERS = [
+  { glyph: '▼▼', col: '#7fe08d', ring: 'rgba(127,224,141,.75)' },
+  { glyph: '▼', col: '#b9dd85', ring: 'rgba(185,221,133,.7)' },
+  { glyph: '●', col: '#eccb76', ring: 'rgba(236,203,118,.7)' },
+  { glyph: '▲', col: '#f0a071', ring: 'rgba(240,160,113,.75)' },
+  { glyph: '▲▲', col: '#f2705f', ring: 'rgba(242,112,95,.85)' },
+];
+function makePip(tier) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 64;
+  const g = c.getContext('2d');
+  const r = 18;
+  g.beginPath();
+  g.moveTo(14 + r, 10); g.arcTo(114, 10, 114, 54, r); g.arcTo(114, 54, 14, 54, r);
+  g.arcTo(14, 54, 14, 10, r); g.arcTo(14, 10, 114, 10, r); g.closePath();
+  g.fillStyle = 'rgba(8,20,27,.78)';
+  g.fill();
+  g.strokeStyle = tier.ring; g.lineWidth = 2.5; g.stroke();
+  g.font = '700 30px ui-sans-serif, system-ui, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = tier.col;
+  g.fillText(tier.glyph, 64, 33);
+  const t = new THREE.CanvasTexture(c);
+  t.needsUpdate = true;
+  return t;
 }
 
 function makeLabel(text, color = '#ffe6b0') {

@@ -9,12 +9,19 @@ import * as THREE from 'three';
 import { WORLD_SIZE } from '../data/gamedata.js';
 import { SEA_FLOOR, HEIGHT_SPAN, depthAt } from './terrain.js';
 
-/* --- wave definitions shared by GPU + CPU (dir is rotated off wind) --- */
+/* --- wave definitions shared by GPU + CPU (dir is rotated off wind) ---
+   Four trains at spread angles, and the sample position is warped by two
+   slow sine fields before they are summed. Without the warp the crests
+   run as dead-straight parallel bands; with it they wander and interfere
+   the way real swell does. The CPU copy below applies the same warp so
+   hulls, wakes and splashes still sit exactly on the surface. */
 const W = [
-  { amp: 1.55, len: 150, spd: 8.5, off: 0.00, q: 0.62 },
-  { amp: 0.85, len: 64, spd: 6.5, off: 1.15, q: 0.48 },
-  { amp: 0.42, len: 27, spd: 5.0, off: -1.55, q: 0.35 },
+  { amp: 1.50, len: 150, spd: 8.5, off: 0.00, q: 0.62 },
+  { amp: 0.82, len: 64, spd: 6.5, off: 1.15, q: 0.48 },
+  { amp: 0.40, len: 27, spd: 5.0, off: -1.55, q: 0.35 },
+  { amp: 0.26, len: 16, spd: 4.0, off: 2.70, q: 0.30 },
 ];
+const WARP = { a1: 8.5, f1: 0.0129, a2: 12.0, f2: 0.0047, s1: 0.13, s2: 0.061 };
 
 let uniforms = null;
 let waveDirAngle = 0;
@@ -40,17 +47,29 @@ float sampleTerrain(vec2 p){
   return texture2D(uDepthMap, uv).r * ${HEIGHT_SPAN.toFixed(1)} + (${SEA_FLOOR.toFixed(1)});
 }
 
-void gerstner(vec2 p, float shallow, out float h, out vec3 n, out float crest){
+/* slow domain warp: bends the crest lines so the swell stops looking ruled */
+vec2 warp(vec2 p){
+  float t = uTime;
+  return p + vec2(
+    sin(p.y*${WARP.f1} + t*${WARP.s1})*${WARP.a1.toFixed(2)} + sin(p.y*${WARP.f2} - t*${WARP.s2})*${WARP.a2.toFixed(2)},
+    cos(p.x*${WARP.f1} - t*${WARP.s1})*${WARP.a1.toFixed(2)} + cos(p.x*${WARP.f2} + t*${WARP.s2})*${WARP.a2.toFixed(2)}
+  );
+}
+
+void gerstner(vec2 pIn, float shallow, out float h, out vec3 n, out float crest){
+  vec2 p = warp(pIn);
   h = 0.0; crest = 0.0;
   vec3 tang = vec3(1.0,0.0,0.0), bino = vec3(0.0,0.0,1.0);
-  float amps[3]; float lens[3]; float spds[3]; float offs[3]; float qs[3];
-  amps[0]=${W[0].amp.toFixed(3)}; amps[1]=${W[1].amp.toFixed(3)}; amps[2]=${W[2].amp.toFixed(3)};
-  lens[0]=${W[0].len.toFixed(2)}; lens[1]=${W[1].len.toFixed(2)}; lens[2]=${W[2].len.toFixed(2)};
-  spds[0]=${W[0].spd.toFixed(3)}; spds[1]=${W[1].spd.toFixed(3)}; spds[2]=${W[2].spd.toFixed(3)};
-  offs[0]=${W[0].off.toFixed(3)}; offs[1]=${W[1].off.toFixed(3)}; offs[2]=${W[2].off.toFixed(3)};
-  qs[0]=${W[0].q.toFixed(3)}; qs[1]=${W[1].q.toFixed(3)}; qs[2]=${W[2].q.toFixed(3)};
-  for(int i=0;i<3;i++){
-    float a = amps[i] * shallow;
+  float amps[4]; float lens[4]; float spds[4]; float offs[4]; float qs[4];
+  amps[0]=${W[0].amp.toFixed(3)}; amps[1]=${W[1].amp.toFixed(3)}; amps[2]=${W[2].amp.toFixed(3)}; amps[3]=${W[3].amp.toFixed(3)};
+  lens[0]=${W[0].len.toFixed(2)}; lens[1]=${W[1].len.toFixed(2)}; lens[2]=${W[2].len.toFixed(2)}; lens[3]=${W[3].len.toFixed(2)};
+  spds[0]=${W[0].spd.toFixed(3)}; spds[1]=${W[1].spd.toFixed(3)}; spds[2]=${W[2].spd.toFixed(3)}; spds[3]=${W[3].spd.toFixed(3)};
+  offs[0]=${W[0].off.toFixed(3)}; offs[1]=${W[1].off.toFixed(3)}; offs[2]=${W[2].off.toFixed(3)}; offs[3]=${W[3].off.toFixed(3)};
+  qs[0]=${W[0].q.toFixed(3)}; qs[1]=${W[1].q.toFixed(3)}; qs[2]=${W[2].q.toFixed(3)}; qs[3]=${W[3].q.toFixed(3)};
+  // a slow field that makes some patches of sea calmer than others
+  float swell = 0.72 + 0.46*sin(pIn.x*0.0021 + uTime*0.05) * cos(pIn.y*0.0017 - uTime*0.04);
+  for(int i=0;i<4;i++){
+    float a = amps[i] * shallow * (i < 2 ? swell : 1.0);
     float k = 2.0*PI/lens[i];
     float ang = uWaveAng + offs[i];
     vec2 d = vec2(sin(ang), cos(ang));
@@ -247,17 +266,24 @@ export function updateWater(dt, focusX, focusZ, windAng) {
   farMesh.position.x = focusX; farMesh.position.z = focusZ;
 }
 
-/* ---------------- CPU-side surface ---------------- */
+/* ---------------- CPU-side surface (must mirror the shader) ---------------- */
 export function waveHeight(x, z) {
   const depth = Math.max(0, depthAt(x, z));
   const shallow = smooth01(depth / 16);
+  // same domain warp the vertex shader applies
+  const wx = x + Math.sin(z * WARP.f1 + time * WARP.s1) * WARP.a1
+    + Math.sin(z * WARP.f2 - time * WARP.s2) * WARP.a2;
+  const wz = z + Math.cos(x * WARP.f1 - time * WARP.s1) * WARP.a1
+    + Math.cos(x * WARP.f2 + time * WARP.s2) * WARP.a2;
+  const swell = 0.72 + 0.46 * Math.sin(x * 0.0021 + time * 0.05) * Math.cos(z * 0.0017 - time * 0.04);
   let h = 0;
   for (let i = 0; i < W.length; i++) {
     const w = W[i];
     const k = (Math.PI * 2) / w.len;
     const ang = waveDirAngle + w.off;
     const dx = Math.sin(ang), dz = Math.cos(ang);
-    h += w.amp * shallow * Math.sin(k * (dx * x + dz * z) - w.spd * k * time);
+    const a = w.amp * shallow * (i < 2 ? swell : 1);
+    h += a * Math.sin(k * (dx * wx + dz * wz) - w.spd * k * time);
   }
   return h;
 }

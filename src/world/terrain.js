@@ -144,10 +144,17 @@ function islandMesh(isl) {
   const nx = Math.ceil((maxX - minX) / step), nz = Math.ceil((maxZ - minZ) / step);
   const sx = (maxX - minX) / nx, sz = (maxZ - minZ) / nz;
 
+  // The shelf around an island sits within a metre of the waterline over a
+  // wide area, so the beach and the sea plane interleave and the seabed shows
+  // through as flat grey shards. Bias the submerged part down — continuously,
+  // so the shoreline itself does not step — and the sea covers it cleanly.
+  // Only the mesh moves: the depth field the water and gameplay read is untouched.
+  const sink = h => (h < 0 ? h * 1.35 - 0.9 * smoothstep(0, -1.5, h) : h);
+
   const H = new Float32Array((nx + 1) * (nz + 1));
   for (let j = 0; j <= nz; j++)
     for (let i = 0; i <= nx; i++)
-      H[j * (nx + 1) + i] = analyticHeight(minX + i * sx, minZ + j * sz);
+      H[j * (nx + 1) + i] = sink(analyticHeight(minX + i * sx, minZ + j * sz));
 
   const pos = [], col = [];
   const cA = new THREE.Color(), tmpN = new THREE.Vector3();

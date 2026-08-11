@@ -58,6 +58,7 @@ Designed for thumbs. Mouse mirrors touch for desk testing.
 | Board | **BOARD** (appears alongside a slowed ship) | same |
 | Enter port | **DOCK** (appears inside the harbour buoys) | same |
 | Fleet orders | **FOLLOW / ENGAGE / HOLD** (appear once you have a consort) | same |
+| Time | **❙❙ / 1× / 2×** bottom left | same |
 | Log, help, settings | ☰ top left | same |
 
 Buttons only exist while they mean something, so the ocean keeps the screen.
@@ -81,6 +82,10 @@ Buttons only exist while they mean something, so the ocean keeps the screen.
 ---
 
 ## Core systems
+
+**Finding things.** The current objective is spelled out in one line, and when its
+target is off screen a chevron pins to the edge of the view with the bearing and the
+range in metres — a port, a contract's destination, or the nearest Tally sail.
 
 **Sailing.** Tap-to-course with real momentum: hulls accelerate, carry way, and have a
 turning circle. Speed comes from `hull class × rigging condition × crew skill × cargo ×
@@ -116,6 +121,18 @@ you give intent, your captains execute it.
 **Economy.** Five goods across three settlements, with per-port price modifiers, stock
 that drifts back to a local baseline, and NPC merchant arrivals that move the books.
 Buy cheap, accept the risk of the passage, sell dear.
+
+**Sizing up a sail.** Every ship that is not yours carries a pip above her mast
+colouring how she compares to everything under your flag — two green chevrons down for
+far weaker, amber for an even fight, two red up for far stronger. Marking a target opens
+the same comparison in full: a diverging bar with both fighting weights and a verdict.
+Weight counts guns, gun-crew quality, the fighting strength of the hands aboard, and
+hull. A fat merchant with six guns and nobody trained to serve them is not the same
+proposition as a lean privateer with the same battery.
+
+**Time.** Pause, 1× and 2× in the bottom-left corner. 2× runs the simulation twice per
+frame at the normal step rather than one double-length step, so physics, gunnery and
+collision behave identically — a long passage just takes half as long to sail.
 
 **Reputation.** Prestige for sinking pirates and honouring contracts; infamy for firing
 on merchants, fishermen and the Admiralty. Faction standing moves with it, and the ships
@@ -210,7 +227,7 @@ Current results:
 | Suite | Result |
 |---|---|
 | Full playthrough (new game → sail → dock → trade → recruit → hire → combat → board → capture → 2-ship fleet → save/reload → death) | **23/23** |
-| Systems (contracts, two discoveries, reef draft, starvation, empty lockers, reputation, crew promotion, wind, corrupt save) | **14/14** |
+| Systems (contracts, discoveries, reef draft, starvation, empty lockers, reputation, crew promotion, wind, time controls, fighting weight, objective marker, corrupt save) | **22/22** |
 | Touch input (tap-to-sail, tap-to-target, drag-orbit, zoom, no page scroll, rapid tapping, rotation) | **9/9** |
 | Single-file build run from `file://` at iPad resolution (load, three.js, new voyage, touch, harbour, broadside, save) | **7/7** |
 | Layout audit (phone landscape/portrait, small phone, tablet, desktop) | **0 problems** |
@@ -244,7 +261,9 @@ and fixed: the far-ocean plane punching through the near water in giant shards; 
 lighthouse built on open water beside the player's start; piers floating unattached
 offshore; inverted hull winding leaving ships as broken boxes; crest foam covering half
 the ocean; wake ribbons drawn as solid white planks after a position jump; clipped ammo
-labels; and colliding hint/objective/target panels on narrow screens.
+labels; clouds painting over the sea; the island shelf interleaving with the water plane
+and showing through as flat grey shards; a wake that widened and brightened the wrong
+way round; and colliding hint/objective/target panels on narrow screens.
 
 ---
 
@@ -265,6 +284,8 @@ labels; and colliding hint/objective/target panels on narrow screens.
 - **Audio is entirely procedural** — WebAudio oscillators and filtered noise, no samples.
   It is atmospheric rather than rich, and it needs one tap to start (browser policy).
 - **Weather is wind only.** No storms, fog banks or currents.
+- **Time control is 1× or 2×.** No faster setting, and no auto-pause when something
+  happens — a fight that starts while you are at 2× stays at 2× until you say otherwise.
 - **Limited accessibility options** — keyboard focus rings and `prefers-reduced-motion`
   are honoured, but there is no colour-blind palette, text scaling or key remapping.
 

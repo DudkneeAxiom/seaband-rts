@@ -108,14 +108,16 @@ export class WakeField {
     for (let i = 0; i < n - 1; i++) {
       const p0 = pts[i], p1 = pts[i + 1];
       const t0 = i / (SEG - 1), t1 = (i + 1) / (SEG - 1);
-      // age: index 0 is oldest
-      const age0 = 1 - (i / Math.max(1, n - 1)), age1 = 1 - ((i + 1) / Math.max(1, n - 1));
+      // f runs 0 at the oldest point (far astern) to 1 at the newest (the stern).
+      // A wake is narrow and bright where the hull just cut it, then spreads
+      // wide and dies away behind — so width falls with f and alpha rises with it.
+      const f0 = i / Math.max(1, n - 1), f1 = (i + 1) / Math.max(1, n - 1);
       let dx = p1.x - p0.x, dz = p1.z - p0.z;
       const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
       const nx = -dz, nz = dx;
-      const w0 = p0.w * (1 + (1 - age0) * 2.6);
-      const w1 = p1.w * (1 + (1 - age1) * 2.6);
-      const a0 = p0.a * age0 * age0 * 0.62, a1 = p1.a * age1 * age1 * 0.62;
+      const w0 = p0.w * (1 + (1 - f0) * 2.8);
+      const w1 = p1.w * (1 + (1 - f1) * 2.8);
+      const a0 = p0.a * f0 * f0 * 0.7, a1 = p1.a * f1 * f1 * 0.7;
       const y0 = waveHeight(p0.x, p0.z) + 0.22, y1 = waveHeight(p1.x, p1.z) + 0.22;
       const quad = [
         [p0.x + nx * w0, y0, p0.z + nz * w0, a0, 0, t0],

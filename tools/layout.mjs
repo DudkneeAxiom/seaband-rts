@@ -4,9 +4,10 @@
 import { launch, sleep, ff, VIEWPORTS } from './qa.mjs';
 
 const TARGETS = [
-  '#topbar', '#compass', '#shipstatus', '#actions', '#fleetbar', '#targetcard',
-  '#hint', '#objective', '.act-btn.fire', '.act-btn.board', '.act-btn.dock',
-  '#ammo-strip', '.fleet-btn', '#btn-menu',
+  '#topbar', '#compass', '#leftstack', '#shipstatus', '#speedctl', '#actions',
+  '#fleetbar', '#targetcard', '#hint', '#objective', '#paused-badge', '#objptr',
+  '.act-btn.fire', '.act-btn.board', '.act-btn.dock',
+  '#ammo-strip', '.fleet-btn', '.spd', '#btn-menu',
 ];
 const MIN_TAP = 44;
 
@@ -33,15 +34,21 @@ for (const vp of Object.keys(VIEWPORTS)) {
   await page.evaluate(() => {
     window.__hint && window.__hint();
   });
-  await page.evaluate(() => {
-    document.getElementById('hint').classList.remove('hidden', 'out');
-    document.getElementById('hint').innerHTML = 'Her rigging is gone. Come alongside, take way off, and <b>BOARD</b>.';
-    document.getElementById('objective').classList.remove('hidden');
-    document.getElementById('obj-text').innerHTML = 'Two ships under your flag. Use the fleet orders and take something bigger.';
-  });
-  await sleep(400);
+  // Two passes, because a hint and the objective chip are never lit together:
+  //   A = a hint is up (the objective chip is muted, as hint() does)
+  //   B = no hint, the objective chip is showing
+  const poses = {
+    A: () => {
+      window.__ui.setObjective('Two ships under your flag. Use the fleet orders and take something bigger.');
+      window.__ui.hint('Her rigging is gone. Come alongside, take way off, and <b>BOARD</b>.', 0);
+    },
+    B: () => {
+      window.__ui.hideHint();
+      window.__ui.setObjective('Hunt a Tally raider: black hull, red trim, a red flag. Follow the arrow, then tap her to mark her.');
+    },
+  };
 
-  const res = await page.evaluate((args) => {
+  const measure = (args) => {
     const [sel, MIN] = args;
     const W = window.innerWidth, H = window.innerHeight;
     const boxes = [];
@@ -59,12 +66,12 @@ for (const vp of Object.keys(VIEWPORTS)) {
       if (b.x < -1 || b.y < -1 || b.x + b.w > W + 1 || b.y + b.h > H + 1) {
         problems.push(`OFFSCREEN ${b.sel} [${b.x},${b.y} ${b.w}x${b.h}] vs ${W}x${H}`);
       }
-      if (/btn|tab/.test(b.sel) && (b.w < MIN || b.h < MIN)) {
+      if (/btn|tab|\.spd/.test(b.sel) && (b.w < MIN || b.h < MIN)) {
         problems.push(`SMALL TAP ${b.sel} ${b.w}x${b.h}`);
       }
     }
     // pairwise overlap between distinct panels
-    const panels = boxes.filter(b => !/\.(act|fleet)-btn|#ammo-strip|#btn-menu|#compass/.test(b.sel));
+    const panels = boxes.filter(b => !/\.(act|fleet)-btn|\.spd|#ammo-strip|#btn-menu|#compass|#shipstatus|#speedctl/.test(b.sel));
     for (let i = 0; i < panels.length; i++) {
       for (let j = i + 1; j < panels.length; j++) {
         const a = panels[i], b = panels[j];
@@ -73,12 +80,29 @@ for (const vp of Object.keys(VIEWPORTS)) {
         if (ox > 6 && oy > 6) problems.push(`OVERLAP ${a.sel} x ${b.sel} (${ox}x${oy}px)`);
       }
     }
-    return { W, H, boxes, problems };
-  }, [TARGETS, MIN_TAP]);
+    const nt = document.getElementById('notices');
+    const dbg = { notices: nt.className, top: getComputedStyle(nt).top,
+                  card: document.getElementById('targetcard').className,
+                  hintCls: document.getElementById('hint').className };
+    return { W, H, boxes, problems, dbg };
+  };
+
+  let res = null;
+  const allProblems = [];
+  for (const key of ['A', 'B']) {
+    await page.evaluate(poses[key]);
+    await sleep(220);
+    await page.evaluate(poses[key]);
+    await sleep(220);
+    const r = await page.evaluate(measure, [TARGETS, MIN_TAP]);
+    if (key === 'A') res = r;
+    for (const p of r.problems) allProblems.push(`[${key}] ${p}`);
+  }
 
   console.log(`\n== ${vp}  ${res.W}x${res.H} ==`);
   for (const b of res.boxes) console.log(`   ${b.sel.padEnd(16)} ${String(b.x).padStart(5)},${String(b.y).padStart(4)}  ${b.w}x${b.h}`);
-  if (res.problems.length) { bad += res.problems.length; res.problems.forEach(p => console.log('   !! ' + p)); }
+  const uniq = [...new Set(allProblems)];
+  if (uniq.length) { bad += uniq.length; uniq.forEach(p => console.log('   !! ' + p)); }
   else console.log('   clean');
   await browser.close();
 }

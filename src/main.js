@@ -7,7 +7,7 @@ import { SeaCamera } from './core/camera.js';
 import { Input, screenToSea, pickShip } from './core/input.js';
 import { HUD } from './ui/hud.js';
 import { initSheet, openMenu, isSheetOpen, closeSheet } from './ui/sheet.js';
-import { $, onTap, isModalOpen, hideHint } from './ui/dom.js';
+import { $, onTap, isModalOpen, hint, hideHint, setObjective } from './ui/dom.js';
 import { initAudio, resumeAudio, updateAudio } from './core/audio.js';
 import { clamp } from './core/util.js';
 
@@ -104,6 +104,7 @@ function boot() {
   rig.azimuth = 1.55;
   window.__game = game;       // handy for QA
   window.__renderer = renderer;
+  window.__ui = { hint, hideHint, setObjective };
 }
 
 function startGame(loadSave) {
@@ -130,7 +131,11 @@ function frame(now) {
   if (dt <= 0) dt = 1 / 60;
 
   if (game) {
-    game.update(dt);
+    // 2× runs the simulation twice at the normal step rather than one
+    // double-length step, so physics and collision behave identically
+    const steps = game.paused ? 0 : (game.player ? game.speed : 1);
+    for (let i = 0; i < steps; i++) game.update(dt);
+    if (steps === 0) game.update(0);      // keep UI-facing state fresh while paused
     const p = game.player;
     if (p) {
       const t = game.target;

@@ -43,8 +43,14 @@
       </div>
     </div>
 
-    <!-- ship status, bottom-left -->
-    <div id="shipstatus" class="safe-bottom">
+    <!-- bottom-left stack: time controls above the flagship's condition -->
+    <div id="leftstack" class="safe-bottom">
+    <div id="speedctl">
+      <button class="spd" data-s="0" aria-label="Pause">❙❙</button>
+      <button class="spd on" data-s="1" aria-label="Normal speed">1×</button>
+      <button class="spd" data-s="2" aria-label="Double speed">2×</button>
+    </div>
+    <div id="shipstatus">
       <div class="ship-name" id="flag-name">—</div>
       <div class="bar-row"><span class="bar-lbl">HULL</span><div class="bar"><i id="bar-hull"></i></div><span class="bar-val" id="txt-hull"></span></div>
       <div class="bar-row"><span class="bar-lbl">SAIL</span><div class="bar"><i id="bar-sail" class="sail"></i></div><span class="bar-val" id="txt-sail"></span></div>
@@ -55,6 +61,9 @@
         <span class="mini" id="mini-cargo" title="Cargo">HOLD <b>0</b></span>
       </div>
     </div>
+    </div>
+    <div id="paused-badge" class="hidden">PAUSED</div>
+    <div id="objptr" class="hidden"><span class="op-arrow">➤</span><span class="op-txt"></span></div>
 
     <!-- contextual action stack, bottom-right -->
     <div id="actions" class="safe-bottom"></div>
@@ -71,6 +80,11 @@
         <div class="tbar"><i id="tc-crew" class="crew"></i></div>
       </div>
       <div class="tc-dist" id="tc-dist"></div>
+      <div id="tc-power">
+        <div class="pw-head"><span class="pw-lbl">WEIGHT</span><span id="pw-verdict">—</span></div>
+        <div class="pw-scale"><i id="pw-you"></i><i id="pw-them"></i></div>
+        <div class="pw-nums"><span>You <b id="pw-yn">0</b></span><span><b id="pw-tn">0</b> Her</span></div>
+      </div>
     </div>
 
     <!-- hint / toast: one stack so they can never sit on top of each other -->

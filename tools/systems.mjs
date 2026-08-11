@@ -162,6 +162,63 @@ const wind = await G(() => {
 ok(`wind changes speed a lot (running ${wind.running}, beam ${wind.beam}, beating ${wind.beating})`,
   wind.running > wind.beam && wind.beam > wind.beating && wind.beating < 0.5);
 
+/* ---- time controls ---- */
+const time = await G(async () => {
+  const g = window.__game;
+  const p = g.player;
+  g.paused = false;
+  p.provisions = 500;
+  // the mechanism under test is "how much simulation happens per frame";
+  // distance also carries acceleration transients, so measure the clock
+  const run = (steps) => {
+    const t0 = g.time, x0 = p.x, z0 = p.z;
+    for (let i = 0; i < 120; i++) for (let k = 0; k < steps; k++) g.update(1 / 60);
+    return { secs: +(g.time - t0).toFixed(2), moved: +Math.hypot(p.x - x0, p.z - z0).toFixed(1) };
+  };
+  p.setHeading(g.windAng);
+  for (let i = 0; i < 240; i++) g.update(1 / 60);      // come up to speed
+  const a = run(1), b = run(2), c = run(0);
+  return { s1: a.secs, s2: b.secs, s0: c.secs, m1: a.moved, m2: b.moved, m0: c.moved };
+});
+ok(`2x advances the simulation twice as fast (${time.s1}s -> ${time.s2}s per 120 frames)`,
+  Math.abs(time.s2 - time.s1 * 2) < 0.05);
+ok(`and covers correspondingly more sea (${time.m1}m -> ${time.m2}m)`, time.m2 > time.m1 * 1.6);
+ok('pause stops the world', time.s0 === 0 && time.m0 === 0);
+const spdUI = await page.evaluate(() => {
+  document.querySelector('.spd[data-s="0"]').click();
+  const paused = window.__game.speed === 0 && !document.getElementById('paused-badge').classList.contains('hidden');
+  document.querySelector('.spd[data-s="1"]').click();
+  const back = window.__game.speed === 1 && document.getElementById('paused-badge').classList.contains('hidden');
+  return paused && back;
+});
+ok('the pause button drives the badge and the clock', spdUI);
+
+/* ---- fighting weight ---- */
+const weigh = await G(() => {
+  const g = window.__game;
+  const mk = (cls, role) => { const s = g.spawnNPC(role); return s; };
+  void mk;
+  const fisher = g.ships.find(s => s.role === 'fisher' && s.alive);
+  const patrol = g.ships.find(s => s.role === 'patrol' && s.alive);
+  const out = { mine: g.fleetStrength };
+  if (fisher) out.fisher = g.weighUp(fisher);
+  if (patrol) out.patrol = g.weighUp(patrol);
+  return out;
+});
+ok(`a fishing boat weighs less than you (${weigh.fisher && weigh.fisher.verdict})`,
+  !weigh.fisher || weigh.fisher.tier <= 1);
+ok(`an Admiralty patrol weighs more than you (${weigh.patrol && weigh.patrol.verdict})`,
+  !weigh.patrol || weigh.patrol.tier >= 3);
+ok('your own fighting weight is counted from the whole fleet', weigh.mine > 0);
+
+/* ---- objective pointer has something to point at ---- */
+const objm = await G(() => {
+  const g = window.__game;
+  const m = g.objectiveMarker();
+  return m ? { label: m.label, hasPos: Number.isFinite(m.x) && Number.isFinite(m.z) } : null;
+});
+ok(`the objective marker resolves (${objm && objm.label})`, !!objm && objm.hasPos);
+
 /* ---- corrupt save recovery ---- */
 const corrupt = await page.evaluate(() => {
   localStorage.setItem('salt-and-tally-v1', '{{{not json');

@@ -2,7 +2,10 @@
    something, so the ocean keeps the screen. */
 import { $, el, clear, onTap, toast, setNoticesLow } from './dom.js';
 import { AMMO, FACTIONS } from '../data/gamedata.js';
-import { clamp01, fmtCoin, normAng, TAU } from '../core/util.js';
+import { clamp, clamp01, fmtCoin, normAng, TAU } from '../core/util.js';
+import { worldToScreen } from '../core/input.js';
+
+const VERDICT_CLASS = ['easy', 'fair', 'even', 'hard', 'grim'];
 
 const SHORT = { round: 'ROUND', chain: 'CHAIN', grape: 'GRAPE' };
 const COMPASS_PTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -15,6 +18,24 @@ export class HUD {
     this.slowT = 0;
     this.fleetKey = '';
     this.lastTargetId = null;
+    this.bindSpeed();
+  }
+
+  /** Pause / 1× / 2×. Sailing a long leg should not mean waiting a long time. */
+  bindSpeed() {
+    const g = this.g;
+    for (const b of document.querySelectorAll('.spd')) {
+      onTap(b, () => {
+        g.speed = +b.dataset.s;
+        for (const o of document.querySelectorAll('.spd')) o.classList.toggle('on', o === b);
+        $('paused-badge').classList.toggle('hidden', g.speed !== 0);
+      }, b.dataset.s === '0' ? 320 : 700);
+    }
+  }
+  setSpeed(n) {
+    this.g.speed = n;
+    for (const o of document.querySelectorAll('.spd')) o.classList.toggle('on', +o.dataset.s === n);
+    $('paused-badge').classList.toggle('hidden', n !== 0);
   }
 
   show() { $('hud').classList.remove('hidden'); }
@@ -59,9 +80,61 @@ export class HUD {
       }
     }
 
+    // a hint and the objective chip are both guidance and share the top band
+    if (slow) {
+      const hintUp = !$('hint').classList.contains('hidden') && !$('hint').classList.contains('out');
+      $('objective').classList.toggle('muted', hintUp);
+    }
+
     this.updateActions();
     this.updateTargetCard(slow);
     this.updateFleetBar();
+    this.updateObjectivePointer();
+  }
+
+  /* ---------------- objective pointer ----------------
+     Off-screen objectives get a chevron pinned to the edge with the range,
+     so a long passage is a heading and a countdown rather than a guess. */
+  updateObjectivePointer() {
+    const g = this.g;
+    const ptr = $('objptr');
+    const p = g.player;
+    const m = (p && p.alive) ? g.objectiveMarker() : null;
+    if (!m) { if (!ptr.classList.contains('hidden')) ptr.classList.add('hidden'); return; }
+
+    const rect = g.rig.cam.__rect || (g.rig.cam.__rect = {});
+    const W = window.innerWidth, H = window.innerHeight;
+    rect.width = W; rect.height = H;
+    const s = worldToScreen(g.rig.cam, m.x, 8, m.z, rect);
+
+    // A safe rect that clears the top bar and the bottom controls, so the
+    // chevron never lands on the ship's condition panel or the fleet bar.
+    const short = H < 460;
+    const L = 62, R = W - 62;
+    const T = (short ? 78 : 104), B = H - (short ? 176 : 150);
+    const onScreen = !s.behind && s.x > L && s.x < R && s.y > T && s.y < B;
+    const d = Math.round(Math.hypot(m.x - p.x, m.z - p.z));
+
+    if (onScreen) { if (!ptr.classList.contains('hidden')) ptr.classList.add('hidden'); return; }
+
+    const cx = (L + R) / 2, cy = (T + B) / 2;
+    let dx = s.x - cx, dy = s.y - cy;
+    if (s.behind) { dx = -dx; dy = -dy; }
+    if (!dx && !dy) dy = 1;
+    const kx = dx ? (dx > 0 ? R - cx : cx - L) / Math.abs(dx) : Infinity;
+    const ky = dy ? (dy > 0 ? B - cy : cy - T) / Math.abs(dy) : Infinity;
+    const k = Math.min(kx, ky);
+    const px = cx + dx * k, py = cy + dy * k;
+    const ang = Math.atan2(dy, dx) * 180 / Math.PI;
+
+    ptr.classList.remove('hidden');
+    ptr.style.transform = `translate(${(px - ptr.offsetWidth / 2).toFixed(0)}px,${(py - ptr.offsetHeight / 2).toFixed(0)}px)`;
+    ptr.querySelector('.op-arrow').style.transform = `rotate(${ang.toFixed(0)}deg)`;
+    void short;
+    if (this._ptrKey !== m.label + d) {
+      this._ptrKey = m.label + d;
+      ptr.querySelector('.op-txt').innerHTML = `<b>${m.label}</b> ${d}m`;
+    }
   }
 
   /* ---------------- contextual actions ---------------- */
@@ -142,12 +215,12 @@ export class HUD {
     const g = this.g;
     const card = $('targetcard');
     const t = g.target;
-    if (!t || !t.alive || t.captured) {
-      if (!card.classList.contains('hidden')) { card.classList.add('hidden'); setNoticesLow(false); }
-      return;
-    }
-    if (card.classList.contains('hidden')) setNoticesLow(true);
-    card.classList.remove('hidden');
+    const show = !!(t && t.alive && !t.captured);
+    card.classList.toggle('hidden', !show);
+    // drive this from the card's actual state every tick, not from a
+    // transition — a missed edge would leave the two panels overlapping
+    setNoticesLow(show);
+    if (!show) return;
     if (!slow) return;
     $('tc-name').textContent = t.name;
     const fac = FACTIONS[t.faction];
@@ -157,6 +230,18 @@ export class HUD {
     $('tc-crew').style.width = (t.crewFrac * 100) + '%';
     const d = Math.hypot(t.x - g.player.x, t.z - g.player.z);
     $('tc-dist').textContent = `${t.cls.name} · ${Math.round(d)}m · ${t.gunsPort + t.gunsStb} guns`;
+
+    // how she measures against everything under your flag
+    const w = g.weighUp(t);
+    const v = $('pw-verdict');
+    v.textContent = w.verdict;
+    v.className = VERDICT_CLASS[w.tier];
+    const total = w.mine + w.theirs || 1;
+    const youPct = clamp((w.mine / total) * 100, 4, 96);
+    $('pw-you').style.width = youPct + '%';
+    $('pw-them').style.width = (100 - youPct) + '%';
+    $('pw-yn').textContent = w.mine;
+    $('pw-tn').textContent = w.theirs;
   }
 
   /* ---------------- fleet bar ---------------- */
