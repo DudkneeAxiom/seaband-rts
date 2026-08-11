@@ -226,13 +226,29 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   border-radius:12px; padding:8px 10px; box-shadow:var(--shadow); backdrop-filter:blur(6px);
 }
 .tc-head{display:flex; justify-content:space-between; align-items:baseline; gap:6px;}
-#tc-name{font-family:var(--font-disp); font-size:13.5px; color:var(--parch); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+#tc-name{
+  font-family:var(--font-disp); font-size:13.5px; color:var(--parch);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:24px;
+}
 .tc-fac{font-size:9px; letter-spacing:.8px; color:var(--parch-dim); white-space:nowrap;}
+/* a mistaken tap should cost one tap to undo: generous hit area, small glyph */
+.tc-close{
+  position:absolute; top:-2px; right:-2px; width:44px; height:44px;
+  display:grid; place-items:center; border-radius:12px; z-index:1;
+}
+.tc-close svg{width:15px; height:15px; fill:none; stroke:var(--parch-dim); stroke-width:2.4; stroke-linecap:round;}
+.tc-close:active svg{stroke:var(--brass);}
+.tc-close:active{background:rgba(255,255,255,.07);}
 .tc-bars{display:flex; flex-direction:column; gap:3px; margin:6px 0 4px;}
 .tbar{height:5px; background:rgba(0,0,0,.4); border-radius:3px; overflow:hidden;}
 .tbar > i{display:block;height:100%;width:100%;background:var(--hull-c); transition:width .25s;}
 .tbar > i.sail{background:var(--sail-c);} .tbar > i.crew{background:var(--crew-c);}
-.tc-dist{font-size:10px; color:var(--parch-dim); letter-spacing:.5px;}
+/* two fixed lines so the card's height never changes with the wording */
+.tc-dist{
+  font-size:10px; color:var(--parch-dim); letter-spacing:.4px;
+  display:flex; flex-direction:column; gap:1px; height:25px; overflow:hidden;
+}
+.tc-dist span{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block;}
 
 /* fighting weight: hers against your whole fleet's */
 #tc-power{margin-top:7px; padding-top:6px; border-top:1px solid rgba(230,178,94,.16);}

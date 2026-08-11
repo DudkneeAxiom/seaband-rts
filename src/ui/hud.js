@@ -19,6 +19,7 @@ export class HUD {
     this.fleetKey = '';
     this.lastTargetId = null;
     this.bindSpeed();
+    onTap($('tc-close'), () => this.g.clearTarget(), 380);
   }
 
   /** Pause / 1× / 2×. Sailing a long leg should not mean waiting a long time. */
@@ -224,12 +225,12 @@ export class HUD {
     if (!slow) return;
     $('tc-name').textContent = t.name;
     const fac = FACTIONS[t.faction];
-    $('tc-fac').textContent = fac ? fac.short : '';
     $('tc-hull').style.width = (t.hullFrac * 100) + '%';
     $('tc-sail').style.width = (t.sailFrac * 100) + '%';
     $('tc-crew').style.width = (t.crewFrac * 100) + '%';
     const d = Math.hypot(t.x - g.player.x, t.z - g.player.z);
-    $('tc-dist').textContent = `${t.cls.name} · ${Math.round(d)}m · ${t.gunsPort + t.gunsStb} guns`;
+    $('tc-who').textContent = `${fac ? fac.short + ' · ' : ''}${t.cls.name}`;
+    $('tc-range').textContent = `${Math.round(d)}m · ${t.gunsPort + t.gunsStb} guns`;
 
     // how she measures against everything under your flag
     const w = g.weighUp(t);

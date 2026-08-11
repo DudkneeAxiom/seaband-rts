@@ -73,13 +73,16 @@
 
     <!-- target readout -->
     <div id="targetcard" class="hidden">
-      <div class="tc-head"><span id="tc-name">—</span><span id="tc-fac" class="tc-fac">—</span></div>
+      <button id="tc-close" class="tc-close" aria-label="Stop tracking this ship">
+        <svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>
+      </button>
+      <div class="tc-head"><span id="tc-name">—</span></div>
       <div class="tc-bars">
         <div class="tbar"><i id="tc-hull"></i></div>
         <div class="tbar"><i id="tc-sail" class="sail"></i></div>
         <div class="tbar"><i id="tc-crew" class="crew"></i></div>
       </div>
-      <div class="tc-dist" id="tc-dist"></div>
+      <div class="tc-dist"><span id="tc-who"></span><span id="tc-range"></span></div>
       <div id="tc-power">
         <div class="pw-head"><span class="pw-lbl">WEIGHT</span><span id="pw-verdict">—</span></div>
         <div class="pw-scale"><i id="pw-you"></i><i id="pw-them"></i></div>

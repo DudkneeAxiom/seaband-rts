@@ -21,7 +21,7 @@ import { makeOfficer, rollTavernOfficers, addOfficerXP, officerLabel } from './s
 import { toast, hint, hideHint, modal, setObjective } from './ui/dom.js';
 import { openPort, closeSheet, isSheetOpen } from './ui/sheet.js';
 import {
-  sfxCannon, sfxWood, sfxSplash, sfxClash, sfxBell, sfxHorn, sfxCoin, updateAudio,
+  sfxCannon, sfxWood, sfxSplash, sfxClash, sfxBell, sfxHorn, sfxCoin, sfxClick, updateAudio,
 } from './core/audio.js';
 
 const SAVE_KEY = 'salt-and-tally-v1';
@@ -565,10 +565,21 @@ export class Game {
     this.mark('sailed');
   }
   selectTarget(s) {
-    if (s === this.player) { this.target = null; return; }
-    if (this.fleet.includes(s)) { this.target = null; return; }
+    if (!s || s === this.player || this.fleet.includes(s)) { this.clearTarget(); return; }
+    // tapping the ship you already have marked lets her go again
+    if (s === this.target) { this.clearTarget(); return; }
     this.target = s;
+    sfxClick(560);
     this.mark('targeted');
+  }
+  /** Stop tracking whoever is marked. Never refuses — a mistaken tap
+      should not commit you to anything. */
+  clearTarget() {
+    if (!this.target) return;
+    this.target = null;
+    this.fireSide = null;
+    this.boardable = false;
+    sfxClick(380);
   }
   playerFire() {
     const p = this.player;
@@ -1302,6 +1313,57 @@ function makeQuest(id) {
   return null;
 }
 
+/* ---- firing arcs -----------------------------------------------------
+   A wedge that lies *on* the water rather than through it: built flat and
+   tessellated, its heights stamped from the wave field every frame. Every
+   boundary fades, so what you see is a glow across the reach of the guns,
+   not a sheet of glass floating on the sea. */
+function arcWedge(r0, r1, start, span, tSeg = 34, rSeg = 10) {
+  const pos = [], aR = [], aT = [], idx = [];
+  for (let i = 0; i <= rSeg; i++) {
+    const fr = i / rSeg, r = r0 + (r1 - r0) * fr;
+    for (let j = 0; j <= tSeg; j++) {
+      const ft = j / tSeg, a = start + span * ft;
+      pos.push(Math.cos(a) * r, 0, -Math.sin(a) * r);
+      aR.push(fr); aT.push(ft * 2 - 1);
+    }
+  }
+  const row = tSeg + 1;
+  for (let i = 0; i < rSeg; i++) {
+    for (let j = 0; j < tSeg; j++) {
+      const a = i * row + j, b = a + 1, c = a + row, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aR', new THREE.Float32BufferAttribute(aR, 1));
+  g.setAttribute('aT', new THREE.Float32BufferAttribute(aT, 1));
+  g.setIndex(idx);
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), r1 * 1.5);
+  return g;
+}
+const ARC_VS = /* glsl */`
+attribute float aR; attribute float aT;
+varying float vR; varying float vT;
+void main(){
+  vR = aR; vT = aT;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+}`;
+const ARC_FS = /* glsl */`
+precision mediump float;
+varying float vR; varying float vT;
+uniform vec3 uCol;
+uniform float uK;
+void main(){
+  float ends = 1.0 - smoothstep(0.70, 1.0, abs(vT));            // no hard side edges
+  float rim  = smoothstep(0.58, 0.92, vR) * (1.0 - smoothstep(0.92, 1.0, vR));
+  float body = (1.0 - smoothstep(0.0, 0.85, vR)) * 0.30;        // faint wash off the beam
+  float a = (body + rim * 0.95) * ends * uK;
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(uCol, a);
+}`;
+
 /* =========================================================
    world markers: destination ping, target ring, port pennants
    ========================================================= */
@@ -1335,13 +1397,13 @@ class Markers {
     for (const side of ['stb', 'port']) {
       const half = 70 * Math.PI / 180;
       const start = side === 'stb' ? -half : Math.PI - half;
-      const g2 = new THREE.RingGeometry(26, GUN_RANGE, 30, 1, start, half * 2);
-      g2.rotateX(-Math.PI / 2);
-      const m = new THREE.MeshBasicMaterial({
-        color: 0xe6b25e, transparent: true, opacity: 0.055,
-        depthWrite: false, side: THREE.DoubleSide,
+      const m = new THREE.ShaderMaterial({
+        vertexShader: ARC_VS, fragmentShader: ARC_FS,
+        uniforms: { uCol: { value: new THREE.Color(0xe6b25e) }, uK: { value: 0.06 } },
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
       });
-      const mesh = new THREE.Mesh(g2, m);
+      const mesh = new THREE.Mesh(arcWedge(26, GUN_RANGE, start, half * 2), m);
       mesh.renderOrder = 4;
       this.arcs.add(mesh);
       this.arcMats[side] = m;
@@ -1440,14 +1502,27 @@ class Markers {
     const showArcs = !!(t && t.alive && !t.captured && p.alive);
     this.arcs.visible = showArcs;
     if (showArcs) {
-      this.arcs.position.set(p.x, 0.35, p.z);
+      this.arcs.position.set(p.x, 0, p.z);
       this.arcs.rotation.y = p.yaw;
       const lit = game.fireSide;
       const ready = lit && p.reload[lit] <= 0;
       for (const side of ['stb', 'port']) {
         const on = lit === side;
-        this.arcMats[side].opacity = on ? (ready ? 0.20 : 0.10) : 0.05;
-        this.arcMats[side].color.setHex(on && ready ? 0xffd27a : 0xe6b25e);
+        this.arcMats[side].uniforms.uK.value = on ? (ready ? 0.24 : 0.13) : 0.05;
+        this.arcMats[side].uniforms.uCol.value.setHex(on && ready ? 0xffd27a : 0xe6b25e);
+      }
+      // Ride the swell: local y is absolute height, the group sits at y = 0.
+      // The clearance matters — the sea is drawn from a 22-unit grid, so its
+      // rendered surface sits up to a wave-crest below the true one; hug it any
+      // closer and the water saws the arc into shards.
+      const cy = Math.cos(p.yaw), sy = Math.sin(p.yaw);
+      for (const mesh of this.arcs.children) {
+        const attr = mesh.geometry.attributes.position, a = attr.array;
+        for (let i = 0; i < a.length; i += 3) {
+          const lx = a[i], lz = a[i + 2];
+          a[i + 1] = waveHeight(p.x + lx * cy + lz * sy, p.z - lx * sy + lz * cy) + 1.5;
+        }
+        attr.needsUpdate = true;
       }
     }
     if (t && t.alive && !t.captured) {

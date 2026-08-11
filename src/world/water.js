@@ -27,25 +27,12 @@ let uniforms = null;
 let waveDirAngle = 0;
 let time = 0;
 
-const VERT = /* glsl */`
-uniform float uTime;
-uniform float uWaveAng;
-uniform vec2  uDepthOrigin;
-uniform float uDepthScale;
-uniform sampler2D uDepthMap;
-uniform float uDetail;
-varying vec3 vWorld;
-varying float vDepth;
-varying vec3 vNormal2;
-varying float vCrest;
-
+/* The wave field itself. Shared verbatim by both stages: the vertex shader
+   uses it to lift the surface, the fragment shader to re-evaluate the normal
+   and the crest per pixel. Interpolating those across a 22-unit grid drew the
+   foam along the triangle edges — the sea wore its own wireframe. */
+const WAVE_GLSL = /* glsl */`
 const float PI = 3.14159265;
-
-float sampleTerrain(vec2 p){
-  vec2 uv = (p - uDepthOrigin) * uDepthScale;
-  uv = clamp(uv, 0.002, 0.998);
-  return texture2D(uDepthMap, uv).r * ${HEIGHT_SPAN.toFixed(1)} + (${SEA_FLOOR.toFixed(1)});
-}
 
 /* slow domain warp: bends the crest lines so the swell stops looking ruled */
 vec2 warp(vec2 p){
@@ -82,6 +69,25 @@ void gerstner(vec2 pIn, float shallow, out float h, out vec3 n, out float crest)
     bino += vec3(-qs[i]*d.x*d.y*wa*s, d.y*wa*c, -qs[i]*d.y*d.y*wa*s);
   }
   n = normalize(cross(bino, tang));
+}`;
+
+const VERT = /* glsl */`
+uniform float uTime;
+uniform float uWaveAng;
+uniform vec2  uDepthOrigin;
+uniform float uDepthScale;
+uniform sampler2D uDepthMap;
+uniform float uDetail;
+varying vec3 vWorld;
+varying float vDepth;
+varying vec3 vNormal2;
+varying float vCrest;
+` + WAVE_GLSL + /* glsl */`
+
+float sampleTerrain(vec2 p){
+  vec2 uv = (p - uDepthOrigin) * uDepthScale;
+  uv = clamp(uv, 0.002, 0.998);
+  return texture2D(uDepthMap, uv).r * ${HEIGHT_SPAN.toFixed(1)} + (${SEA_FLOOR.toFixed(1)});
 }
 
 void main(){
@@ -104,6 +110,7 @@ void main(){
 const FRAG = /* glsl */`
 precision highp float;
 uniform float uTime;
+uniform float uWaveAng;
 uniform vec3 uDeep, uMid, uShallow, uSandy, uFoam;
 uniform vec3 uSkyLow, uSkyHigh, uSunDir, uSunCol;
 uniform vec3 uFogCol;
@@ -126,11 +133,21 @@ float fbm(vec2 p){
   for(int i=0;i<3;i++){ s += a*vnoise(p); p*=2.03; a*=0.5; }
   return s;
 }
+` + WAVE_GLSL + /* glsl */`
 
 void main(){
   vec3 V = normalize(cameraPosition - vWorld);
   vec3 N = normalize(vNormal2);
   float d = vDepth;
+  float crest = vCrest;
+
+  // the surface, resolved per pixel: the mesh is far too coarse to carry
+  // either the shading normal or the crest without showing its own triangles
+  if (uDetail > 0.5) {
+    float h_; vec3 n_; float c_;
+    gerstner(vWorld.xz, smoothstep(0.0, 16.0, d), h_, n_, c_);
+    N = normalize(n_); crest = c_;
+  }
 
   // ---- ripple normal detail ----
   vec2 rp = vWorld.xz * 0.055;
@@ -168,7 +185,7 @@ void main(){
   // ---- foam: crests offshore, surf and reef-break inshore ----
   float foam = 0.0;
   if (d > 6.0) {
-    float crestF = smoothstep(0.86, 0.995, vCrest) * smoothstep(6.0, 22.0, d);
+    float crestF = smoothstep(0.86, 0.995, crest) * smoothstep(6.0, 22.0, d);
     foam = crestF * smoothstep(0.52, 0.86, fbm2(vWorld.xz*0.045 + uTime*0.2)) * 0.62;
   }
   if (d < 8.0) {

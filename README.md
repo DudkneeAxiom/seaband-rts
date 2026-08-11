@@ -201,11 +201,14 @@ power is visible in the world rather than in a number.
 - `touch-action: none`, `overscroll-behavior: none`, fixed body, blocked gesture events
   and double-tap: the page can never scroll, bounce or zoom under a fat thumb.
 - Safe-area insets on all four edges for notches and home indicators.
-- Render budget measured on a busy frame: **73 draw calls, 58k triangles**. Ships are
+- Render budget measured on a busy frame: **78 draw calls, 60k triangles**. Ships are
   merged into three meshes each; islands, settlements and all wakes are one mesh apiece;
   trees and rocks are instanced; particles are four pooled point-sprite systems.
 - The water shader branches on depth so the expensive shallow-water and foam noise only
-  runs inshore. Wave mesh density scales with screen size (128–192 segments).
+  runs inshore. Wave mesh density scales with screen size (128–192 segments); the shading
+  normal and the crest term are resolved per pixel, because at 22 units to the quad no
+  affordable mesh carries them — interpolate them and the sea wears its own wireframe.
+  The quality drop below falls back to the per-vertex path.
 - Simulation cost is 0.2 ms median per frame for a full world.
 - Automatic quality drop: if the game measures under 34 fps it halves the water detail
   and lowers the pixel ratio. Also switchable by hand in Settings.
@@ -273,7 +276,9 @@ the ocean; wake ribbons drawn as solid white planks after a position jump; clipp
 labels; clouds painting over the sea; the island shelf interleaving with the water plane
 and showing through as flat grey shards; a wake that widened and brightened the wrong
 way round; sails whose belly was baked toward the stern so they bulged into the wind
-instead of away from it; and colliding hint/objective/target panels on narrow screens.
+instead of away from it; firing arcs pinned at a fixed height while the swell ran three
+metres, so the sea sliced them into grey slabs; foam tracing the water mesh's own
+triangles; and colliding hint/objective/target panels on narrow screens.
 
 ---
 
@@ -337,7 +342,9 @@ A few decisions worth recording:
   horizon in frame; zoomed out it rises into a tactical view. One gesture, two purposes.
 - **Firing arcs are drawn on the water.** "Position → angle → range → fire" only works if
   angle is visible. The wedges appear when a target is marked and brighten when a battery
-  bears and is loaded.
+  bears and is loaded. They are tessellated and re-stamped from the wave field every
+  frame so they ride the swell — a flat sheet at a fixed height gets sawn into shards by
+  the sea it is meant to lie on.
 - **Capture is gated on officers, not on money.** It makes the tavern matter and makes
   the second ship an event rather than a purchase.
 - **Pirates scale to your notoriety.** Your first Tally captain is a thin-crewed cutter;

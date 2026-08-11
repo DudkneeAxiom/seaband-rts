@@ -52,6 +52,42 @@ await sleep(350);
 const targeted = await page.evaluate(() => window.__game.target ? window.__game.target.name : null);
 ok(`tapping a hull marks her as target (${targeted})`, targeted === scr.name);
 
+/* ---- an accidental tap can be taken back ---- */
+// tapping the same hull again releases her
+await page.touchscreen.tap(scr.x, scr.y);
+await sleep(350);
+ok('tapping the marked ship again releases her', !(await page.evaluate(() => !!window.__game.target)));
+
+// and the card's dismiss button does it too
+await page.touchscreen.tap(scr.x, scr.y);
+await sleep(350);
+const reMarked = await page.evaluate(() => !!window.__game.target);
+const closeBox = await page.evaluate(() => {
+  const r = document.getElementById('tc-close').getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.round(r.width), h: Math.round(r.height) };
+});
+await page.touchscreen.tap(closeBox.x, closeBox.y);
+await sleep(350);
+const cleared = await page.evaluate(() => ({
+  target: !!window.__game.target,
+  card: document.getElementById('targetcard').classList.contains('hidden'),
+}));
+ok('re-marking works after releasing', reMarked);
+ok(`the card's dismiss button clears the target (${closeBox.w}x${closeBox.h} hit area)`,
+  !cleared.target && cleared.card && closeBox.w >= 44 && closeBox.h >= 44);
+
+// steering must NOT drop the target — you need to manoeuvre while engaged
+await page.touchscreen.tap(scr.x, scr.y);
+await sleep(300);
+await page.touchscreen.tap(box.w * 0.25, box.h * 0.3);
+await sleep(350);
+const keptWhileSteering = await page.evaluate(() => ({
+  target: !!window.__game.target, dest: !!window.__game.player.dest,
+}));
+ok('setting a course keeps the ship you are tracking',
+  keptWhileSteering.target && keptWhileSteering.dest);
+await page.evaluate(() => window.__game.clearTarget());
+
 /* ---- drag swings the view, and does not issue a move order ---- */
 const az0 = await page.evaluate(() => window.__game.rig.azimuth);
 await page.evaluate(() => { window.__game.player.dest = null; });

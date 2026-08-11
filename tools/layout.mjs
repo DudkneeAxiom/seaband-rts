@@ -6,7 +6,7 @@ import { launch, sleep, ff, VIEWPORTS } from './qa.mjs';
 const TARGETS = [
   '#topbar', '#compass', '#leftstack', '#shipstatus', '#speedctl', '#actions',
   '#fleetbar', '#targetcard', '#hint', '#objective', '#paused-badge', '#objptr',
-  '.act-btn.fire', '.act-btn.board', '.act-btn.dock',
+  '.act-btn.fire', '.act-btn.board', '.act-btn.dock', '.tc-close',
   '#ammo-strip', '.fleet-btn', '.spd', '#btn-menu',
 ];
 const MIN_TAP = 44;
@@ -66,12 +66,13 @@ for (const vp of Object.keys(VIEWPORTS)) {
       if (b.x < -1 || b.y < -1 || b.x + b.w > W + 1 || b.y + b.h > H + 1) {
         problems.push(`OFFSCREEN ${b.sel} [${b.x},${b.y} ${b.w}x${b.h}] vs ${W}x${H}`);
       }
-      if (/btn|tab|\.spd/.test(b.sel) && (b.w < MIN || b.h < MIN)) {
+      if (/btn|tab|\.spd|close/.test(b.sel) && (b.w < MIN || b.h < MIN)) {
         problems.push(`SMALL TAP ${b.sel} ${b.w}x${b.h}`);
       }
     }
     // pairwise overlap between distinct panels
-    const panels = boxes.filter(b => !/\.(act|fleet)-btn|\.spd|#ammo-strip|#btn-menu|#compass|#shipstatus|#speedctl/.test(b.sel));
+    // controls that live inside a panel are expected to sit on it
+    const panels = boxes.filter(b => !/\.(act|fleet)-btn|\.spd|\.tc-close|#ammo-strip|#btn-menu|#compass|#shipstatus|#speedctl/.test(b.sel));
     for (let i = 0; i < panels.length; i++) {
       for (let j = i + 1; j < panels.length; j++) {
         const a = panels[i], b = panels[j];
