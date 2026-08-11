@@ -206,7 +206,7 @@ export const PORTS = [
   },
   {
     id:'marasay', name:'Marasay', faction:'freehold', island:'marasay',
-    x: 640, z: 862, ang: -2.2, dockR: 74, size:'minor',
+    x: 680, z: 841, ang: 2.65, dockR: 74, size:'minor',
     tagline:'Fishing hamlet',
     desc:'Drying racks, a chapel, and one crane the whole village argues about. Salt fish for anyone who wants it; everything else has to come by sea.',
     services:['repair','market','crew'],
@@ -214,7 +214,7 @@ export const PORTS = [
   },
   {
     id:'escarra', name:'Fort Escarra', faction:'admiralty', island:'escarra',
-    x: 742, z:-680, ang: 2.4, dockR: 74, size:'minor',
+    x: 742, z:-680, ang: 0.79, dockR: 74, size:'minor',
     tagline:'Admiralty station',
     desc:'A gun-cut rock with a signal mast. The Admiralty pays well for pirates and asks for receipts. Naval stores — iron and sailcloth — go for a song at the dockyard gate.',
     services:['repair','market','tavern'],

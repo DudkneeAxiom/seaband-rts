@@ -263,21 +263,65 @@ function building(rng, w, h, d) {
   return parts;
 }
 
+/** The nearest dry land to a mooring, and the unit vector pointing at it.
+    Ties break toward the port's own declared bearing so a symmetric rock still
+    faces the way its author intended. Falls back to that bearing if a mooring
+    somehow has no land within reach at all. */
+function nearestShore(x, z, declaredAng, maxD = 420) {
+  const want = new THREE.Vector2(-Math.cos(declaredAng), -Math.sin(declaredAng));
+  let best = null;
+  for (let a = 0; a < 72; a++) {
+    const th = (a / 72) * Math.PI * 2;
+    const dx = Math.cos(th), dz = Math.sin(th);
+    for (let d = 4; d < maxD; d += 4) {
+      if (heightAtAnalytic(x + dx * d, z + dz * d) > 1.0) {
+        // a shade of preference for the declared side, worth a few units
+        const score = d - (dx * want.x + dz * want.y) * 12;
+        if (!best || score < best.score) best = { score, d, dx, dz };
+        break;
+      }
+    }
+  }
+  if (!best) {
+    return { dir: want, point: new THREE.Vector2(x + want.x * 60, z + want.y * 60), dist: 60 };
+  }
+  return {
+    dir: new THREE.Vector2(best.dx, best.dz),
+    point: new THREE.Vector2(x + best.dx * best.d, z + best.dz * best.d),
+    dist: best.d,
+  };
+}
+
+/** Where each port's town actually stands, so a label can sit over the roofs
+    instead of over the water its mooring happens to occupy. */
+export const PORT_SHORE = {};
+
 function buildSettlement(port, group) {
   const rng = makeRNG(port.id.length * 4211 + port.x | 0);
   const parts = [];
   const isMajor = port.size === 'major';
   const count = isMajor ? 26 : 11;
 
-  // walk inland from the mooring until we actually hit dry land: that
-  // waterfront point is what the whole settlement is laid out around
-  const inland = new THREE.Vector2(-Math.cos(port.ang), -Math.sin(port.ang));
+  // Find the waterfront by asking the terrain, not by trusting a hand-written
+  // bearing: sweep every direction and take the nearest dry land. A port whose
+  // angle was a degree out used to build its whole harbour in open water, and
+  // nothing in the geometry noticed.
   const anchor = new THREE.Vector2(port.x, port.z);
-  const base = anchor.clone();
-  for (let d = 0; d < 260; d += 4) {
-    const x = anchor.x + inland.x * d, z = anchor.y + inland.y * d;
-    if (heightAtAnalytic(x, z) > 1.0) { base.set(x, z); break; }
-  }
+  const shore = nearestShore(anchor.x, anchor.y, port.ang);
+  const inland = shore.dir;
+  const base = shore.point;
+  const shoreRec = {
+    x: base.x, z: base.y, dist: shore.dist,
+    inland: { x: inland.x, z: inland.y },
+    // a little way up the beach: the name belongs over the roofs
+    townX: base.x + inland.x * (isMajor ? 46 : 34),
+    townZ: base.y + inland.y * (isMajor ? 46 : 34),
+    townY: 0,
+  };
+  // clear of whatever the town is standing on — Escarra's is a 70-metre rock,
+  // and a fixed height put its name inside the hill
+  shoreRec.townY = Math.max(74, heightAtAnalytic(shoreRec.townX, shoreRec.townZ) + 46);
+  PORT_SHORE[port.id] = shoreRec;
   const perpG = new THREE.Vector2(-inland.y, inland.x);
 
   let placed = 0, guard = 0;
@@ -304,7 +348,9 @@ function buildSettlement(port, group) {
     const off = (i - (pierCount - 1) / 2) * (isMajor ? 48 : 36);
     const rootX = base.x + perpG.x * off + inland.x * 4;
     const rootZ = base.y + perpG.y * off + inland.y * 4;
-    const len = rngRange(rng, 40, isMajor ? 66 : 48);
+    // long enough to reach out toward the mooring, never a stub or a causeway
+    const reach = clampNum(shore.dist * 0.8, 34, 84);
+    const len = reach * rngRange(rng, 0.85, 1.1);
     const midX = rootX - inland.x * len * 0.5, midZ = rootZ - inland.y * len * 0.5;
     parts.push(prep(xf(new THREE.BoxGeometry(6.5, 1.5, len), { x: midX, y: 2.4, z: midZ, ry: pierAng }), 0x8a6f4c, 0.09));
     for (let k = 0; k <= 5; k++) {
@@ -379,10 +425,12 @@ function buildSettlement(port, group) {
   mesh.castShadow = false;
   group.add(mesh);
 
-  // mooring buoys marking the dock circle
+  // mooring buoys arc across the seaward side of the harbour, worked out from
+  // where the land actually is rather than from the port's declared bearing
+  const seaAng = Math.atan2(-inland.y, -inland.x);
   const buoys = [];
   for (let i = 0; i < 7; i++) {
-    const a = port.ang + Math.PI + (i / 6 - 0.5) * 2.4;
+    const a = seaAng + (i / 6 - 0.5) * 2.4;
     const bx = port.x + Math.cos(a) * port.dockR * 0.94;
     const bz = port.z + Math.sin(a) * port.dockR * 0.94;
     const col = i % 2 ? 0xd94f2f : 0xe6b25e;
@@ -391,6 +439,8 @@ function buildSettlement(port, group) {
   }
   group.add(new THREE.Mesh(mergeGeos(buoys), litMaterial()));
 }
+
+const clampNum = (v, a, b) => (v < a ? a : v > b ? b : v);
 
 // settlements are built before the bake in some paths; use analytic directly
 const heightAtAnalytic = analyticHeight;

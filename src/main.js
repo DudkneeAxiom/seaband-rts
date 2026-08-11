@@ -11,6 +11,7 @@ import { $, onTap, isModalOpen, hint, hideHint, setObjective } from './ui/dom.js
 import { openOrigin, isOriginOpen } from './ui/origin.js';
 import { initAudio, resumeAudio, updateAudio } from './core/audio.js';
 import { clamp } from './core/util.js';
+import { heightAt, depthAt, PORT_SHORE } from './world/terrain.js';
 
 const canvas = $('scene');
 const renderer = new THREE.WebGLRenderer({
@@ -107,6 +108,8 @@ function boot() {
   window.__game = game;       // handy for QA
   window.__renderer = renderer;
   window.__ui = { hint, hideHint, setObjective };
+  window.__terrain = { heightAt, depthAt };   // for the QA harnesses
+  window.__shore = PORT_SHORE;
 }
 
 /** New voyages go through the questionnaire first; a saved one resumes. */

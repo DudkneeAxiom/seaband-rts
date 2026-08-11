@@ -6,7 +6,7 @@ import {
   PORTS, POIS, ISLANDS, HULLS, FACTIONS, NAMES, GOODS, RANKS, WORLD_SIZE, EDGE_NODES,
 } from './data/gamedata.js';
 import { clamp, clamp01, lerp, dist, angDiff, makeRNG, rngInt, TAU, fmtCoin } from './core/util.js';
-import { bakeHeights, makeDepthTexture, buildTerrain, depthAt } from './world/terrain.js';
+import { bakeHeights, makeDepthTexture, buildTerrain, depthAt, PORT_SHORE } from './world/terrain.js';
 import { createWater, updateWater, waveHeight, setWaterQuality } from './world/water.js';
 import { createSky, updateSky, SKY } from './world/sky.js';
 import { WakeField } from './fx/wake.js';
@@ -203,6 +203,24 @@ export class Game {
   /** Ask the questions again. Falls back to a rolled captain if nothing wired it. */
   restart() { if (this.onRestart) this.onRestart(); else this.newGame(true); }
   get nemesisDef() { return NEMESES[this.origin ? this.origin.nemesis : 'vell'] || NEMESES.vell; }
+  /** A spot inside a harbour with enough water under it to float a hull. */
+  harbourBerth(port) {
+    const town = PORT_SHORE[port.id];
+    // start on the seaward side of the town and work outward until she swims
+    const away = town
+      ? Math.atan2(port.z - town.z, port.x - town.x)
+      : port.ang;
+    for (const spread of [0.9, -0.9, 0, 1.8, -1.8]) {
+      for (const r of [0.55, 0.75, 0.95]) {
+        const a = away + spread;
+        const x = port.x + Math.cos(a) * port.dockR * r;
+        const z = port.z + Math.sin(a) * port.dockR * r;
+        if (depthAt(x, z) > 9) return { x, z };
+      }
+    }
+    return { x: port.x, z: port.z };
+  }
+
   /** Ship names the story owns. All three antagonists are held back, not just
       yours — meeting a random "Third Name" would muddy the one that matters. */
   reservedNames() {
@@ -457,6 +475,8 @@ export class Game {
     for (const s of this.ships) {
       if (!s.isPlayer && s.alive && !s.captured) updateAI(s, dt, this.world, this.ctx);
       s.update(dt, this.world);
+      // she went down or struck to somebody else while you were doing the work
+      if ((!s.alive || s.captured) && !s.rewarded && s.dmgMine > 0) this.settleSharedKill(s);
       if (s.alive && s.hullFrac < 0.42) this.fx.burning(s.x, 4, s.z, dt, 1 - s.hullFrac);
       if (s.alive && s.speed > 3) {
         const bx = s.x + Math.sin(s.yaw) * s.cls.len * 0.45;
@@ -861,7 +881,15 @@ export class Game {
       if (res.crew > 0) this.stats.crewLost += res.crew;
       if (res.guns) toast('A gun is dismounted!', 'bad', 1800);
     }
-    if (proj.owner === p || this.fleet.includes(proj.owner)) {
+    // Book who is doing the work on her. An Admiralty patrol that sails in and
+    // fires the last shot used to take the whole prize, leaving you the bill
+    // for the shot and the hull you spent bringing her to that point.
+    const work = res.hull + res.sails * 0.6 + res.crew * 3;
+    const mine = proj.owner === p || this.fleet.includes(proj.owner);
+    s.dmgAll = (s.dmgAll || 0) + work;
+    if (mine) s.dmgMine = (s.dmgMine || 0) + work;
+
+    if (mine) {
       if (!s.alive) this.onKill(s, proj.owner);
       if (!isHostile(p, s) && s.faction !== 'pirate' && !s.hostileToPlayer) this.provoke(s);
     }
@@ -899,6 +927,26 @@ export class Game {
     for (const o of this.ships) {
       if (o.faction === s.faction && dist(o.x, o.z, s.x, s.z) < 500) o.hostileToPlayer = true;
     }
+  }
+
+  /** Somebody else finished a ship you had been fighting. You do not get the
+      prize, but you are not spending shot for nothing either: the salvage and
+      the credit are split by who actually did the damage. */
+  settleSharedKill(s) {
+    s.rewarded = true;
+    const share = clamp01((s.dmgMine || 0) / Math.max(1, s.dmgAll || 1));
+    if (share < 0.25) return;                 // a parting shot is not a claim
+    this.markStoryTarget(s);
+    if (s.faction !== 'pirate') return;       // no bounty for other people's civilians
+    this.stats.sunk += s.alive ? 0 : 1;
+    const full = Math.round(HULLS[s.classId].value * 0.10 + s.cls.guns * 6);
+    const coin = this.gainCoin(Math.round(full * share));
+    const pres = this.gainPrestige((6 + s.cls.guns * 0.5) * share, true);
+    this.standing.admiralty += 2;
+    this.progressQuest('hunt', s);
+    sfxCoin();
+    toast(`${s.name} struck to another captain — your share, ◆${coin} and ${pres} prestige.`, 'gold', 4200);
+    this.save();
   }
 
   onKill(s, killer) {
@@ -956,6 +1004,9 @@ export class Game {
       // an AI took a prize — she changes hands quietly
       if (winner === 'attacker') {
         const prize = bd.d;
+        // if you were the one who beat her down, you are owed a share of her
+        if (!prize.rewarded && prize.dmgMine > 0) this.settleSharedKill(prize);
+        prize.rewarded = true;
         prize.faction = bd.a.faction;
         prize.captured = false;
         prize.role = bd.a.role;
@@ -980,6 +1031,7 @@ export class Game {
   }
 
   offerPrize(prize) {
+    prize.rewarded = true;       // she is yours; no shared-kill share on top
     const cls = HULLS[prize.classId];
     const p = this.player;
     this.paused = true;
@@ -1232,10 +1284,12 @@ export class Game {
       toast('Not enough hands to man her. Recruit first.', 'bad', 3200);
       return;
     }
+    // moor her in the harbour on the seaward side of the town, in water she
+    // actually floats in rather than wherever a fixed bearing happens to land
+    const berth = this.harbourBerth(port);
     const s = new Ship({
       classId: prizeRec.classId, faction: 'player', name: prizeRec.name, role: 'consort',
-      x: port.x + Math.cos(port.ang + 1.2) * (port.dockR * 0.8),
-      z: port.z + Math.sin(port.ang + 1.2) * (port.dockR * 0.8),
+      x: berth.x, z: berth.z,
       yaw: port.ang, crew: emptyCrew(),
       colors: { hull: FACTIONS.player.hull, trim: FACTIONS.player.trim, sail: FACTIONS.player.sail, flag: FACTIONS.player.flag },
     });
@@ -1739,7 +1793,10 @@ class Markers {
     this.labels = [];
     for (const p of PORTS) {
       const spr = makeLabel(p.name.toUpperCase(), p.size === 'major' ? '#ffe6b0' : '#dfe9ea');
-      spr.position.set(p.x, 74, p.z);
+      // over the town, not over the mooring — a name floating on open water
+      // reads as a bug even when the harbour behind it is right
+      const at = PORT_SHORE[p.id];
+      spr.position.set(at ? at.townX : p.x, at ? at.townY : 74, at ? at.townZ : p.z);
       scene.add(spr);
       this.labels.push({ spr, port: p });
     }

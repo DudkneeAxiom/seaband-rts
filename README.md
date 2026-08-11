@@ -193,6 +193,12 @@ to matter. Empty barrels do not kill anybody for a long while; they wear the cre
 first — a starving company works its ship, its guns and its rail a third worse — which
 is a reason to make port, not a death sentence.
 
+**A share of the work.** Damage on a hull is booked to whoever did it. If an Admiralty
+patrol sails in and fires the last shot at a raider you have spent your shot and your
+hull beating down, you still get salvage, prestige and the tally mark, in proportion to
+the work you actually did — the same if she strikes to somebody else's boarders. Below a
+quarter of the damage it was a parting shot, not a claim, and pays nothing.
+
 **Harbours are refuges.** Every port sits under somebody's guns, and no raider follows a
 prize into the roads. Run for the buoys and your pursuer sheers off; the DOCK prompt is
 always there when you arrive, and only a hostile already *inside* the harbour can keep
@@ -292,6 +298,7 @@ All suites drive the real game in Chromium via Playwright.
 ```bash
 node tools/origin.mjs             # 46 checks: the questionnaire, its effects, the story
 node tools/trade.mjs              # 29 checks: the merchant road, upkeep and the way back
+node tools/shore.mjs              # 15 checks: harbours built on land, credit for shared kills
 node tools/playthrough.mjs phone   # 23 checks: the whole arc, with real UI clicks
 node tools/touch.mjs               # 9 checks: synthesised taps, drags, pinch, rotation
 node tools/systems.mjs             # 14 checks: contracts, discoveries, shoals, supplies…
@@ -356,7 +363,9 @@ buying the freight at the delivery port; a harbour that refused to let you dock 
 anything hostile was within gun range, which is precisely when you want to be inside it;
 trade routes whose margins were smaller than the provisions burned sailing them; and
 starvation that killed a hand every twenty seconds, turning one bad afternoon into a
-voyage that had to be abandoned.
+voyage that had to be abandoned; two harbours whose whole settlement — piers, quay,
+warehouse, name — stood in open water because their declared bearing faced the sea; and
+kills taken by Admiralty patrols paying the player nothing for a fight they had won.
 
 ---
 
@@ -444,6 +453,11 @@ A few decisions worth recording:
   still reach a quay, take a contract, and be paid enough up front to load it. A sandbox
   that can strand you in a state you cannot trade out of is asking you to start again,
   and starting again is not a mechanic.
+- **Ask the terrain, do not tell it.** Two of the three settlements were laid out from a
+  hand-written compass bearing that pointed out to sea, so their piers, quays and names
+  were built in open water and nothing in the geometry noticed. The waterfront is now
+  found by sweeping for the nearest dry land, which cannot be wrong about a coastline
+  that is right there to measure.
 - **Freight is loaded where it is written.** Without that, the nearest harbourmaster
   will happily buy you a cargo and pay you to hand it straight back over the same
   counter, which is not a trade route, it is a bug with a fee attached.
