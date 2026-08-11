@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b2a3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Salt & Tally — a maritime sandbox: one battered cutter, a handful of sailors, and an ocean full of sails.">
+<title>Salt &amp; Tally</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#9973;</text></svg>">
+<link rel="stylesheet" href="./style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene"></canvas>
+
+  <!-- ============ HUD ============ -->
+  <div id="hud" class="hidden">
+    <!-- top bar -->
+    <div id="topbar" class="safe-top">
+      <button id="btn-menu" class="icon-btn" aria-label="Menu">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="stat-chip" id="chip-coin"><span class="glyph">◆</span><span id="val-coin">0</span></div>
+      <div class="stat-chip" id="chip-prestige"><span class="glyph">★</span><span id="val-prestige">0</span></div>
+      <div class="stat-chip subtle" id="chip-infamy"><span class="glyph">✖</span><span id="val-infamy">0</span></div>
+      <div class="spacer"></div>
+      <div id="compass" aria-label="Wind">
+        <svg viewBox="0 0 64 64">
+          <circle cx="32" cy="32" r="27" class="cmp-ring"/>
+          <path d="M32 8 L32 -2" class="cmp-n"/>
+          <text x="32" y="16" class="cmp-lbl">N</text>
+          <g id="wind-arrow">
+            <path d="M32 50 L32 18 M32 18 L26 26 M32 18 L38 26" class="cmp-arrow"/>
+          </g>
+        </svg>
+        <div id="wind-label">—</div>
+      </div>
+    </div>
+
+    <!-- ship status, bottom-left -->
+    <div id="shipstatus" class="safe-bottom">
+      <div class="ship-name" id="flag-name">—</div>
+      <div class="bar-row"><span class="bar-lbl">HULL</span><div class="bar"><i id="bar-hull"></i></div><span class="bar-val" id="txt-hull"></span></div>
+      <div class="bar-row"><span class="bar-lbl">SAIL</span><div class="bar"><i id="bar-sail" class="sail"></i></div><span class="bar-val" id="txt-sail"></span></div>
+      <div class="bar-row"><span class="bar-lbl">CREW</span><div class="bar"><i id="bar-crew" class="crew"></i></div><span class="bar-val" id="txt-crew"></span></div>
+      <div class="mini-row" id="supply-row">
+        <span class="mini" id="mini-prov" title="Provisions">PROV <b>0</b></span>
+        <span class="mini" id="mini-ammo" title="Shot">SHOT <b>0</b></span>
+        <span class="mini" id="mini-cargo" title="Cargo">HOLD <b>0</b></span>
+      </div>
+    </div>
+
+    <!-- contextual action stack, bottom-right -->
+    <div id="actions" class="safe-bottom"></div>
+
+    <!-- fleet bar -->
+    <div id="fleetbar" class="hidden safe-bottom"></div>
+
+    <!-- target readout -->
+    <div id="targetcard" class="hidden">
+      <div class="tc-head"><span id="tc-name">—</span><span id="tc-fac" class="tc-fac">—</span></div>
+      <div class="tc-bars">
+        <div class="tbar"><i id="tc-hull"></i></div>
+        <div class="tbar"><i id="tc-sail" class="sail"></i></div>
+        <div class="tbar"><i id="tc-crew" class="crew"></i></div>
+      </div>
+      <div class="tc-dist" id="tc-dist"></div>
+    </div>
+
+    <!-- hint / toast: one stack so they can never sit on top of each other -->
+    <div id="notices">
+      <div id="hint" class="hidden"></div>
+      <div id="toasts"></div>
+    </div>
+    <div id="objective" class="hidden"><span class="obj-glyph">➤</span><span id="obj-text"></span></div>
+  </div>
+
+  <!-- ============ OVERLAYS ============ -->
+  <div id="sheet" class="hidden">
+    <div id="sheet-scrim"></div>
+    <div id="sheet-body">
+      <div id="sheet-head">
+        <div id="sheet-title">—</div>
+        <button id="sheet-close" class="icon-btn" aria-label="Close">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div id="sheet-tabs"></div>
+      <div id="sheet-content"></div>
+    </div>
+  </div>
+
+  <div id="modal" class="hidden">
+    <div id="modal-card">
+      <div id="modal-title">—</div>
+      <div id="modal-text"></div>
+      <div id="modal-actions"></div>
+    </div>
+  </div>
+
+  <!-- boarding overlay -->
+  <div id="boarding" class="hidden">
+    <div class="brd-card">
+      <div class="brd-title">BOARDING ACTION</div>
+      <div class="brd-names"><span id="brd-us">—</span><span class="brd-vs">✕</span><span id="brd-them">—</span></div>
+      <div class="brd-track"><i id="brd-fill"></i><span id="brd-marker"></span></div>
+      <div class="brd-counts"><span id="brd-cus">—</span><span id="brd-cthem">—</span></div>
+      <div class="brd-log" id="brd-log"></div>
+    </div>
+  </div>
+
+  <!-- ============ TITLE ============ -->
+  <div id="title">
+    <div id="title-inner">
+      <div class="tt-kicker">THE VANTU SHOALS</div>
+      <h1>Salt <span>&amp;</span> Tally</h1>
+      <p class="tt-sub">One battered cutter. A handful of sailors.<br>An ocean full of sails.</p>
+      <div class="tt-btns">
+        <button id="btn-continue" class="big-btn hidden">CONTINUE VOYAGE</button>
+        <button id="btn-new" class="big-btn primary">NEW VOYAGE</button>
+      </div>
+      <div class="tt-foot">Tap the water to set your course.</div>
+    </div>
+  </div>
+
+  <div id="loading"><div class="ld-inner"><div class="ld-wave"></div><div>making sail…</div></div></div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

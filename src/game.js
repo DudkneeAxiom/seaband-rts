@@ -1,0 +1,1379 @@
+/* ===========================================================
+   Salt & Tally — game state, world simulation and rules.
+   =========================================================== */
+import * as THREE from 'three';
+import {
+  PORTS, POIS, ISLANDS, HULLS, FACTIONS, NAMES, GOODS, RANKS, WORLD_SIZE, EDGE_NODES,
+} from './data/gamedata.js';
+import { clamp, clamp01, lerp, dist, angDiff, makeRNG, rngPick, rngInt, TAU, fmtCoin } from './core/util.js';
+import { bakeHeights, makeDepthTexture, buildTerrain, depthAt } from './world/terrain.js';
+import { createWater, updateWater, waveHeight, setWaterQuality } from './world/water.js';
+import { createSky, updateSky, SKY } from './world/sky.js';
+import { WakeField } from './fx/wake.js';
+import { FX } from './fx/particles.js';
+import { Ship, emptyCrew, crewCount } from './ships/ship.js';
+import { updateAI, isHostile, strength } from './ships/ai.js';
+import {
+  Projectiles, fireBroadside, bestSide, canBoard, Boarding, boardOdds, GUN_RANGE, BOARD_RANGE,
+} from './combat/combat.js';
+import { Market, repairCost } from './sim/economy.js';
+import { makeOfficer, rollTavernOfficers, addOfficerXP, officerLabel } from './sim/officers.js';
+import { toast, hint, hideHint, modal, setObjective } from './ui/dom.js';
+import { openPort, closeSheet, isSheetOpen } from './ui/sheet.js';
+import {
+  sfxCannon, sfxWood, sfxSplash, sfxClash, sfxBell, sfxHorn, sfxCoin, updateAudio,
+} from './core/audio.js';
+
+const SAVE_KEY = 'salt-and-tally-v1';
+const TRAFFIC = { merchant: 4, fisher: 3, pirate: 3, patrol: 2 };
+
+export class Game {
+  constructor(scene, cameraRig) {
+    this.scene = scene;
+    this.rig = cameraRig;
+    this.buildTag = 'build 1.0';
+    this.quality = 1;
+
+    bakeHeights();
+    this.depthTex = makeDepthTexture();
+    createSky(scene);
+    createWater(scene, this.depthTex, SKY);
+    buildTerrain(scene);
+
+    this.wakes = new WakeField(scene);
+    this.fx = new FX(scene, 1);
+    this.ships = [];
+    this.fleet = [];
+    this.projectiles = new Projectiles(this.fx, this.ships);
+    this.boardings = [];
+    this.markers = new Markers(scene);
+
+    this.time = 0;
+    this.windAng = 2.1;
+    this.windTargetAng = 2.1;
+    this.windTimer = 20;
+    this.limit = WORLD_SIZE * 0.46;
+
+    this.coin = 0; this.prestige = 0; this.infamy = 0;
+    this.standing = { freehold: 0, admiralty: 0, compact: 0 };
+    this.crewXP = 0;
+    this.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 };
+    this.officers = [];
+    this.prizes = [];
+    this.quests = [];
+    this.discovered = new Set();
+    this.tavernSeed = 1;
+    this.tavernCache = {};
+    this.market = new Market();
+    this.fleetOrder = 'follow';
+    this.target = null;
+    this.dockablePort = null;
+    this.boardable = false;
+    this.boardOdds = 0;
+    this.fireSide = null;
+    this.inPort = null;
+    this.paused = false;
+    this.gameOver = false;
+    this.hintState = {};
+    this.spawnTimer = 3;
+    this.saveTimer = 0;
+    this.combatHeat = 0;
+    this.PORTS = PORTS;
+
+    this.ctx = {
+      fx: this.fx,
+      projectiles: this.projectiles,
+      onHit: (p, s, res) => this.onHit(p, s, res),
+      onSplash: (x, z) => this.onSplash(x, z),
+      onBroadside: (sh, side, n) => this.onBroadside(sh, side, n),
+      onGunFired: () => { },
+      startBoarding: (a, b) => this.startBoarding(a, b),
+      onArrive: () => { },
+      onOutOfShot: (sh) => { if (sh.isPlayer) toast('Shot lockers are empty.', 'bad'); },
+    };
+    this.world = {
+      ships: this.ships, windAng: this.windAng, time: 0, limit: this.limit,
+      market: this.market, player: null, playerTarget: null,
+      onGround: (s, o) => this.onGround(s, o),
+      onEdge: () => this.onEdge(),
+    };
+  }
+
+  /* =========================================================
+     lifecycle
+     ========================================================= */
+  newGame(clearSave = false) {
+    if (clearSave) { try { localStorage.removeItem(SAVE_KEY); } catch (e) { void e; } }
+    for (const s of this.ships.slice()) this.removeShip(s, true);
+    this.ships.length = 0; this.fleet.length = 0;
+    this.coin = 240; this.prestige = 0; this.infamy = 0;
+    this.standing = { freehold: 6, admiralty: 0, compact: 0 };
+    this.crewXP = 0;
+    this.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 };
+    this.officers = []; this.prizes = []; this.quests = [];
+    this.discovered = new Set();
+    this.tavernCache = {};
+    this.market = new Market();
+    this.world.market = this.market;
+    this.gameOver = false;
+    this.paused = false;
+    this.hintState = {};
+    this.fleetOrder = 'follow';
+    this.target = null;
+
+    const crew = emptyCrew();
+    crew.deckhand = 6; crew.sailor = 5; crew.gunner = 1; crew.marine = 1;
+    const p = new Ship({
+      classId: 'cutter', faction: 'player', name: NAMES.ship_player[0], isPlayer: true,
+      x: -110, z: 236, yaw: 2.5, crew, role: 'player',
+      colors: { hull: 0x7d5230, trim: 0xe6b25e, sail: 0xefe3c8, flag: 0xc94f2f },
+    });
+    p.provisions = 42; p.shot = 16;
+    p.hull = p.hullMax * 0.78; p.sails = p.sailMax * 0.9;
+    this.addShip(p);
+    this.fleet.push(p);
+    this.player = p; this.world.player = p;
+
+    this.quests.push(makeQuest('cargo_first'));
+    this.seedTraffic();
+    this.setupIntro();
+    this.save();
+  }
+
+  /** Populate the sea and let it run behind the title screen. */
+  startAttract() {
+    this.seedTraffic();
+    this.attract = true;
+  }
+
+  setupIntro() {
+    setObjective('Make for <b>Ilo Vantu</b> — the free port on the big island.');
+    setTimeout(() => hint('Tap the water to set your course.', 6500), 900);
+  }
+
+  /* ---------- persistence ---------- */
+  save() {
+    if (this.gameOver) return;
+    try {
+      const data = {
+        v: 1,
+        coin: this.coin, prestige: this.prestige, infamy: this.infamy,
+        standing: this.standing, crewXP: this.crewXP, stats: this.stats,
+        windAng: this.windAng,
+        officers: this.officers.map(o => ({ ...o, ship: o.ship ? o.ship.id : null })),
+        fleet: this.fleet.map(s => ({ ...s.serialize(), upgrades: s.upgrades || [] })),
+        prizes: this.prizes,
+        quests: this.quests.map(q => ({ id: q.id, active: q.active, done: q.done, progress: q.progress, portId: q.portId })),
+        discovered: [...this.discovered],
+        market: this.market.save(),
+        hintState: this.hintState,
+        fleetOrder: this.fleetOrder,
+      };
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch (e) { void e; }
+  }
+  static hasSave() {
+    try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { void e; return false; }
+  }
+  load() {
+    let data;
+    try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { void e; return false; }
+    if (!data || data.v !== 1 || !data.fleet || !data.fleet.length) return false;
+    try {
+      for (const s of this.ships.slice()) this.removeShip(s, true);
+      this.ships.length = 0; this.fleet.length = 0;
+      this.coin = data.coin ?? 200;
+      this.prestige = data.prestige ?? 0; this.infamy = data.infamy ?? 0;
+      this.standing = data.standing || { freehold: 0, admiralty: 0, compact: 0 };
+      this.crewXP = data.crewXP || 0;
+      this.stats = Object.assign({ sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 }, data.stats);
+      this.windAng = data.windAng ?? 2.1; this.windTargetAng = this.windAng;
+      this.discovered = new Set(data.discovered || []);
+      this.market = new Market(data.market);
+      this.world.market = this.market;
+      this.hintState = data.hintState || {};
+      this.fleetOrder = data.fleetOrder || 'follow';
+      this.prizes = data.prizes || [];
+      this.officers = (data.officers || []).map(o => ({ ...o, ship: null, trait: o.trait || { name: 'Steady', tip: '' } }));
+      this.quests = (data.quests || []).map(q => {
+        const nq = makeQuest(q.id);
+        if (!nq) return null;
+        nq.active = q.active; nq.done = q.done; nq.progress = q.progress || 0; nq.portId = q.portId;
+        return nq;
+      }).filter(Boolean);
+
+      for (const sd of data.fleet) {
+        const sh = new Ship({
+          classId: sd.classId, faction: sd.isPlayer ? 'player' : 'player', name: sd.name,
+          isPlayer: sd.isPlayer, x: sd.x, z: sd.z, yaw: sd.yaw, crew: sd.crew, cargo: sd.cargo,
+          role: sd.isPlayer ? 'player' : 'consort',
+          colors: { hull: FACTIONS.player.hull, trim: FACTIONS.player.trim, sail: FACTIONS.player.sail, flag: FACTIONS.player.flag },
+        });
+        sh.hull = sd.hull; sh.sails = sd.sails; sh.shot = sd.shot; sh.provisions = sd.provisions;
+        sh.gunsPort = sd.gunsPort; sh.gunsStb = sd.gunsStb;
+        sh.upgrades = sd.upgrades || [];
+        applyUpgrades(sh);
+        this.addShip(sh);
+        this.fleet.push(sh);
+        if (sd.isPlayer) { this.player = sh; this.world.player = sh; }
+        if (sd.captain) {
+          const o = this.officers.find(x => x.id === sd.captain);
+          if (o) { o.ship = sh; sh.captain = o; }
+        }
+        for (const oid of sd.officers || []) {
+          const o = this.officers.find(x => x.id === oid);
+          if (o && !o.ship) sh.officers.push(o);
+        }
+      }
+      if (!this.player) return false;
+      let slot = 1;
+      for (const s of this.fleet) if (!s.isPlayer) s.formSlot = slot++;
+      this.gameOver = false;
+      this.seedTraffic();
+      setObjective(null);
+      this.refreshObjective();
+      return true;
+    } catch (e) {
+      console.warn('save load failed', e);
+      return false;
+    }
+  }
+
+  /* =========================================================
+     ships
+     ========================================================= */
+  addShip(s) {
+    this.ships.push(s);
+    this.scene.add(s.mesh);
+    this.wakes.register(s);
+    return s;
+  }
+  removeShip(s, immediate = false) {
+    const i = this.ships.indexOf(s);
+    if (i >= 0) this.ships.splice(i, 1);
+    const j = this.fleet.indexOf(s);
+    if (j >= 0) this.fleet.splice(j, 1);
+    this.wakes.release(s);
+    s.dispose(this.scene);
+    if (this.target === s) this.target = null;
+    void immediate;
+  }
+
+  seedTraffic() {
+    const rng = makeRNG(7 + this.ships.length);
+    for (const kind in TRAFFIC) {
+      for (let i = 0; i < TRAFFIC[kind]; i++) this.spawnNPC(kind, rng, true);
+    }
+  }
+
+  spawnNPC(kind, rng = Math.random, initial = false) {
+    const r = typeof rng === 'function' ? rng : Math.random;
+    const p = this.player;
+    let x, z, guard = 0;
+    do {
+      if (initial || !p) {
+        const a = r() * TAU, d = 260 + r() * (this.limit * 0.85);
+        x = Math.cos(a) * d; z = Math.sin(a) * d;
+      } else {
+        const a = r() * TAU, d = 900 + r() * 500;
+        x = p.x + Math.cos(a) * d; z = p.z + Math.sin(a) * d;
+      }
+      guard++;
+    } while (guard < 30 && (depthAt(x, z) < 20 || Math.hypot(x, z) > this.limit * 0.95));
+    if (depthAt(x, z) < 16) return null;
+
+    let classId, faction, role, names;
+    if (kind === 'merchant') {
+      faction = r() > 0.45 ? 'compact' : 'freehold';
+      classId = faction === 'compact' ? (r() > 0.4 ? 'fluyt' : 'dhow') : 'dhow';
+      role = 'merchant';
+      names = faction === 'compact' ? NAMES.ship_compact : NAMES.ship_freehold;
+    } else if (kind === 'fisher') {
+      faction = 'freehold'; classId = 'cutter'; role = 'fisher'; names = NAMES.ship_freehold;
+    } else if (kind === 'pirate') {
+      // the Tally send bigger hulls after captains who have earned the attention
+      const notoriety = this.stats.captured + this.stats.sunk + (this.fleet.length - 1) * 2;
+      const heavy = clamp01((notoriety - 1) / 5) * 0.7;
+      faction = 'pirate'; classId = r() < heavy ? 'lugger' : 'cutter'; role = 'pirate'; names = NAMES.ship_pirate;
+    } else {
+      faction = 'admiralty'; classId = r() > 0.6 ? 'frigate' : 'brig'; role = 'patrol'; names = NAMES.ship_admiralty;
+    }
+    const used = new Set(this.ships.map(s => s.name));
+    let name = names[(r() * names.length) | 0];
+    let g2 = 0;
+    while (used.has(name) && g2++ < 12) name = names[(r() * names.length) | 0];
+    if (used.has(name)) name += ' II';
+
+    const s = new Ship({ classId, faction, name, role, x, z, yaw: r() * TAU });
+    // the first Tally captains a new captain meets are thin-crewed opportunists
+    if (kind === 'pirate') {
+      const green = clamp01(1 - (this.stats.captured + this.stats.sunk) / 3);
+      if (green > 0) {
+        for (const k of ['gunner', 'marine', 'veteran']) s.crew[k] = Math.round(s.crew[k] * (1 - green * 0.55));
+        s.crew.sailor = Math.round(s.crew.sailor * (1 - green * 0.25));
+      }
+    }
+    s.brain.t = r() * 5;
+    this.addShip(s);
+    return s;
+  }
+
+  /* =========================================================
+     main update
+     ========================================================= */
+  update(dt) {
+    if (this.paused) dt = 0;
+    this.time += dt;
+    this.world.time = this.time;
+
+    // ---- wind drifts ----
+    this.windTimer -= dt;
+    if (this.windTimer <= 0) {
+      this.windTimer = 26 + Math.random() * 40;
+      this.windTargetAng += (Math.random() - 0.5) * 1.5;
+    }
+    this.windAng += angDiff(this.windAng, this.windTargetAng) * Math.min(1, dt * 0.06);
+    this.world.windAng = this.windAng;
+    this.world.playerTarget = this.target;
+
+    const p = this.player;
+
+    // ---- ships ----
+    for (const s of this.ships) {
+      if (!s.isPlayer && s.alive && !s.captured) updateAI(s, dt, this.world, this.ctx);
+      s.update(dt, this.world);
+      if (s.alive && s.hullFrac < 0.42) this.fx.burning(s.x, 4, s.z, dt, 1 - s.hullFrac);
+      if (s.alive && s.speed > 3) {
+        const bx = s.x + Math.sin(s.yaw) * s.cls.len * 0.45;
+        const bz = s.z + Math.cos(s.yaw) * s.cls.len * 0.45;
+        this.fx.bowSpray(bx, waveHeight(bx, bz), bz, Math.sin(s.yaw) * s.speed, Math.cos(s.yaw) * s.speed,
+          clamp01(s.speed / s.cls.speed) * (s.isPlayer ? 1 : 0.5));
+      }
+    }
+    // reap
+    for (let i = this.ships.length - 1; i >= 0; i--) {
+      const s = this.ships[i];
+      if (s.dead) {
+        if (s.isPlayer) continue;
+        this.removeShip(s);
+      }
+    }
+
+    this.projectiles.update(dt, this.ctx);
+    for (let i = this.boardings.length - 1; i >= 0; i--) {
+      const b = this.boardings[i];
+      b.update(dt);
+      if (b.done) this.boardings.splice(i, 1);
+    }
+
+    // ---- population ----
+    this.spawnTimer -= dt;
+    if (this.spawnTimer <= 0) {
+      this.spawnTimer = 6;
+      this.cullDistant();
+      const counts = { merchant: 0, fisher: 0, pirate: 0, patrol: 0 };
+      for (const s of this.ships) if (counts[s.role] != null && s.alive && !s.captured) counts[s.role]++;
+      for (const k in TRAFFIC) {
+        if (counts[k] < TRAFFIC[k]) { this.spawnNPC(k); break; }
+      }
+    }
+
+    this.market.tick(dt);
+
+    // ---- world visuals: these run even with no flagship, so the title
+    // screen shows a real, moving ocean rather than a still frame ----
+    const wx = Math.sin(this.windAng) * 9, wz = Math.cos(this.windAng) * 9;
+    this.fx.update(dt, wx, wz);
+    this.wakes.update(dt);
+    updateWater(dt, this.rig.focus.x, this.rig.focus.z, this.windAng);
+    updateSky(dt, this.rig.focus.x, this.rig.focus.z, this.windAng);
+
+    if (!p || !p.alive) { this.checkGameOver(); return; }
+
+    // ---- player upkeep ----
+    const eat = (p.crewTotal * dt) / 210;
+    p.provisions -= eat;
+    if (p.provisions <= 0) {
+      p.provisions = 0;
+      p.morale = Math.max(0.1, p.morale - dt * 0.02);
+      if (Math.random() < dt * 0.05 && p.crewTotal > 3) {
+        p.killCrew(1); this.stats.crewLost++;
+        toast('A hand has died of want. The barrels are empty.', 'bad');
+      }
+    }
+    this.crewXP += dt * 0.35 * (this.combatHeat > 0 ? 3 : 1);
+    this.stats.distance += p.speed * dt;
+
+    // ---- contextual state ----
+    this.updateContext(dt);
+    this.updateQuests(dt);
+    this.updateHints(dt);
+    this.markers.update(dt, this);
+
+    this.combatHeat = Math.max(0, this.combatHeat - dt);
+    const shoreD = this.nearestShoreDist(p);
+    updateAudio(dt, {
+      speedN: clamp01(p.speed / p.cls.speed),
+      shallow: clamp01(1 - depthAt(p.x, p.z) / 40),
+      nearShore: clamp01(1 - shoreD / 420),
+      nearPort: this.dockablePort ? 1 : clamp01(1 - this.nearestPortDist(p) / 420),
+      combat: this.combatHeat > 0 ? 1 : 0,
+    });
+
+    this.saveTimer -= dt;
+    if (this.saveTimer <= 0) { this.saveTimer = 25; this.save(); }
+  }
+
+  updateQuests(dt) {
+    this._questT = (this._questT || 0) - dt;
+    if (this._questT > 0) return;
+    this._questT = 2.5;
+    // keep the hunt's quarry in the world while the contract is live
+    const hunt = this.quests.find(q => q.active && q.kind === 'hunt' && !q.done);
+    if (hunt && !this.ships.some(s => s.isSant)) this.spawnSant();
+    this.refreshObjective();
+  }
+
+  cullDistant() {
+    const p = this.player;
+    if (!p) return;
+    for (let i = this.ships.length - 1; i >= 0; i--) {
+      const s = this.ships[i];
+      if (s.isPlayer || this.fleet.includes(s) || s === this.target) continue;
+      if (s.boarding) continue;
+      const d = dist(s.x, s.z, p.x, p.z);
+      if (d > 2400 || (!s.alive && s.sinking > 6)) this.removeShip(s);
+    }
+  }
+
+  updateContext(dt) {
+    const p = this.player;
+    // dockable port
+    let dock = null;
+    for (const port of PORTS) {
+      if (dist(p.x, p.z, port.x, port.z) < port.dockR && p.speed < 7.5) { dock = port; break; }
+    }
+    if (dock !== this.dockablePort) {
+      this.dockablePort = dock;
+      if (dock) sfxBell();
+    }
+
+    // target validity
+    if (this.target && (!this.target.alive || this.target.captured || dist(p.x, p.z, this.target.x, this.target.z) > 1200)) {
+      this.target = null;
+    }
+    this.fireSide = this.target ? bestSide(p, this.target, 70) : null;
+    this.boardable = this.target ? canBoard(p, this.target) && (this.target.hullFrac < 0.98 || this.target.crewTotal < p.crewTotal) : false;
+    this.boardOdds = this.target ? boardOdds(p, this.target) : 0;
+
+    // POI discovery
+    for (const poi of POIS) {
+      if (this.discovered.has(poi.id)) continue;
+      if (dist(p.x, p.z, poi.x, poi.z) < poi.r) this.discoverPOI(poi);
+    }
+    void dt;
+  }
+
+  nearestPortDist(s) {
+    let d = 1e9;
+    for (const p of PORTS) d = Math.min(d, dist(s.x, s.z, p.x, p.z));
+    return d;
+  }
+  nearestShoreDist(s) {
+    let d = 1e9;
+    for (const i of ISLANDS) for (const b of i.blobs) d = Math.min(d, dist(s.x, s.z, i.x + b.x, i.z + b.z) - b.r);
+    return Math.max(0, d);
+  }
+
+  /* =========================================================
+     player commands
+     ========================================================= */
+  commandMove(x, z) {
+    const p = this.player;
+    if (!p || !p.alive || p.boarding) return;
+    if (p.lockTo) return;
+    p.setDestination(x, z);
+    p.throttle = 1;
+    this.markers.pingMove(x, z);
+    this.mark('sailed');
+  }
+  selectTarget(s) {
+    if (s === this.player) { this.target = null; return; }
+    if (this.fleet.includes(s)) { this.target = null; return; }
+    this.target = s;
+    this.mark('targeted');
+  }
+  playerFire() {
+    const p = this.player;
+    if (!p || !this.target || !this.fireSide) return;
+    if (p.reload[this.fireSide] > 0) { toast('Still reloading.', '', 1200); return; }
+    const n = fireBroadside(p, this.fireSide, this.target, this.ctx);
+    if (n > 0) { this.mark('fired'); this.combatHeat = 12; }
+  }
+  playerBoard() {
+    const p = this.player;
+    if (!p || !this.target) return;
+    if (!canBoard(p, this.target)) { toast('Get alongside and take way off her first.', '', 2000); return; }
+    this.startBoarding(p, this.target);
+  }
+  setFleetOrder(o) {
+    this.fleetOrder = o;
+    for (const s of this.fleet) if (!s.isPlayer) s.fleetOrder = o;
+    toast({ follow: 'Consorts: form on the flagship.', engage: 'Consorts: engage!', hold: 'Consorts: hold station.' }[o], '', 1700);
+  }
+
+  /* =========================================================
+     combat callbacks
+     ========================================================= */
+  onBroadside(ship, side, n) {
+    const d = this.player ? dist(ship.x, ship.z, this.player.x, this.player.z) : 0;
+    sfxCannon(d);
+    if (ship.isPlayer) {
+      this.stats.broadsides++;
+      this.rig.addShake(0.35 + n * 0.02);
+    } else if (d < 420) this.rig.addShake(0.06);
+    this.combatHeat = Math.max(this.combatHeat, 10);
+    void side;
+  }
+  onSplash(x, z) {
+    const p = this.player;
+    if (p) sfxSplash(dist(x, z, p.x, p.z));
+  }
+  onHit(proj, s, res) {
+    const p = this.player;
+    const d = p ? dist(s.x, s.z, p.x, p.z) : 0;
+    sfxWood(d);
+    if (s.isPlayer) {
+      this.rig.addShake(0.30);
+      if (res.crew > 0) this.stats.crewLost += res.crew;
+      if (res.guns) toast('A gun is dismounted!', 'bad', 1800);
+    }
+    if (proj.owner === p || this.fleet.includes(proj.owner)) {
+      if (!s.alive) this.onKill(s, proj.owner);
+      if (!isHostile(p, s) && s.faction !== 'pirate' && !s.hostileToPlayer) this.provoke(s);
+    }
+    this.combatHeat = Math.max(this.combatHeat, 10);
+  }
+  onGround(s, over) {
+    if (s.isPlayer) {
+      this.rig.addShake(0.5);
+      toast('You are touching bottom!', 'bad', 2200);
+      sfxWood(0);
+      this.mark('grounded');
+    }
+    void over;
+  }
+  onEdge() {
+    if (this.hintState.edge) return;
+    this.hintState.edge = 1;
+    hint('The Shoals end here. Beyond is open ocean — another voyage.', 4200);
+  }
+
+  provoke(s) {
+    if (s.hostileToPlayer) return;
+    s.hostileToPlayer = true;
+    s.aggro = 1;
+    if (s.role === 'merchant' || s.role === 'fisher') {
+      this.infamy += 4;
+      this.standing[s.faction] = (this.standing[s.faction] || 0) - 8;
+      toast(`Word will get out. Infamy +4`, 'bad');
+    } else if (s.role === 'patrol') {
+      this.infamy += 6;
+      this.standing[s.faction] = (this.standing[s.faction] || 0) - 14;
+      toast('You have fired on the Admiralty.', 'bad');
+    }
+    // her friends take notice
+    for (const o of this.ships) {
+      if (o.faction === s.faction && dist(o.x, o.z, s.x, s.z) < 500) o.hostileToPlayer = true;
+    }
+  }
+
+  onKill(s, killer) {
+    if (s.rewarded) return;
+    s.rewarded = true;
+    this.stats.sunk++;
+    const value = Math.round(HULLS[s.classId].value * 0.10 + s.cls.guns * 6);
+    if (s.faction === 'pirate') {
+      this.prestige += 6 + s.cls.guns * 0.5;
+      this.standing.admiralty += 3; this.standing.freehold += 2;
+      this.coin += value;
+      toast(`${s.name} goes down. Prestige +${Math.round(6 + s.cls.guns * 0.5)} · ◆${value} in salvage`, 'gold');
+      this.progressQuest('hunt', s);
+      sfxCoin();
+    } else {
+      this.infamy += 5;
+      toast(`${s.name} sinks. That will be remembered.`, 'bad');
+    }
+    for (const o of (killer && killer.officers) || []) addOfficerXP(o, 20);
+    this.save();
+  }
+
+  startBoarding(a, b) {
+    if (a.boarding || b.boarding) return;
+    if (!canBoard(a, b)) return;
+    const bd = new Boarding(a, b, {
+      onBoardTick: (bb, ka, kd) => {
+        sfxClash();
+        if (bb.a.isPlayer || bb.d.isPlayer) {
+          this.stats.crewLost += bb.a.isPlayer ? ka : kd;
+          if (this.onBoardUI) this.onBoardUI(bb);
+        }
+      },
+      onBoardEnd: (bb, winner) => this.endBoarding(bb, winner),
+    });
+    this.boardings.push(bd);
+    a.grapples = b;
+    this.markers.grapple(a, b);
+    if (a.isPlayer || b.isPlayer) {
+      this.combatHeat = 14;
+      sfxClash();
+      if (this.onBoardStart) this.onBoardStart(bd);
+      this.mark('boarded');
+    }
+  }
+
+  endBoarding(bd, winner) {
+    this.markers.clearGrapple();
+    if (this.onBoardEndUI) this.onBoardEndUI(bd, winner);
+    const p = this.player;
+    const playerAttacked = bd.a === p;
+    const playerDefended = bd.d === p;
+    if (!playerAttacked && !playerDefended) {
+      // an AI took a prize — she changes hands quietly
+      if (winner === 'attacker') {
+        const prize = bd.d;
+        prize.faction = bd.a.faction;
+        prize.captured = false;
+        prize.role = bd.a.role;
+        prize.hostileToPlayer = bd.a.hostileToPlayer;
+        prize.mesh.userData.flagMesh.material.color.setHex(FACTIONS[prize.faction].flag);
+      }
+      return;
+    }
+    if (playerDefended && winner === 'attacker') {
+      // the player has been taken
+      this.playerLost('Your deck is carried. The colours come down.');
+      return;
+    }
+    if (playerAttacked && winner === 'defender') {
+      toast('Beaten back over the rail. Sheer off!', 'bad', 3000);
+      p.morale = Math.max(0.3, p.morale);
+      return;
+    }
+    // player wins
+    const prize = playerAttacked ? bd.d : bd.a;
+    this.offerPrize(prize);
+  }
+
+  offerPrize(prize) {
+    const cls = HULLS[prize.classId];
+    const p = this.player;
+    this.paused = true;
+    const loot = this.rollLoot(prize);
+    const freeOfficer = this.officers.find(o => !o.ship && o.canCaptain);
+    const spareCrew = p.crewTotal - cls.crewMin;
+    const canMan = !!freeOfficer && spareCrew >= p.cls.crewMin;
+
+    let lootHtml = '<div class="loot">';
+    lootHtml += `<span>◆ ${loot.coin} coin</span>`;
+    for (const g in loot.cargo) lootHtml += `<span>${GOODS[g].icon} ${loot.cargo[g]} ${GOODS[g].name}</span>`;
+    if (loot.shot) lootHtml += `<span>◉ ${loot.shot} shot</span>`;
+    if (loot.provisions) lootHtml += `<span>◎ ${loot.provisions} provisions</span>`;
+    lootHtml += '</div>';
+
+    const actions = [];
+    if (canMan) {
+      actions.push({
+        label: `GIVE HER TO ${freeOfficer.name.split(' ')[0].toUpperCase()}`, cls: 'gold',
+        fn: () => this.takePrizeNow(prize, freeOfficer, loot),
+      });
+    }
+    actions.push({
+      label: 'SEND HER HOME AS A PRIZE', cls: canMan ? '' : 'gold',
+      fn: () => this.sendPrizeHome(prize, loot),
+    });
+    actions.push({ label: `SALVAGE HER (◆${Math.round(cls.value * 0.28)})`, fn: () => this.salvagePrize(prize, loot) });
+    actions.push({ label: 'SCUTTLE HER', cls: 'dim', fn: () => this.scuttlePrize(prize, loot) });
+
+    modal({
+      title: `${prize.name} is Yours`,
+      text: `A <b>${cls.name}</b> of <b>${FACTIONS[prize.faction].name}</b>, ${Math.round(prize.hullFrac * 100)}% sound, ${prize.gunsPort + prize.gunsStb} guns still mounted.
+             ${prize.crewTotal} of her people are alive and have thrown down their arms.<br>${lootHtml}
+             ${canMan ? `<br><em>${freeOfficer.name}</em> is aboard and ready for a command of their own.`
+        : `<br><span style="opacity:.75">You have no officer free to command her — send her home and find one ashore.</span>`}`,
+      actions,
+    });
+  }
+
+  rollLoot(prize) {
+    const cls = HULLS[prize.classId];
+    const loot = { coin: Math.round((60 + cls.value * 0.08) * (0.7 + Math.random() * 0.7)), cargo: {}, shot: 0, provisions: 0 };
+    for (const g in prize.cargo) if (prize.cargo[g] > 0) loot.cargo[g] = prize.cargo[g];
+    if (prize.role === 'merchant' && !Object.keys(loot.cargo).length) {
+      const keys = Object.keys(GOODS);
+      const g = keys[(Math.random() * keys.length) | 0];
+      loot.cargo[g] = 6 + ((Math.random() * 14) | 0);
+    }
+    loot.shot = Math.min(prize.shot, 8 + ((Math.random() * 10) | 0));
+    loot.provisions = Math.round(prize.provisions * 0.5);
+    return loot;
+  }
+  applyLoot(loot) {
+    const p = this.player;
+    this.coin += loot.coin;
+    let spilled = 0;
+    for (const g in loot.cargo) {
+      const take = Math.min(loot.cargo[g], p.cargoFree);
+      if (take > 0) p.cargo[g] = (p.cargo[g] || 0) + take;
+      spilled += loot.cargo[g] - take;
+    }
+    p.shot += loot.shot;
+    p.provisions += loot.provisions;
+    if (spilled > 0) toast(`${spilled} tons left behind — the hold is full.`, '', 2600);
+    sfxCoin();
+  }
+
+  finishPrize(prize) {
+    this.paused = false;
+    this.target = null;
+    this.stats.captured++;
+    this.prestige += 10;
+    if (prize.faction === 'pirate') { this.standing.admiralty += 4; this.progressQuest('hunt', prize); }
+    else this.infamy += 6;
+    for (const o of this.player.officers) addOfficerXP(o, 40);
+    this.save();
+    this.refreshObjective();
+  }
+
+  takePrizeNow(prize, officer, loot) {
+    this.applyLoot(loot);
+    const p = this.player;
+    const cls = HULLS[prize.classId];
+    // convert her to your colours
+    prize.faction = 'player';
+    prize.captured = false;
+    prize.role = 'consort';
+    prize.isPlayer = false;
+    prize.hostileToPlayer = false;
+    prize.target = null;
+    prize.brain = { state: 'idle', t: 0 };
+    prize.fleetOrder = this.fleetOrder;
+    prize.formSlot = this.fleet.length;
+    prize.captain = officer; officer.ship = prize;
+    prize.officers = [officer];
+    prize.mesh.userData.flagMesh.material.color.setHex(FACTIONS.player.flag);
+    // man her: pressed hands plus a prize crew from the flagship
+    const need = Math.max(0, cls.crewMin - prize.crewTotal);
+    const send = Math.min(need + 6, Math.max(0, p.crewTotal - p.cls.crewMin));
+    this.transferCrew(p, prize, send, true);
+    this.fleet.push(prize);
+    this.finishPrize(prize);
+    sfxHorn();
+    toast(`${prize.name} sails under your colours, ${officer.name} commanding.`, 'gold', 4200);
+    hint(`Look astern. That is your fleet.`, 5200);
+    this.mark('fleet');
+  }
+
+  sendPrizeHome(prize, loot) {
+    this.applyLoot(loot);
+    this.prizes.push({
+      name: prize.name, classId: prize.classId, hull: prize.hull, guns: prize.gunsPort + prize.gunsStb,
+    });
+    this.removeShip(prize);
+    this.finishPrize(prize);
+    toast(`${prize.name} taken. A prize crew will bring her into port.`, 'gold', 4000);
+    hint('Find her a captain at the shipyard in Ilo Vantu.', 5000);
+    this.mark('prize');
+  }
+  salvagePrize(prize, loot) {
+    const cls = HULLS[prize.classId];
+    this.applyLoot(loot);
+    this.coin += Math.round(cls.value * 0.28);
+    prize.sink();
+    this.finishPrize(prize);
+    toast('Stripped and left to settle.', 'gold', 3000);
+  }
+  scuttlePrize(prize, loot) {
+    this.applyLoot(loot);
+    prize.sink();
+    this.finishPrize(prize);
+    toast('Scuttled.', '', 2400);
+  }
+
+  transferCrew(from, to, n, silent = false) {
+    let moved = 0;
+    const order = ['deckhand', 'sailor', 'rigger', 'gunner', 'marine', 'veteran'];
+    const keepMin = from.isPlayer ? from.cls.crewMin : from.cls.crewMin;
+    for (const k of order) {
+      while (moved < n && from.crew[k] > 0 && from.crewTotal > keepMin && to.crewTotal < to.cls.crewMax) {
+        from.crew[k]--; to.crew[k]++; moved++;
+      }
+    }
+    if (!silent) {
+      if (moved === 0) toast('No hands to spare.', 'bad', 2000);
+      else toast(`${moved} hands moved to ${to.name}.`, '', 2000);
+    }
+    this.save();
+    return moved;
+  }
+
+  playerLost(reason) {
+    if (this.gameOver) return;
+    this.gameOver = true;
+    this.paused = true;
+    modal({
+      title: 'The Sea Keeps Her Books',
+      text: `${reason}<br><br>You sailed <b>${Math.round(this.stats.distance / 100)}</b> leagues, sank <b>${this.stats.sunk}</b> ships and took <b>${this.stats.captured}</b>.`,
+      actions: [
+        { label: 'BEGIN A NEW VOYAGE', cls: 'gold', fn: () => { this.paused = false; this.newGame(true); } },
+        ...(Game.hasSave() ? [{ label: 'RETURN TO THE LAST LOG', fn: () => { this.paused = false; if (!this.load()) this.newGame(true); } }] : []),
+      ],
+    });
+  }
+  checkGameOver() {
+    const p = this.player;
+    if (p && !p.alive && p.sinking > 2.4 && !this.gameOver) {
+      this.playerLost(`<b>${p.name}</b> has gone down under you.`);
+    }
+  }
+
+  /* =========================================================
+     ports
+     ========================================================= */
+  enterPort(port) {
+    if (!port) return;
+    const p = this.player;
+    p.dest = null; p.headingCmd = p.yaw; p.throttle = 0; p.speed = 0;
+    this.inPort = port;
+    this.paused = false;
+    sfxHorn();
+    this.promoteCrew();
+    this.restockPrizes(port);
+    openPort(port);
+    this.mark('docked');
+    this.save();
+  }
+  leavePort() {
+    this.inPort = null;
+    const p = this.player;
+    if (p && p.alive) { p.throttle = 1; p.headingCmd = p.yaw; }
+    this.refreshObjective();
+    this.save();
+  }
+  restockPrizes(port) {
+    // prizes sent home turn up at the major yard
+    if (port && port.services.includes('shipyard') && this.prizes.length) {
+      toast(`${this.prizes.length} prize${this.prizes.length > 1 ? 's' : ''} waiting in the roads.`, 'gold', 3200);
+    }
+  }
+
+  promoteCrew() {
+    const p = this.player;
+    let promoted = 0, specialised = 0;
+    // sea time rates deckhands up, then lets some specialise
+    while (this.crewXP >= 40 && p.crew.deckhand > 0) {
+      this.crewXP -= 40; p.crew.deckhand--; p.crew.sailor++; promoted++;
+    }
+    while (this.crewXP >= 120 && p.crew.sailor > 2) {
+      this.crewXP -= 120;
+      const roll = Math.random();
+      const to = roll < 0.4 ? 'gunner' : roll < 0.75 ? 'marine' : 'rigger';
+      p.crew.sailor--; p.crew[to]++; specialised++;
+    }
+    while (this.crewXP >= 300 && (p.crew.gunner + p.crew.marine + p.crew.rigger) > 2) {
+      this.crewXP -= 300;
+      const pool = ['gunner', 'marine', 'rigger'].filter(k => p.crew[k] > 0);
+      const from = pool[(Math.random() * pool.length) | 0];
+      p.crew[from]--; p.crew.veteran++;
+      toast('An old salt has earned the name.', 'good', 3000);
+    }
+    if (promoted) toast(`${promoted} deckhand${promoted > 1 ? 's are' : ' is'} rated Sailor.`, 'good', 3200);
+    if (specialised) toast(`${specialised} sailor${specialised > 1 ? 's have' : ' has'} taken a trade.`, 'good', 3400);
+    for (const o of this.officers) addOfficerXP(o, 8);
+  }
+
+  /* ---------- shops ---------- */
+  tavernPool(port) {
+    if (!this.tavernCache[port.id]) {
+      this.tavernCache[port.id] = rollTavernOfficers(port.id.length * 3301 + Math.floor(this.time / 600) * 17 + 5, 3, this.officers);
+    }
+    return this.tavernCache[port.id].filter(o => !this.officers.includes(o));
+  }
+  hireOfficer(o, port) {
+    if (this.coin < o.hire) { toast('Not enough coin.', 'bad'); return; }
+    if (this.officers.length >= 6) { toast('You have officers enough.', 'bad'); return; }
+    this.coin -= o.hire;
+    this.officers.push(o);
+    this.player.officers.push(o);
+    sfxCoin();
+    toast(`${o.name} signs on as ${officerLabel(o)}.`, 'good', 3200);
+    this.save();
+    void port;
+  }
+  commissionPrize(prizeRec, officer, port) {
+    const p = this.player;
+    const cls = HULLS[prizeRec.classId];
+    if (p.crewTotal - cls.crewMin < p.cls.crewMin) {
+      toast('Not enough hands to man her. Recruit first.', 'bad', 3200);
+      return;
+    }
+    const s = new Ship({
+      classId: prizeRec.classId, faction: 'player', name: prizeRec.name, role: 'consort',
+      x: port.x + Math.cos(port.ang + 1.2) * (port.dockR * 0.8),
+      z: port.z + Math.sin(port.ang + 1.2) * (port.dockR * 0.8),
+      yaw: port.ang, crew: emptyCrew(),
+      colors: { hull: FACTIONS.player.hull, trim: FACTIONS.player.trim, sail: FACTIONS.player.sail, flag: FACTIONS.player.flag },
+    });
+    s.hull = prizeRec.hull;
+    s.captain = officer; officer.ship = s;
+    s.officers = [officer];
+    s.formSlot = this.fleet.length;
+    s.fleetOrder = this.fleetOrder;
+    this.addShip(s);
+    this.fleet.push(s);
+    this.transferCrew(p, s, cls.crewMin + 2, true);
+    const idx = this.prizes.indexOf(prizeRec);
+    if (idx >= 0) this.prizes.splice(idx, 1);
+    sfxHorn();
+    toast(`${s.name} commissioned — ${officer.name} commanding.`, 'gold', 4200);
+    this.mark('fleet');
+    this.save();
+  }
+
+  upgradesFor(ship) {
+    ship.upgrades = ship.upgrades || [];
+    const defs = [
+      { id: 'copper', name: 'Copper Sheathing', desc: 'Clean bottom, half a knot more. +8% speed.', cost: 620 },
+      { id: 'timbers', name: 'Doubled Timbers', desc: 'Extra frames along the waterline. +25% hull.', cost: 780 },
+      { id: 'ports', name: 'Cut Two More Gunports', desc: 'One more gun to a side. +2 guns.', cost: 900 },
+      { id: 'lockers', name: 'Deepened Lockers', desc: 'More room for shot and stores. +20 cargo.', cost: 460 },
+    ];
+    return defs.map(d => ({ ...d, owned: ship.upgrades.includes(d.id) }));
+  }
+  buyUpgrade(ship, up) {
+    if (this.coin < up.cost) { toast('Not enough coin.', 'bad'); return; }
+    this.coin -= up.cost;
+    ship.upgrades = ship.upgrades || [];
+    ship.upgrades.push(up.id);
+    applyUpgrades(ship);
+    sfxCoin();
+    toast(`${up.name} fitted.`, 'good', 3000);
+    this.save();
+  }
+
+  onGoodsSold(gid, cnt, port) {
+    this.progressQuest('cargo', { gid, cnt, port });
+  }
+
+  /* =========================================================
+     quests & discoveries
+     ========================================================= */
+  contractsAt(port) {
+    const out = [];
+    for (const q of this.quests) if (!q.active && !q.done && (!q.portId || q.portId === port.id) && q.board === 'harbour') out.push(q);
+    // keep a cargo contract available
+    if (!this.quests.some(q => q.kind === 'cargo' && (q.active || !q.done))) {
+      const nq = makeQuest('cargo_first');
+      if (nq) { this.quests.push(nq); out.push(nq); }
+    }
+    return out;
+  }
+  rumoursAt(port) {
+    const out = [];
+    const huntQ = this.quests.find(q => q.id === 'hunt_sant');
+    if (this.stats.captured + this.stats.sunk >= 1 && huntQ && !huntQ.active && !huntQ.done) {
+      out.push({
+        title: 'The Long Answer',
+        text: 'A brig out of nowhere, black topsides, takes ships between here and the Spine. Her captain keeps a tally cut into the mainmast. They call her Mireya Sant.',
+        quest: huntQ,
+      });
+    } else if (huntQ && huntQ.active) {
+      out.push({ title: 'The Long Answer', text: 'Last seen standing east of the Thimbles. She does not run.' });
+    }
+    if (!this.discovered.has('bellcove')) {
+      out.push({ title: 'A Bell Under Water', text: 'Old hands talk about a chapel bell you can hear through the hull off Bellcurrent, away to the north-west. Nobody has ever gone and looked.' });
+    }
+    if (!this.discovered.has('lighthouse')) {
+      out.push({ title: 'The Dead Lantern', text: 'The light on the far eastern stack has been dark two seasons. The keeper was paid through the year.' });
+    }
+    out.push({ title: 'Shoal Water', text: 'Pale water is thin water. A cutter goes where a frigate opens her bottom — remember that when something bigger is chasing you.' });
+    void port;
+    return out;
+  }
+  acceptQuest(q, port) {
+    if (!this.quests.includes(q)) this.quests.push(q);
+    q.active = true; q.portId = q.portId || port.id;
+    if (q.kind === 'hunt' && q.id === 'hunt_sant') this.spawnSant();
+    toast(`Undertaking accepted: ${q.title}`, 'gold', 3200);
+    this.refreshObjective();
+    this.save();
+  }
+  questStatus(q) {
+    if (q.done) return q.doneText || 'Settled.';
+    if (q.kind === 'cargo') {
+      const p = PORTS.find(x => x.id === q.toPort);
+      return `Carry <b>${q.amount} ${GOODS[q.good].name}</b> to <b>${p.name}</b>. ${q.progress || 0}/${q.amount} delivered.`;
+    }
+    if (q.kind === 'hunt') return `Sink or take <b>${q.targetName}</b>. ${q.progress || 0}/${q.count}`;
+    return q.brief;
+  }
+  canCompleteHere(q, port) {
+    if (q.done || !q.active) return false;
+    if (q.kind === 'cargo') return q.toPort === port.id && (this.player.cargo[q.good] || 0) >= q.amount;
+    if (q.kind === 'hunt') return (q.progress || 0) >= q.count;
+    return false;
+  }
+  completeQuest(q) {
+    const p = this.player;
+    if (q.kind === 'cargo') {
+      p.cargo[q.good] -= q.amount;
+      if (p.cargo[q.good] <= 0) delete p.cargo[q.good];
+    }
+    q.done = true; q.active = false;
+    this.coin += q.reward;
+    this.prestige += q.prestige;
+    sfxCoin();
+    toast(`${q.title} — settled. ◆${q.reward}, prestige +${q.prestige}`, 'gold', 4000);
+    this.refreshObjective();
+    this.save();
+  }
+  progressQuest(kind, payload) {
+    for (const q of this.quests) {
+      if (!q.active || q.done || q.kind !== kind) continue;
+      if (kind === 'hunt') {
+        if (payload.isSant || payload.name === q.targetName) {
+          q.progress = (q.progress || 0) + 1;
+          if (q.progress >= q.count) {
+            this.coin += q.reward; this.prestige += q.prestige;
+            q.done = true; q.active = false;
+            modal({
+              title: 'The Tally is Settled',
+              text: `<b>${q.targetName}</b> is finished. The Admiralty pays without argument, which is rarer than the money.<br><br><em>◆${q.reward}</em> and <em>${q.prestige} prestige</em>.<br><br>Word of this will travel further than you think. Captains talk.`,
+              actions: [{ label: 'GOOD', cls: 'gold', fn: () => { } }],
+            });
+            this.refreshObjective();
+          } else toast(`${q.title}: ${q.progress}/${q.count}`, 'gold');
+        }
+      } else if (kind === 'cargo') {
+        // delivery is settled at the harbourmaster, not by selling
+      }
+    }
+  }
+  spawnSant() {
+    if (this.ships.some(s => s.isSant)) return;
+    const a = Math.random() * TAU;
+    const px = this.player.x + Math.cos(a) * 900, pz = this.player.z + Math.sin(a) * 900;
+    const s = new Ship({
+      classId: 'brig', faction: 'pirate', name: 'Long Answer', role: 'pirate',
+      x: clamp(px, -this.limit * 0.8, this.limit * 0.8), z: clamp(pz, -this.limit * 0.8, this.limit * 0.8),
+      yaw: Math.random() * TAU,
+      colors: { hull: 0x2f2724, trim: 0x8f2f2a, sail: 0xa89b85, flag: 0x8f2f2a },
+    });
+    s.isSant = true;
+    s.crew.marine += 6; s.crew.veteran += 5; s.crew.gunner += 4;
+    this.addShip(s);
+  }
+
+  discoverPOI(poi) {
+    this.discovered.add(poi.id);
+    this.paused = true;
+    let reward = 0, extra = '';
+    if (poi.id === 'bellcove') {
+      reward = 420;
+      this.prestige += 8;
+      extra = 'Bar silver, a sealed case of pepper, and a ship’s bell with another vessel’s name on it.';
+      this.player.cargo.spice = (this.player.cargo.spice || 0) + Math.min(8, this.player.cargoFree);
+    } else {
+      reward = 260;
+      this.prestige += 6;
+      const o = makeOfficer(9001 + this.discovered.size * 37, 'navigator');
+      o.hire = 0;
+      this.officers.push(o); this.player.officers.push(o);
+      extra = `The keeper is still here, in a manner of speaking — ${o.name} has been living off gull eggs and is very glad to see a sail. They sign on as Navigator.`;
+    }
+    this.coin += reward;
+    sfxBell();
+    modal({
+      title: poi.title,
+      text: `${poi.text}<br><br>${extra}<div class="loot"><span>◆ ${reward}</span><span>★ prestige</span></div>`,
+      actions: [{ label: 'MAKE SAIL', cls: 'gold', fn: () => { this.paused = false; } }],
+    });
+    this.save();
+  }
+  poiById(id) { return POIS.find(p => p.id === id); }
+
+  refreshObjective() {
+    const q = this.quests.find(x => x.active && !x.done);
+    if (q) { setObjective(this.questStatus(q)); return; }
+    if (this.prizes.length) { setObjective('Take your prize to the <b>shipyard at Ilo Vantu</b> and find her a captain.'); return; }
+    if (this.fleet.length > 1) { setObjective('Two ships under your flag. Use the fleet orders and take something bigger.'); return; }
+    if (this.stats.captured === 0) { setObjective('Find a <b>Tally</b> ship and take her.'); return; }
+    setObjective(null);
+  }
+
+  /* =========================================================
+     onboarding hints
+     ========================================================= */
+  mark(id) { if (!this.hintState[id]) this.hintState[id] = 1; }
+  updateHints(dt) {
+    this._hintT = (this._hintT || 0) - dt;
+    if (this._hintT > 0) return;
+    this._hintT = 1.1;
+    const H = this.hintState;
+    const p = this.player;
+    if (isSheetOpen()) return;
+
+    if (H.sailed && !H.windTip) {
+      if (p.windFactor(this.windAng) < 0.55 && p.speed > 1) {
+        H.windTip = 1;
+        hint('You are close to the wind and slow. The rose shows where it blows from.', 5200);
+      }
+    }
+    if (!H.dockTip && this.dockablePort && !H.docked) {
+      H.dockTip = 1;
+      hint(`Ease your speed inside the buoys and tap <b>DOCK</b>.`, 5000);
+    }
+    if (H.docked && !H.targetTip) {
+      const hostile = this.ships.find(s => s.alive && s.faction === 'pirate' && dist(s.x, s.z, p.x, p.z) < 620);
+      if (hostile) { H.targetTip = 1; hint('A Tally sail. <b>Tap her</b> to mark your target.', 5200); }
+    }
+    if (H.targeted && !H.arcTip) {
+      H.arcTip = 1;
+      hint('Guns bear on the beam. Turn until FIRE lights, then let fly.', 5600);
+    }
+    if (H.fired && !H.ammoTip && this.target) {
+      if (this.target.sailFrac > 0.55 && this.target.speed > p.speed * 0.9) {
+        H.ammoTip = 1;
+        hint('She is faster than you. <b>Chain shot</b> will cut her rigging.', 5200);
+      }
+    }
+    if (this.target && !H.boardTip && this.target.sailFrac < 0.45 && this.target.alive) {
+      H.boardTip = 1;
+      hint('Her rigging is gone. Come alongside, take way off, and <b>BOARD</b>.', 6000);
+    }
+    if (H.fleet && !H.fleetTip) {
+      H.fleetTip = 1;
+      hint('Fleet orders are at the bottom of the screen. ENGAGE sets your consort loose.', 5600);
+    }
+  }
+  setQuality(q) {
+    this.quality = q;
+    setWaterQuality(q);
+    this.fx.q = q >= 1 ? 1 : 0.5;
+  }
+}
+
+/* =========================================================
+   upgrades
+   ========================================================= */
+function applyUpgrades(ship) {
+  const cls = HULLS[ship.classId];
+  ship.cls = { ...cls };
+  ship.hullMax = cls.hull; ship.sailMax = cls.sails;
+  ship.gunsMax = Math.max(1, Math.round(cls.guns / 2));
+  for (const u of ship.upgrades || []) {
+    if (u === 'copper') ship.cls.speed *= 1.08;
+    if (u === 'timbers') { ship.hullMax = Math.round(cls.hull * 1.25); }
+    if (u === 'ports') { ship.gunsMax += 1; ship.gunsPort = Math.min(ship.gunsMax, ship.gunsPort + 1); ship.gunsStb = Math.min(ship.gunsMax, ship.gunsStb + 1); }
+    if (u === 'lockers') ship.cls.cargo = cls.cargo + 20;
+  }
+  ship.hull = Math.min(ship.hull, ship.hullMax);
+}
+
+/* =========================================================
+   quest definitions
+   ========================================================= */
+function makeQuest(id) {
+  const rng = makeRNG(id.length * 977 + Math.floor(Date.now() / 600000));
+  if (id === 'cargo_first') {
+    const from = 'ilovantu';
+    const goods = ['fish', 'timber', 'iron', 'cloth'];
+    const good = rngPick(rng, goods);
+    const toPort = rngPick(rng, PORTS.filter(p => p.id !== from)).id;
+    const amount = rngInt(rng, 8, 16);
+    const p = PORTS.find(x => x.id === toPort);
+    return {
+      id, kind: 'cargo', board: 'harbour', portId: from,
+      title: `${GOODS[good].name} for ${p.name}`,
+      brief: `Deliver ${amount} ${GOODS[good].name} to the harbourmaster at ${p.name}.`,
+      good, amount, toPort, reward: 30 * amount + 120, prestige: 4,
+      active: false, done: false, progress: 0,
+      doneText: 'Delivered and signed for.',
+    };
+  }
+  if (id === 'hunt_sant') {
+    return {
+      id, kind: 'hunt', board: 'tavern', portId: null,
+      title: 'The Long Answer',
+      brief: 'Sink or take the brig Long Answer and her captain, Mireya Sant.',
+      targetName: 'Long Answer', count: 1, reward: 1400, prestige: 24,
+      active: false, done: false, progress: 0,
+      doneText: 'The tally is settled.',
+    };
+  }
+  return null;
+}
+
+/* =========================================================
+   world markers: destination ping, target ring, port pennants
+   ========================================================= */
+class Markers {
+  constructor(scene) {
+    this.scene = scene;
+    this.moveRings = [];
+    const ringGeo = new THREE.RingGeometry(6, 8.5, 28);
+    ringGeo.rotateX(-Math.PI / 2);
+    for (let i = 0; i < 3; i++) {
+      const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+        color: 0xffe6b0, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+      }));
+      m.visible = false;
+      m.renderOrder = 5;
+      scene.add(m);
+      this.moveRings.push({ mesh: m, t: 0 });
+    }
+    const tgeo = new THREE.RingGeometry(1, 1.26, 40);
+    tgeo.rotateX(-Math.PI / 2);
+    this.targetRing = new THREE.Mesh(tgeo, new THREE.MeshBasicMaterial({
+      color: 0xff7a5c, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide,
+    }));
+    this.targetRing.visible = false;
+    this.targetRing.renderOrder = 5;
+    scene.add(this.targetRing);
+
+    // broadside arcs — shown only while a target is marked, so exploring stays clean
+    this.arcs = new THREE.Group();
+    this.arcMats = {};
+    for (const side of ['stb', 'port']) {
+      const half = 70 * Math.PI / 180;
+      const start = side === 'stb' ? -half : Math.PI - half;
+      const g2 = new THREE.RingGeometry(26, GUN_RANGE, 30, 1, start, half * 2);
+      g2.rotateX(-Math.PI / 2);
+      const m = new THREE.MeshBasicMaterial({
+        color: 0xe6b25e, transparent: true, opacity: 0.055,
+        depthWrite: false, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(g2, m);
+      mesh.renderOrder = 4;
+      this.arcs.add(mesh);
+      this.arcMats[side] = m;
+    }
+    this.arcs.visible = false;
+    scene.add(this.arcs);
+
+    // port pennants
+    this.labels = [];
+    for (const p of PORTS) {
+      const spr = makeLabel(p.name.toUpperCase(), p.size === 'major' ? '#ffe6b0' : '#dfe9ea');
+      spr.position.set(p.x, 74, p.z);
+      scene.add(spr);
+      this.labels.push({ spr, port: p });
+    }
+    // grapple lines
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 3), 3));
+    this.grappleLines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xd9c9a4, transparent: true, opacity: 0.85 }));
+    this.grappleLines.visible = false;
+    this.grappleLines.frustumCulled = false;
+    scene.add(this.grappleLines);
+    this.grapplePair = null;
+  }
+
+  pingMove(x, z) {
+    const r = this.moveRings.find(r => r.t <= 0) || this.moveRings[0];
+    r.t = 1;
+    r.mesh.visible = true;
+    r.mesh.position.set(x, 0.6, z);
+  }
+  grapple(a, b) { this.grapplePair = [a, b]; this.grappleLines.visible = true; }
+  clearGrapple() { this.grapplePair = null; this.grappleLines.visible = false; }
+
+  update(dt, game) {
+    if (!game.player) return;
+    for (const r of this.moveRings) {
+      if (r.t <= 0) { if (r.mesh.visible) r.mesh.visible = false; continue; }
+      r.t -= dt * 0.85;
+      const k = 1 - r.t;
+      r.mesh.scale.setScalar(0.6 + k * 1.9);
+      r.mesh.material.opacity = Math.max(0, r.t * 0.8);
+      r.mesh.position.y = waveHeight(r.mesh.position.x, r.mesh.position.z) + 0.5;
+      if (r.t <= 0) r.mesh.visible = false;
+    }
+    const p = game.player;
+    const t = game.target;
+    // gun arcs follow the flagship whenever there is something to shoot at
+    const showArcs = !!(t && t.alive && !t.captured && p.alive);
+    this.arcs.visible = showArcs;
+    if (showArcs) {
+      this.arcs.position.set(p.x, 0.35, p.z);
+      this.arcs.rotation.y = p.yaw;
+      const lit = game.fireSide;
+      const ready = lit && p.reload[lit] <= 0;
+      for (const side of ['stb', 'port']) {
+        const on = lit === side;
+        this.arcMats[side].opacity = on ? (ready ? 0.20 : 0.10) : 0.05;
+        this.arcMats[side].color.setHex(on && ready ? 0xffd27a : 0xe6b25e);
+      }
+    }
+    if (t && t.alive && !t.captured) {
+      this.targetRing.visible = true;
+      const s = t.cls.len * 0.72;
+      this.targetRing.scale.setScalar(s);
+      this.targetRing.position.set(t.x, waveHeight(t.x, t.z) + 0.7, t.z);
+      this.targetRing.rotation.y += dt * 0.6;
+      this.targetRing.material.opacity = 0.55 + 0.35 * Math.sin(game.time * 3);
+    } else this.targetRing.visible = false;
+
+    // pennant labels fade with distance
+    for (const l of this.labels) {
+      const d = dist(p.x, p.z, l.port.x, l.port.z);
+      const vis = d > 120 && d < 1500;
+      l.spr.visible = vis;
+      if (vis) {
+        const k = clamp01(1 - (d - 1200) / 300) * clamp01((d - 120) / 120);
+        l.spr.material.opacity = 0.35 + k * 0.55;
+        const sc = clamp(d * 0.055, 22, 90);
+        l.spr.scale.set(sc * 3.4, sc, 1);
+      }
+    }
+
+    if (this.grapplePair) {
+      const [a, b] = this.grapplePair;
+      const arr = this.grappleLines.geometry.attributes.position.array;
+      for (let i = 0; i < 3; i++) {
+        const t2 = (i - 1) * 0.3;
+        const ax = a.x + Math.sin(a.yaw) * a.cls.len * t2, az = a.z + Math.cos(a.yaw) * a.cls.len * t2;
+        const bx = b.x + Math.sin(b.yaw) * b.cls.len * t2, bz = b.z + Math.cos(b.yaw) * b.cls.len * t2;
+        arr[i * 6] = ax; arr[i * 6 + 1] = waveHeight(ax, az) + 3.5; arr[i * 6 + 2] = az;
+        arr[i * 6 + 3] = bx; arr[i * 6 + 4] = waveHeight(bx, bz) + 3.5; arr[i * 6 + 5] = bz;
+      }
+      this.grappleLines.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+}
+
+function makeLabel(text, color = '#ffe6b0') {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 150;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, c.width, c.height);
+  g.font = '600 62px ui-serif, Georgia, serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = 18;
+  g.fillStyle = 'rgba(0,0,0,.55)';
+  g.fillText(text, 256, 84);
+  g.shadowBlur = 10;
+  g.fillStyle = color;
+  g.fillText(text, 256, 84);
+  g.shadowBlur = 0;
+  g.strokeStyle = 'rgba(230,178,94,.55)'; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(150, 26); g.lineTo(362, 26); g.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  const m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, opacity: 0.8 });
+  const s = new THREE.Sprite(m);
+  s.renderOrder = 8;
+  return s;
+}
+
+export { GUN_RANGE, BOARD_RANGE };

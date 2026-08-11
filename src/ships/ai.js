@@ -1,0 +1,371 @@
+/* ===========================================================
+   Autonomous captains. Small state machines — merchants run
+   cargo, fishers work the banks, the Tally hunt the weak, and
+   Admiralty patrols hunt the Tally. None of it needs the player.
+   =========================================================== */
+import { PORTS, EDGE_NODES, FISH_GROUNDS, FACTIONS } from '../data/gamedata.js';
+import { clamp, clamp01, angDiff, dist, TAU } from '../core/util.js';
+import { depthAt } from '../world/terrain.js';
+import { fireBroadside, bestSide, GUN_RANGE, canBoard } from '../combat/combat.js';
+import { crewPower } from './ship.js';
+
+const nodePos = id => EDGE_NODES[id] || PORTS.find(p => p.id === id);
+
+export function isHostile(a, b) {
+  if (!a || !b) return false;
+  if (a.faction === b.faction) return false;
+  const fa = FACTIONS[a.faction], fb = FACTIONS[b.faction];
+  if (!fa || !fb) return false;
+  if (a.isPlayer || a.faction === 'player') return !!(b.faction === 'pirate' || b.hostileToPlayer);
+  if (b.isPlayer || b.faction === 'player') return !!(fa.hostileTo.includes('player') || a.hostileToPlayer);
+  return !!(fa.hostileTo.includes(b.faction) || fb.hostileTo.includes(a.faction));
+}
+
+/** Rough combat weight — the number captains actually judge each other by.
+    A fat merchant with six guns and nobody trained to serve them is not
+    the same proposition as a lean privateer with the same battery. */
+export function strength(s) {
+  const battery = (s.gunsPort + s.gunsStb) * 8.5 * s.crewSkill('gun');
+  const hands = crewPower(s.crew, 'fight') * 2.2;
+  return battery + hands + s.hull * 0.10;
+}
+
+/* ---------- helpers ---------- */
+function avoidLand(ship, wantAng, dt) {
+  const probe = 42 + ship.speed * 3.2;
+  const need = ship.draft * 1.9 + 3;
+  const at = (a, d) => depthAt(ship.x + Math.sin(a) * d, ship.z + Math.cos(a) * d);
+  const c = at(wantAng, probe);
+  if (c > need) return wantAng;
+  const l = at(wantAng - 0.75, probe), r = at(wantAng + 0.75, probe);
+  const l2 = at(wantAng - 1.5, probe * 0.8), r2 = at(wantAng + 1.5, probe * 0.8);
+  const best = Math.max(l, r, l2, r2);
+  if (best <= need * 0.7) return wantAng + Math.PI * (Math.random() > 0.5 ? 0.5 : -0.5);
+  if (best === l) return wantAng - 0.75;
+  if (best === r) return wantAng + 0.75;
+  if (best === l2) return wantAng - 1.5;
+  return wantAng + 1.5;
+  void dt;
+}
+
+function steerTo(ship, x, z, dt) {
+  const want = Math.atan2(x - ship.x, z - ship.z);
+  const safe = avoidLand(ship, want, dt);
+  ship.headingCmd = safe;
+  ship.dest = null;
+  ship.throttle = 1;
+}
+
+/** Station-keeping off the target's beam: the classic circling gun duel. */
+function combatSteer(ship, target, dt, range = 120) {
+  const dx = target.x - ship.x, dz = target.z - ship.z;
+  const d = Math.hypot(dx, dz) || 1;
+  const bearing = Math.atan2(dx, dz);
+  const side = ship.reload.stb <= ship.reload.port ? 1 : -1;
+  // aim for a point abeam of the target so our battery bears
+  const want = range;
+  let ang;
+  if (d > want * 1.45) ang = bearing;                        // close the range
+  else if (d < want * 0.55) ang = bearing + Math.PI * 0.62 * side; // sheer off
+  else ang = bearing + (Math.PI / 2) * side * clamp(want / d, 0.7, 1.25);
+  ship.headingCmd = avoidLand(ship, ang, dt);
+  ship.dest = null;
+  ship.throttle = 1;
+}
+
+function tryFire(ship, target, ctx, arc = 62) {
+  if (!target || !target.alive || target.captured) return;
+  const d = dist(ship.x, ship.z, target.x, target.z);
+  if (d > GUN_RANGE) return;
+  const side = bestSide(ship, target, arc);
+  if (side && ship.reload[side] <= 0) {
+    // pick shot: cripple runners, sweep boarders, else smash hulls
+    if (target.speed > ship.speed * 0.95 && target.sailFrac > 0.5) ship.ammo = 'chain';
+    else if (d < 55) ship.ammo = 'grape';
+    else ship.ammo = 'round';
+    fireBroadside(ship, side, target, ctx);
+  }
+}
+
+function nearestPort(ship, factionOK) {
+  let best = null, bd = 1e9;
+  for (const p of PORTS) {
+    if (factionOK && !factionOK(p)) continue;
+    const d = dist(ship.x, ship.z, p.x, p.z);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
+}
+
+function findPrey(ship, ships) {
+  let best = null, bs = -1;
+  const myStr = strength(ship);
+  for (const o of ships) {
+    if (o === ship || !o.alive || o.captured) continue;
+    if (!isHostile(ship, o) && !(ship.role === 'pirate' && o.faction !== 'pirate')) continue;
+    const d = dist(ship.x, ship.z, o.x, o.z);
+    if (d > 820) continue;
+    const ratio = myStr / (strength(o) + 1);
+    if (ratio < 0.95) continue;             // the Tally are bold, not suicidal
+    const score = ratio * 100 - d * 0.25 + (o.cargoUsed > 8 ? 40 : 0) + (o.isPlayer ? 25 : 0);
+    if (score > bs) { bs = score; best = o; }
+  }
+  return best;
+}
+function findEnemy(ship, ships, maxD = 760) {
+  let best = null, bd = maxD;
+  for (const o of ships) {
+    if (o === ship || !o.alive || o.captured) continue;
+    if (!isHostile(ship, o)) continue;
+    const d = dist(ship.x, ship.z, o.x, o.z);
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+
+/* ---------------- main tick ---------------- */
+export function updateAI(ship, dt, world, ctx) {
+  if (!ship.alive || ship.captured || ship.isPlayer) return;
+  if (ship.boarding) return;
+  const b = ship.brain;
+  b.t += dt;
+  if (b.cooldown > 0) b.cooldown -= dt;
+
+  const hurt = ship.hullFrac < 0.34 || (ship.crewTotal <= ship.cls.crewMin * 0.55);
+  const crippled = ship.sailFrac < 0.22;
+
+  // anyone who is being shot at answers, whatever their day job was
+  if (ship.aggro > 0 && ship.lastAttacker && ship.lastAttacker.alive && !ship.lastAttacker.captured) {
+    if ((ship.role === 'pirate' || ship.role === 'patrol') && !ship.target) ship.target = ship.lastAttacker;
+    if (ship.lastAttacker.isPlayer || ship.lastAttacker.faction === 'player') ship.hostileToPlayer = true;
+  }
+
+  switch (ship.role) {
+    case 'merchant': merchantAI(ship, dt, world, ctx, hurt); break;
+    case 'fisher': fisherAI(ship, dt, world, ctx, hurt); break;
+    case 'pirate': pirateAI(ship, dt, world, ctx, hurt, crippled); break;
+    case 'patrol': patrolAI(ship, dt, world, ctx, hurt); break;
+    case 'consort': consortAI(ship, dt, world, ctx); break;
+    default: idleAI(ship, dt, world);
+  }
+}
+
+/* ---------- merchant ---------- */
+function merchantAI(ship, dt, world, ctx, hurt) {
+  const b = ship.brain;
+  const threat = nearestThreat(ship, world.ships, 420);
+  if (threat) {
+    b.state = 'flee';
+    b.flee = 6;
+    // run downwind, away from the threat
+    const away = Math.atan2(ship.x - threat.x, ship.z - threat.z);
+    const dw = world.windAng;
+    const use = Math.abs(angDiff(away, dw)) < 1.5 ? dw : away;
+    ship.headingCmd = avoidLandPublic(ship, use);
+    ship.throttle = 1;
+    // stern chaser spite
+    tryFire(ship, threat, ctx, 66);
+    return;
+  }
+  if (b.flee > 0) { b.flee -= dt; return; }
+  if (!b.route) newTradeRoute(ship);
+  runRoute(ship, dt, world, ctx);
+  void hurt;
+}
+function nearestThreat(ship, ships, range) {
+  let best = null, bd = range;
+  for (const o of ships) {
+    if (o === ship || !o.alive || o.captured) continue;
+    const hostile = isHostile(ship, o) || (o.faction === 'pirate')
+      || (ship.aggro > 0 && ship.lastAttacker === o);
+    if (!hostile) continue;
+    if (strength(o) < strength(ship) * 0.75) continue;
+    const d = dist(ship.x, ship.z, o.x, o.z);
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+function avoidLandPublic(ship, a) { return avoidLand(ship, a, 0.016); }
+
+function newTradeRoute(ship) {
+  const ids = [...PORTS.map(p => p.id), 'edge_w', 'edge_n', 'edge_e', 'edge_s'];
+  const from = ids[(Math.random() * ids.length) | 0];
+  let to = ids[(Math.random() * ids.length) | 0];
+  let g = 0;
+  while (to === from && g++ < 6) to = ids[(Math.random() * ids.length) | 0];
+  ship.brain.route = [from, to];
+  ship.brain.wp = 0;
+}
+function runRoute(ship, dt, world, ctx) {
+  const b = ship.brain;
+  const dest = nodePos(b.route[b.wp % 2 === 0 ? 1 : 1]);
+  const node = nodePos(b.route[1]);
+  const p = node || dest;
+  if (!p) { newTradeRoute(ship); return; }
+  const d = dist(ship.x, ship.z, p.x, p.z);
+  if (d < (p.dockR ? p.dockR + 30 : 120)) {
+    if (p.id && world.market) world.market.merchantArrived(p.id);
+    if (ctx && ctx.onArrive) ctx.onArrive(ship, p);
+    b.route = [b.route[1], pickFarNode(b.route[1])];
+    return;
+  }
+  steerTo(ship, p.x, p.z, dt);
+}
+function pickFarNode(fromId) {
+  const ids = [...PORTS.map(p => p.id), 'edge_w', 'edge_n', 'edge_e', 'edge_s'];
+  let to = ids[(Math.random() * ids.length) | 0], g = 0;
+  while (to === fromId && g++ < 6) to = ids[(Math.random() * ids.length) | 0];
+  return to;
+}
+
+/* ---------- fisher ---------- */
+function fisherAI(ship, dt, world, ctx) {
+  const b = ship.brain;
+  const threat = nearestThreat(ship, world.ships, 300);
+  if (threat) {
+    const away = Math.atan2(ship.x - threat.x, ship.z - threat.z);
+    ship.headingCmd = avoidLandPublic(ship, away);
+    ship.throttle = 1;
+    return;
+  }
+  if (!b.home) b.home = nearestPort(ship);
+  if (!b.ground) b.ground = FISH_GROUNDS[(Math.random() * FISH_GROUNDS.length) | 0];
+  if (b.state === 'idle' || !b.state) b.state = 'out';
+
+  if (b.state === 'out') {
+    const d = dist(ship.x, ship.z, b.ground.x, b.ground.z);
+    if (d < 60) { b.state = 'work'; b.workT = 22 + Math.random() * 30; }
+    else steerTo(ship, b.ground.x, b.ground.z, dt);
+  } else if (b.state === 'work') {
+    b.workT -= dt;
+    ship.throttle = 0.22;
+    ship.headingCmd = (ship.headingCmd ?? ship.yaw) + dt * 0.10;
+    if (b.workT <= 0) { b.state = 'home'; ship.cargo.fish = (ship.cargo.fish || 0) + 6; }
+  } else {
+    const h = b.home;
+    const d = dist(ship.x, ship.z, h.x, h.z);
+    if (d < h.dockR + 25) {
+      b.state = 'out';
+      b.ground = FISH_GROUNDS[(Math.random() * FISH_GROUNDS.length) | 0];
+      ship.cargo.fish = 0;
+      if (world.market) world.market.addStock(h.id, 'fish', 8);
+    } else steerTo(ship, h.x, h.z, dt);
+  }
+  void ctx;
+}
+
+/* ---------- pirate ---------- */
+function pirateAI(ship, dt, world, ctx, hurt, crippled) {
+  const b = ship.brain;
+  if (hurt || crippled) {
+    b.state = 'flee';
+    const t = ship.target || nearestThreat(ship, world.ships, 600);
+    const away = t ? Math.atan2(ship.x - t.x, ship.z - t.z) : world.windAng;
+    ship.headingCmd = avoidLandPublic(ship, away);
+    ship.throttle = 1;
+    ship.target = null;
+    if (t) tryFire(ship, t, ctx, 70);
+    return;
+  }
+  if (!ship.target || !ship.target.alive || ship.target.captured) {
+    if (b.cooldown <= 0) { ship.target = findPrey(ship, world.ships); b.cooldown = 1.2; }
+  }
+  const t = ship.target;
+  if (t) {
+    const d = dist(ship.x, ship.z, t.x, t.z);
+    if (d > 900) { ship.target = null; return; }
+    b.state = 'hunt';
+    // close hard until in gun range, then work the beam
+    if (d > GUN_RANGE * 1.1) steerTo(ship, t.x, t.z, dt);
+    else combatSteer(ship, t, dt, 105);
+    tryFire(ship, t, ctx, 62);
+    // board weak prize
+    if (!t.isPlayer && canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.75 && ctx.startBoarding) {
+      ctx.startBoarding(ship, t);
+    }
+    return;
+  }
+  // patrol dangerous water
+  if (!b.wpPos || dist(ship.x, ship.z, b.wpPos.x, b.wpPos.z) < 90) {
+    const a = Math.random() * TAU, r = 500 + Math.random() * 900;
+    b.wpPos = { x: Math.cos(a) * r, z: Math.sin(a) * r };
+  }
+  steerTo(ship, b.wpPos.x, b.wpPos.z, dt);
+}
+
+/* ---------- patrol ---------- */
+function patrolAI(ship, dt, world, ctx, hurt) {
+  const b = ship.brain;
+  if (hurt) {
+    const home = nearestPort(ship, p => p.faction === ship.faction) || nearestPort(ship);
+    steerTo(ship, home.x, home.z, dt);
+    ship.target = null;
+    return;
+  }
+  if (!ship.target || !ship.target.alive || ship.target.captured) {
+    if (b.cooldown <= 0) { ship.target = findEnemy(ship, world.ships, 780); b.cooldown = 1.0; }
+  }
+  const t = ship.target;
+  if (t) {
+    const d = dist(ship.x, ship.z, t.x, t.z);
+    if (d > 1100) { ship.target = null; return; }
+    if (d > GUN_RANGE) steerTo(ship, t.x, t.z, dt);
+    else combatSteer(ship, t, dt, 115);
+    tryFire(ship, t, ctx, 62);
+    if (canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.6 && ctx.startBoarding) ctx.startBoarding(ship, t);
+    return;
+  }
+  if (!b.wpPos || dist(ship.x, ship.z, b.wpPos.x, b.wpPos.z) < 110) {
+    const home = nearestPort(ship, p => p.faction === ship.faction);
+    const a = Math.random() * TAU, r = 380 + Math.random() * 620;
+    const cx = home ? home.x : 0, cz = home ? home.z : 0;
+    b.wpPos = { x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r };
+  }
+  steerTo(ship, b.wpPos.x, b.wpPos.z, dt);
+}
+
+/* ---------- consorts under the player's flag ---------- */
+function consortAI(ship, dt, world, ctx) {
+  const flag = world.player;
+  if (!flag) return;
+  const order = ship.fleetOrder || 'follow';
+
+  if (order === 'hold') {
+    ship.throttle = 0.12;
+    const e = findEnemy(ship, world.ships, GUN_RANGE);
+    if (e) tryFire(ship, e, ctx, 62);
+    return;
+  }
+  if (order === 'engage') {
+    let t = world.playerTarget && world.playerTarget.alive && !world.playerTarget.captured ? world.playerTarget : null;
+    if (!t) t = findEnemy(ship, world.ships, 900);
+    if (t) {
+      const d = dist(ship.x, ship.z, t.x, t.z);
+      if (d > GUN_RANGE * 1.05) steerTo(ship, t.x, t.z, dt);
+      else combatSteer(ship, t, dt, 110);
+      tryFire(ship, t, ctx, 62);
+      if (canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.7 && ctx.startBoarding) ctx.startBoarding(ship, t);
+      return;
+    }
+  }
+  // follow in echelon off the flagship's quarter
+  const slot = ship.formSlot || 1;
+  const back = 46 + slot * 26, side = (slot % 2 ? 1 : -1) * (34 + slot * 8);
+  const fx = flag.x - Math.sin(flag.yaw) * back + Math.cos(flag.yaw) * side;
+  const fz = flag.z - Math.cos(flag.yaw) * back - Math.sin(flag.yaw) * side;
+  const d = dist(ship.x, ship.z, fx, fz);
+  steerTo(ship, fx, fz, dt);
+  // press on harder the further astern she is, so a slower hull can still keep station
+  ship.throttle = clamp01(d / 60) * 0.65 + 0.35 + clamp01((d - 80) / 140) * 0.95;
+  if (d < 22) ship.throttle = 0.25;
+  // consorts fire at anything hostile that wanders into the arc
+  const e = findEnemy(ship, world.ships, GUN_RANGE);
+  if (e) tryFire(ship, e, ctx, 55);
+}
+
+function idleAI(ship, dt) {
+  ship.throttle = 0.15;
+  void dt;
+}
+
+export { combatSteer, steerTo, tryFire, nearestThreat, findEnemy };

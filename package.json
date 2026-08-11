@@ -1,0 +1,26 @@
+{
+  "name": "seaband-rts",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DudkneeAxiom/seaband-rts.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/DudkneeAxiom/seaband-rts/issues"
+  },
+  "homepage": "https://github.com/DudkneeAxiom/seaband-rts#readme",
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
