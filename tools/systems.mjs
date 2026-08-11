@@ -141,6 +141,8 @@ ok(`sinking a Tally ship earns prestige (${Math.round(rep.prestige)})`, rep.pres
 const crew = await G(() => {
   const g = window.__game;
   const p = g.player;
+  // earlier tests deliberately starve the ship; promotion needs a company
+  p.crew.deckhand = 6; p.crew.sailor = 6; p.crew.gunner = 1; p.crew.marine = 1; p.crew.rigger = 0;
   g.crewXP = 900;
   const before = { ...p.crew };
   g.promoteCrew();
@@ -196,8 +198,10 @@ ok('the pause button drives the badge and the clock', spdUI);
 /* ---- fighting weight ---- */
 const weigh = await G(() => {
   const g = window.__game;
-  const mk = (cls, role) => { const s = g.spawnNPC(role); return s; };
-  void mk;
+  // weigh from a healthy flagship, not the starved one the supply test left
+  const p = g.player;
+  p.crew.deckhand = 6; p.crew.sailor = 5; p.crew.gunner = 1; p.crew.marine = 1;
+  p.hull = p.hullMax; p.gunsPort = p.gunsMax; p.gunsStb = p.gunsMax;
   const fisher = g.ships.find(s => s.role === 'fisher' && s.alive);
   const patrol = g.ships.find(s => s.role === 'patrol' && s.alive);
   const out = { mine: g.fleetStrength };

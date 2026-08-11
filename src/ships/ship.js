@@ -218,12 +218,17 @@ export class Ship {
     m.rotation.x = damp(m.rotation.x, _tilt.z * Math.cos(this.yaw) + _tilt.x * Math.sin(this.yaw), 8, dt);
     m.rotation.z = damp(m.rotation.z, lean + (_tilt.x * Math.cos(this.yaw) - _tilt.z * Math.sin(this.yaw)), 7, dt);
 
-    // sails shrink and grey as rigging is shot away
+    // The rig reads the wind: yards brace round, canvas bellies to leeward,
+    // and shot-away rigging reefs up to the yards. `rel` is the wind's bearing
+    // relative to our head — 0 running before it, ±PI dead into it.
     const ud = m.userData;
     const sf = this.sailFrac;
-    ud.sailMesh.scale.set(1, clamp(0.35 + 0.65 * sf, 0.2, 1), lerp(0.65, 1, sf));
-    ud.sailMesh.material.opacity = lerp(0.45, 1, sf);
-    ud.sailMesh.visible = sf > 0.06;
+    if (ud.rigUniforms) {
+      ud.rigUniforms.uRel.value = angDiff(this.yaw, world.windAng);
+      ud.rigUniforms.uHealth.value = sf;
+    }
+    ud.rigMesh.material.opacity = lerp(0.5, 1, sf);
+    ud.rigMesh.visible = sf > 0.04;
     // flag streams downwind
     ud.flagMesh.rotation.y = angDiff(this.yaw, world.windAng + Math.PI) * 0.85
       + Math.sin(world.time * 3 + this.id) * 0.12;

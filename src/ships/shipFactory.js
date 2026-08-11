@@ -176,10 +176,18 @@ function detailGeos(cls, col) {
   return parts;
 }
 
+/* ===========================================================
+   The rig is built flat and unbraced. Yards and canvas carry a
+   pivot and a (u,v) parameter per vertex, and the shader swings
+   them round and bellies the cloth to leeward from the live wind.
+   That way the sails read the wind the way the compass does, and
+   there is still one draw call for the whole rig.
+   =========================================================== */
 function rig(cls, col) {
   const L = cls.len, B = cls.beam, FB = B * 0.30;
   const deckY = FB * 0.75;
-  const spars = [], sails = [];
+  const spars = [];       // masts: fixed, they belong to the hull mesh
+  const parts = [];       // yards + canvas: braced by the shader
   const n = cls.masts;
   const mastH = L * (n === 1 ? 1.02 : 0.86);
   const cSail = new THREE.Color(col.sail);
@@ -192,78 +200,181 @@ function rig(cls, col) {
   mastZ.forEach((mz, mi) => {
     const h = mastH * (mi === 1 && n === 3 ? 1.1 : 1.0);
     spars.push(prep(xf(new THREE.CylinderGeometry(0.22, 0.36, h, 6), { y: deckY + h / 2, z: mz }), 0x8b6c44));
-    // yards
+
     const yardW = B * (n === 1 ? 1.5 : 1.28);
     const nYards = h > L * 0.9 ? 2 : (mi === n - 1 && n > 1 ? 1 : 2);
     for (let k = 0; k < nYards; k++) {
       const yy = deckY + h * (0.42 + k * 0.34);
-      spars.push(prep(xf(new THREE.BoxGeometry(yardW * (1 - k * 0.22), 0.22, 0.22), { y: yy, z: mz }), 0x7d6242));
-      // square sail — bellied toward the stern
-      const sw = yardW * (1 - k * 0.22) * 0.94, sh = h * 0.30;
-      const sg = bellySail(sw, sh, 0.20 * B);
+      const pivot = [0, yy, mz];
+      const w = yardW * (1 - k * 0.22);
+      // the yard swings with its sail
+      parts.push(rigPart(
+        prep(xf(new THREE.BoxGeometry(w, 0.22, 0.22), { y: yy, z: mz }), 0x7d6242),
+        pivot, 0, 0, 0, null));
+      // flat canvas hanging from it; the belly is applied in the shader
+      const sh = h * 0.30;
+      const sg = new THREE.PlaneGeometry(w * 0.94, sh, 4, 3).toNonIndexed();
+      const uv = flatSailParams(sg);
       xf(sg, { y: yy - sh / 2, z: mz });
-      sails.push(prep(sg, cSail.getHex(), 0.05));
+      parts.push(rigPart(prep(sg, cSail.getHex(), 0.05), pivot, 0, 1, 0.24 * B, uv));
     }
   });
 
-  // fore-and-aft jib
+  // headsail: fore-and-aft, sheeted to leeward
   {
-    const sg = triSail(L * 0.30, mastH * 0.5, B * 0.16);
-    xf(sg, { y: deckY + mastH * 0.30, z: L * (n === 1 ? 0.30 : 0.46) });
-    sails.push(prep(sg, cSail.clone().multiplyScalar(0.97).getHex(), 0.04));
+    const tackZ = L * (n === 1 ? 0.30 : 0.46);
+    const { geo, params } = triSail(L * 0.30, mastH * 0.5);
+    xf(geo, { y: deckY + mastH * 0.30, z: tackZ });
+    parts.push(rigPart(prep(geo, cSail.clone().multiplyScalar(0.97).getHex(), 0.04),
+      [0, deckY, tackZ], 1, 1, B * 0.20, params));
   }
   // spanker at the stern for multi-masted rigs
   if (n > 1) {
-    const sg = bellySail(B * 0.9, mastH * 0.34, B * 0.14);
-    xf(sg, { x: B * 0.02, y: deckY + mastH * 0.28, z: mastZ[mastZ.length - 1] - L * 0.12, ry: 0.16 });
-    sails.push(prep(sg, cSail.clone().multiplyScalar(0.95).getHex(), 0.04));
+    const mz = mastZ[mastZ.length - 1];
+    const sw = B * 0.9, sh = mastH * 0.34;
+    const sg = new THREE.PlaneGeometry(sw, sh, 3, 3).toNonIndexed();
+    const uv = flatSailParams(sg);
+    xf(sg, { y: deckY + mastH * 0.28, z: mz - L * 0.12 });
+    parts.push(rigPart(prep(sg, cSail.clone().multiplyScalar(0.95).getHex(), 0.04),
+      [0, deckY, mz], 1, 1, B * 0.17, uv));
   }
-  return { spars, sails, mastTop: deckY + mastH * 1.02, mastZ: mastZ[0], deckY };
+  return { spars, parts, mastTop: deckY + mastH * 1.02, mastZ: mastZ[0], deckY };
 }
 
-/** A square sail with a wind belly (curved along X and Z). */
-function bellySail(w, h, belly) {
-  const NX = 4, NY = 3;
-  const g = new THREE.PlaneGeometry(w, h, NX, NY);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i);
-    const u = (x / w) * 2, v = (y / h) + 0.5;
-    const b = Math.cos(u * Math.PI * 0.5) * Math.sin(v * Math.PI) * belly;
-    p.setZ(i, -b - 0.05);
+/** Read (u,v) off a plane's own uvs: u across the sail, v from head to foot. */
+function flatSailParams(planeGeo) {
+  const uv = planeGeo.attributes.uv;
+  const out = new Float32Array(uv.count * 2);
+  for (let i = 0; i < uv.count; i++) {
+    out[i * 2] = uv.getX(i) * 2 - 1;     // -1 .. 1 across
+    out[i * 2 + 1] = 1 - uv.getY(i);     // 0 at the head, 1 at the foot
   }
-  p.needsUpdate = true;
-  return g.toNonIndexed();
+  return out;
 }
-function triSail(len, h, belly) {
-  const g = new THREE.BufferGeometry();
-  const pts = [];
-  const N = 4;
-  for (let i = 0; i < N; i++) {
-    const t0 = i / N, t1 = (i + 1) / N;
-    const z0 = -len * t0, z1 = -len * t1;
-    const y0 = h * t0, y1 = h * t1;
-    const b0 = Math.sin(t0 * Math.PI) * belly, b1 = Math.sin(t1 * Math.PI) * belly;
-    pts.push(b0, -y0 * 0 + y0 * 0, z0, b1, y1 * 0, z1, b1, -h * (1 - t1) * 0 + 0, z1);
+
+/** Tag a geometry with everything the rig shader needs. */
+function rigPart(geo, pivot, kind, cloth, belly, uvSrc) {
+  const n = geo.attributes.position.count;
+  const aPivot = new Float32Array(n * 3);
+  const aParam = new Float32Array(n * 3);
+  const aCloth = new Float32Array(n);
+  const aBelly = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    aPivot[i * 3] = pivot[0]; aPivot[i * 3 + 1] = pivot[1]; aPivot[i * 3 + 2] = pivot[2];
+    aParam[i * 3 + 2] = kind;
+    aCloth[i] = cloth;
+    aBelly[i] = belly;
   }
-  // simple triangular sheet: bow point -> masthead -> deck
+  if (uvSrc) {
+    for (let i = 0; i < n; i++) {
+      aParam[i * 3] = uvSrc[i * 2];
+      aParam[i * 3 + 1] = uvSrc[i * 2 + 1];
+    }
+  }
+  geo.setAttribute('aPivot', new THREE.BufferAttribute(aPivot, 3));
+  geo.setAttribute('aParam', new THREE.BufferAttribute(aParam, 3));
+  geo.setAttribute('aCloth', new THREE.BufferAttribute(aCloth, 1));
+  geo.setAttribute('aBelly', new THREE.BufferAttribute(aBelly, 1));
+  return geo;
+}
+/** A flat triangular headsail: tack forward, head aloft, clew aft.
+    Returns the geometry plus (u,v) per vertex for the belly in the shader. */
+function triSail(len, h) {
+  const g = new THREE.BufferGeometry();
   const A = [0, 0, 0], Bv = [0, h, -len * 0.15], C = [0, 0, -len];
-  const tri = [];
+  const tri = [], par = [];
   const M = 3;
+  const push = (p, u, v) => { tri.push(p[0], p[1], p[2]); par.push(u, v); };
   for (let i = 0; i < M; i++) {
     const s0 = i / M, s1 = (i + 1) / M;
-    const p0 = mix3(A, Bv, s0), p1 = mix3(A, Bv, s1);
-    const q0 = mix3(C, Bv, s0), q1 = mix3(C, Bv, s1);
-    const bl = (p) => [p[0] + Math.sin((p[1] / h) * Math.PI) * belly, p[1], p[2]];
-    const a = bl(p0), b = bl(p1), c = bl(q1), d = bl(q0);
-    tri.push(...a, ...b, ...c, ...a, ...c, ...d);
+    const p0 = mix3(A, Bv, s0), p1 = mix3(A, Bv, s1);   // luff, forward edge
+    const q0 = mix3(C, Bv, s0), q1 = mix3(C, Bv, s1);   // leech, after edge
+    // u runs -1 at the luff to +1 at the leech; v from head (0) to foot (1)
+    push(p0, -1, 1 - s0); push(p1, -1, 1 - s1); push(q1, 1, 1 - s1);
+    push(p0, -1, 1 - s0); push(q1, 1, 1 - s1); push(q0, 1, 1 - s0);
   }
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tri), 3));
   g.computeVertexNormals();
-  void pts;
-  return g;
+  return { geo: g, params: new Float32Array(par) };
 }
 function mix3(a, b, t) { return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; }
+
+/* ---------------- rig merge + material ---------------- */
+const RIG_ATTRS = [['aPivot', 3], ['aParam', 3], ['aCloth', 1], ['aBelly', 1]];
+
+function mergeRig(geos) {
+  const list = geos.filter(g => g && g.attributes.position);
+  let total = 0;
+  for (const g of list) total += g.attributes.position.count;
+  const out = new THREE.BufferGeometry();
+  for (const [name, size] of [['position', 3], ['normal', 3], ['color', 3], ...RIG_ATTRS]) {
+    const buf = new Float32Array(total * size);
+    let o = 0;
+    for (const g of list) {
+      const a = g.attributes[name];
+      const n = g.attributes.position.count;
+      if (a) buf.set(a.array.subarray(0, n * size), o * size);
+      o += n;
+    }
+    out.setAttribute(name, new THREE.BufferAttribute(buf, size));
+  }
+  for (const g of list) g.dispose();
+  return out;
+}
+
+/**
+ * Lambert, plus a vertex stage that swings the yards round and bellies the
+ * canvas to leeward from the live wind. `uRel` is the wind's bearing relative
+ * to the ship's head: 0 = dead astern (running), ±PI = dead ahead (in irons).
+ */
+function makeRigMaterial() {
+  const mat = litMaterial({ side: THREE.DoubleSide, transparent: true, opacity: 1 });
+  const uniforms = { uRel: { value: 0 }, uHealth: { value: 1 } };
+  mat.userData.uniforms = uniforms;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uRel = uniforms.uRel;
+    shader.uniforms.uHealth = uniforms.uHealth;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+        attribute vec3 aPivot;
+        attribute vec3 aParam;   // u across, v head-to-foot, kind (0 square, 1 fore-and-aft)
+        attribute float aCloth;  // 1 = canvas, 0 = spar
+        attribute float aBelly;
+        uniform float uRel;
+        uniform float uHealth;
+        float rigCt, rigSt, rigWs, rigWc, rigFill;`)
+      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+        rigWs = sin(uRel); rigWc = cos(uRel);
+        // square yards brace round to about half the wind angle; booms swing
+        // out to leeward. Both are capped the way standing rigging caps them.
+        float rigTh = (aParam.z < 0.5)
+          ? clamp(uRel * 0.5, -1.05, 1.05)
+          : clamp(-rigWs * 1.05, -1.15, 1.15);
+        rigCt = cos(rigTh); rigSt = sin(rigTh);
+        rigFill = mix(0.08, 1.0, smoothstep(3.05, 1.15, abs(uRel)));
+        objectNormal = vec3(
+          objectNormal.x * rigCt + objectNormal.z * rigSt,
+          objectNormal.y,
+          -objectNormal.x * rigSt + objectNormal.z * rigCt);`)
+      .replace('#include <begin_vertex>', `
+        vec3 rigQ = position - aPivot;
+        if (aCloth > 0.5) {
+          // shot-away canvas is reefed up to its yard and narrowed
+          rigQ.y *= mix(0.30, 1.0, uHealth);
+          rigQ.x *= mix(0.68, 1.0, uHealth);
+        }
+        vec3 transformed = vec3(
+          rigQ.x * rigCt + rigQ.z * rigSt,
+          rigQ.y,
+          -rigQ.x * rigSt + rigQ.z * rigCt) + aPivot;
+        if (aCloth > 0.5) {
+          float bulge = cos(aParam.x * 1.5707963) * sin(aParam.y * 3.14159265)
+                      * aBelly * rigFill * mix(0.25, 1.0, uHealth);
+          transformed += vec3(rigWs, 0.0, rigWc) * bulge;
+        }`);
+  };
+  return mat;
+}
 
 /** Build a complete ship object3D + metadata. */
 export function buildShip(classId, factionId, opts = {}) {
@@ -278,10 +389,11 @@ export function buildShip(classId, factionId, opts = {}) {
   bodyMesh.name = 'body';
   group.add(bodyMesh);
 
-  const sailGeo = mergeGeos(rigParts.sails);
-  const sailMesh = new THREE.Mesh(sailGeo, litMaterial({ side: THREE.DoubleSide, transparent: true, opacity: 1 }));
-  sailMesh.name = 'sails';
-  group.add(sailMesh);
+  const rigGeo = mergeRig(rigParts.parts);
+  const rigMat = makeRigMaterial();
+  const rigMesh = new THREE.Mesh(rigGeo, rigMat);
+  rigMesh.name = 'rig';
+  group.add(rigMesh);
 
   // flag at the masthead
   const fg = new THREE.PlaneGeometry(cls.beam * 0.72, cls.beam * 0.42, 3, 1);
@@ -293,8 +405,8 @@ export function buildShip(classId, factionId, opts = {}) {
 
   group.userData = {
     cls, mastTop: rigParts.mastTop, deckY: rigParts.deckY,
-    ports: gunPorts(cls), bodyMesh, sailMesh, flagMesh,
-    baseSailScale: 1,
+    ports: gunPorts(cls), bodyMesh, rigMesh, flagMesh,
+    rigUniforms: rigMat.userData.uniforms,
   };
   return group;
 }

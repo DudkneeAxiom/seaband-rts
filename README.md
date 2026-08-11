@@ -87,6 +87,13 @@ Buttons only exist while they mean something, so the ocean keeps the screen.
 target is off screen a chevron pins to the edge of the view with the bearing and the
 range in metres — a port, a contract's destination, or the nearest Tally sail.
 
+**The rig reads the wind.** Yards brace round and the canvas bellies to leeward from
+the live wind angle — square before a following wind, hard round and flat when you are
+close-hauled, empty when you point into it. Shot-away rigging reefs up to the yards. It
+is one draw call: the whole rig is built flat with a pivot and a (u,v) parameter per
+vertex, and a vertex stage on the standard material swings it. You can read a ship's
+point of sail off her rig alone, on your own hull and on everyone else's.
+
 **Sailing.** Tap-to-course with real momentum: hulls accelerate, carry way, and have a
 turning circle. Speed comes from `hull class × rigging condition × crew skill × cargo ×
 wind angle`. Running before the wind is worth 100%; beating into it, 38%. That spread
@@ -220,6 +227,7 @@ node tools/gunnery.mjs             # accuracy-vs-range curve and duel outcomes
 node tools/perf.mjs                # draw calls / triangles, idle and worst case
 node tools/scenes.mjs phone        # visual QA screenshots of key moments
 node tools/single-check.mjs        # 7 checks: the one-file build, run from file://
+node tools/rig.mjs                 # 7 checks: sails brace and belly the right way
 ```
 
 Current results:
@@ -230,6 +238,7 @@ Current results:
 | Systems (contracts, discoveries, reef draft, starvation, empty lockers, reputation, crew promotion, wind, time controls, fighting weight, objective marker, corrupt save) | **22/22** |
 | Touch input (tap-to-sail, tap-to-target, drag-orbit, zoom, no page scroll, rapid tapping, rotation) | **9/9** |
 | Single-file build run from `file://` at iPad resolution (load, three.js, new voyage, touch, harbour, broadside, save) | **7/7** |
+| Rig behaviour (belly direction on four points of sail, brace direction, canvas empties in irons) | **7/7** |
 | Layout audit (phone landscape/portrait, small phone, tablet, desktop) | **0 problems** |
 | Console errors across all suites | **none** |
 
@@ -263,7 +272,8 @@ offshore; inverted hull winding leaving ships as broken boxes; crest foam coveri
 the ocean; wake ribbons drawn as solid white planks after a position jump; clipped ammo
 labels; clouds painting over the sea; the island shelf interleaving with the water plane
 and showing through as flat grey shards; a wake that widened and brightened the wrong
-way round; and colliding hint/objective/target panels on narrow screens.
+way round; sails whose belly was baked toward the stern so they bulged into the wind
+instead of away from it; and colliding hint/objective/target panels on narrow screens.
 
 ---
 
