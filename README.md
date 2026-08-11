@@ -182,6 +182,7 @@ All suites drive the real game in Chromium via Playwright.
 
 ```bash
 node tools/playthrough.mjs phone   # 23 checks: the whole arc, with real UI clicks
+node tools/touch.mjs               # 9 checks: synthesised taps, drags, pinch, rotation
 node tools/systems.mjs             # 14 checks: contracts, discoveries, shoals, supplies…
 node tools/layout.mjs              # HUD geometry audit across 5 viewports
 node tools/world.mjs               # ten simulated minutes of NPC behaviour + sim cost
@@ -196,6 +197,7 @@ Current results:
 |---|---|
 | Full playthrough (new game → sail → dock → trade → recruit → hire → combat → board → capture → 2-ship fleet → save/reload → death) | **23/23** |
 | Systems (contracts, two discoveries, reef draft, starvation, empty lockers, reputation, crew promotion, wind, corrupt save) | **14/14** |
+| Touch input (tap-to-sail, tap-to-target, drag-orbit, zoom, no page scroll, rapid tapping, rotation) | **9/9** |
 | Layout audit (phone landscape/portrait, small phone, tablet, desktop) | **0 problems** |
 | Console errors across all suites | **none** |
 
