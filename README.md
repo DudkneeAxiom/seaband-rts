@@ -171,9 +171,32 @@ the button before you commit. Win and the prize is yours to keep, sell or sink.
 **Fleet command.** FOLLOW / ENGAGE / HOLD. Consorts navigate and fight themselves —
 you give intent, your captains execute it.
 
-**Economy.** Five goods across three settlements, with per-port price modifiers, stock
-that drifts back to a local baseline, and NPC merchant arrivals that move the books.
-Buy cheap, accept the risk of the passage, sell dear.
+**Economy.** Five goods across three settlements. Every port has a real export and a
+real appetite — Ilo Vantu sells island timber and undutied pepper, Marasay sells salt
+fish, Fort Escarra sells naval iron and sailcloth — so every leg has a cargo worth
+carrying and no leg is worth carrying everything. Stock drifts back to a local baseline
+and NPC merchant arrivals move the books, so a route you have just worked pays less
+until it recovers. Selling a full hold moves the price against you by about a fifth,
+which is what makes the second run of the same route a decision.
+
+**Carrying trade.** The harbourmaster keeps three runs on the board at every port,
+always *out of* that port and never to it, and each pays an **advance** on acceptance
+big enough to buy the load. That is deliberate: it means a captain with an empty
+strongbox can always take work, and it makes the merchant road a complete way to play
+rather than something you do between fights. Freight has to be loaded where the contract
+was written — buying it at the far end is shopping, not carrying. Deliver, and that
+harbour's board turns over.
+
+**Provisions.** A crew eats about one barrel per hand per six minutes, and the supply
+chip switches to telling you how many minutes of food are left once it is close enough
+to matter. Empty barrels do not kill anybody for a long while; they wear the crew down
+first — a starving company works its ship, its guns and its rail a third worse — which
+is a reason to make port, not a death sentence.
+
+**Harbours are refuges.** Every port sits under somebody's guns, and no raider follows a
+prize into the roads. Run for the buoys and your pursuer sheers off; the DOCK prompt is
+always there when you arrive, and only a hostile already *inside* the harbour can keep
+you out. Running for port is the one move a losing captain has, so it has to work.
 
 **Sizing up a sail.** Every ship that is not yours carries a pip above her mast
 colouring how she compares to everything under your flag — two green chevrons down for
@@ -268,6 +291,7 @@ All suites drive the real game in Chromium via Playwright.
 
 ```bash
 node tools/origin.mjs             # 46 checks: the questionnaire, its effects, the story
+node tools/trade.mjs              # 29 checks: the merchant road, upkeep and the way back
 node tools/playthrough.mjs phone   # 23 checks: the whole arc, with real UI clicks
 node tools/touch.mjs               # 9 checks: synthesised taps, drags, pinch, rotation
 node tools/systems.mjs             # 14 checks: contracts, discoveries, shoals, supplies…
@@ -326,6 +350,13 @@ way round; sails whose belly was baked toward the stern so they bulged into the 
 instead of away from it; firing arcs pinned at a fixed height while the swell ran three
 metres, so the sea sliced them into grey slabs; foam tracing the water mesh's own
 triangles; and colliding hint/objective/target panels on narrow screens.
+
+Measured rather than eyeballed, and fixed: cargo contracts that could be settled by
+buying the freight at the delivery port; a harbour that refused to let you dock while
+anything hostile was within gun range, which is precisely when you want to be inside it;
+trade routes whose margins were smaller than the provisions burned sailing them; and
+starvation that killed a hand every twenty seconds, turning one bad afternoon into a
+voyage that had to be abandoned.
 
 ---
 
@@ -409,6 +440,13 @@ A few decisions worth recording:
   once you have taken prizes they come in luggers with real gun crews.
 - **No wages.** Provisions are the running cost. A second meter that only subtracts money
   would have added bookkeeping, not tension.
+- **There is always a way back.** A captain who has run out of coin, cargo and food can
+  still reach a quay, take a contract, and be paid enough up front to load it. A sandbox
+  that can strand you in a state you cannot trade out of is asking you to start again,
+  and starting again is not a mechanic.
+- **Freight is loaded where it is written.** Without that, the nearest harbourmaster
+  will happily buy you a cargo and pay you to hand it straight back over the same
+  counter, which is not a trade route, it is a bug with a fee attached.
 
 ---
 

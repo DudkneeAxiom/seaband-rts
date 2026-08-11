@@ -73,10 +73,15 @@ export class HUD {
         setBar('bar-sail', 'txt-sail', p.sailFrac, Math.round(p.sails));
         setBar('bar-crew', 'txt-crew', p.crewFrac, p.crewTotal);
         const prov = $('mini-prov'), ammo = $('mini-ammo'), cargo = $('mini-cargo');
-        prov.querySelector('b').textContent = Math.floor(p.provisions);
+        // barrels are only meaningful as time left at sea, so say so once it
+        // is close enough to matter — a number alone told nobody anything
+        const mins = p.crewTotal > 0 ? (p.provisions * 380) / (p.crewTotal * 60) : 99;
+        prov.querySelector('b').textContent = mins < 16
+          ? `${Math.floor(p.provisions)} · ${Math.max(0, Math.round(mins))}m`
+          : Math.floor(p.provisions);
         ammo.querySelector('b').textContent = p.shot;
         cargo.querySelector('b').textContent = `${p.cargoUsed}/${p.cls.cargo}`;
-        prov.classList.toggle('warn', p.provisions < p.crewTotal * 0.6);
+        prov.classList.toggle('warn', mins < 8);
         ammo.classList.toggle('warn', p.shot < 6);
       }
     }

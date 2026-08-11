@@ -1,6 +1,6 @@
 /* Touch input: real synthesised taps, drags and pinches on the canvas.
    This is the control path everything else depends on. */
-import { launch, sleep, ff, shot, newVoyage } from './qa.mjs';
+import { launch, sleep, ff, shot, newVoyage, waitFor } from './qa.mjs';
 
 const { browser, page, errors } = await launch('phone');
 const log = [];
@@ -38,35 +38,45 @@ await page.evaluate(() => {
   g.target = null;
 });
 await ff(page, 0.3);
-const scr = await page.evaluate(() => {
+/* She is under way, so her place on screen is only true for an instant —
+   work it out again immediately before every tap. */
+const aim = () => page.evaluate(() => {
   const g = window.__game;
-  const s = g.ships.find(x => !x.isPlayer && x.alive && Math.hypot(x.x - g.player.x, x.z - g.player.z) < 140);
+  const s = g.ships.find(x => !x.isPlayer && x.alive && Math.hypot(x.x - g.player.x, x.z - g.player.z) < 200);
+  if (!s) return null;
   const v = new (Object.getPrototypeOf(g.rig.cam.position).constructor)(s.x, 6, s.z);
   v.project(g.rig.cam);
   const r = document.getElementById('scene').getBoundingClientRect();
   return { x: (v.x * 0.5 + 0.5) * r.width, y: (-v.y * 0.5 + 0.5) * r.height, name: s.name };
 });
-await page.touchscreen.tap(scr.x, scr.y);
-await sleep(350);
+const tapShip = async () => {
+  const a = await aim();
+  if (!a) return null;
+  await page.touchscreen.tap(a.x, a.y);
+  await sleep(320);
+  return a;
+};
+const scr = await tapShip();
 const targeted = await page.evaluate(() => window.__game.target ? window.__game.target.name : null);
 ok(`tapping a hull marks her as target (${targeted})`, targeted === scr.name);
 
 /* ---- an accidental tap can be taken back ---- */
 // tapping the same hull again releases her
-await page.touchscreen.tap(scr.x, scr.y);
-await sleep(350);
+await tapShip();
 ok('tapping the marked ship again releases her', !(await page.evaluate(() => !!window.__game.target)));
 
 // and the card's dismiss button does it too
-await page.touchscreen.tap(scr.x, scr.y);
-await sleep(350);
+await tapShip();
 const reMarked = await page.evaluate(() => !!window.__game.target);
 const closeBox = await page.evaluate(() => {
   const r = document.getElementById('tc-close').getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.round(r.width), h: Math.round(r.height) };
 });
 await page.touchscreen.tap(closeBox.x, closeBox.y);
-await sleep(350);
+// the HUD repaints on its own tick, which on a software renderer is a whole
+// frame behind the game — wait for the card to go rather than guess at it
+await waitFor(page, () => !window.__game.target
+  && document.getElementById('targetcard').classList.contains('hidden'), 3000);
 const cleared = await page.evaluate(() => ({
   target: !!window.__game.target,
   card: document.getElementById('targetcard').classList.contains('hidden'),
@@ -76,8 +86,7 @@ ok(`the card's dismiss button clears the target (${closeBox.w}x${closeBox.h} hit
   !cleared.target && cleared.card && closeBox.w >= 44 && closeBox.h >= 44);
 
 // steering must NOT drop the target — you need to manoeuvre while engaged
-await page.touchscreen.tap(scr.x, scr.y);
-await sleep(300);
+await tapShip();
 await page.touchscreen.tap(box.w * 0.25, box.h * 0.3);
 await sleep(350);
 const keptWhileSteering = await page.evaluate(() => ({

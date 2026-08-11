@@ -167,7 +167,8 @@ function questRow(q, port) {
   r.appendChild(el('div', 'rmain',
     `<div class="rtitle">${q.title} ${q.kind === 'hunt' ? '<span class="pill r">HUNT</span>' : '<span class="pill b">CARGO</span>'}</div>
      <div class="rsub">${q.brief}</div>
-     <div class="statline"><span>Reward <b>◆${q.reward}</b></span><span>Prestige <b>+${q.prestige}</b></span></div>`));
+     <div class="statline"><span>Freight <b>◆${q.reward}</b></span>${q.advance
+      ? `<span>Advance <b>◆${q.advance}</b></span>` : ''}<span>Prestige <b>+${q.prestige}</b></span></div>`));
   const b = el('button', 'btn gold', 'ACCEPT');
   onTap(b, () => { G.acceptQuest(q, port); refresh(); });
   r.appendChild(b);
@@ -207,6 +208,7 @@ function marketTab(n, port) {
       G.coin -= buy * cnt;
       p.cargo[gid] = (p.cargo[gid] || 0) + cnt;
       G.market.takeStock(port.id, gid, cnt);
+      G.onGoodsBought(gid, cnt, port);
       sfxCoin(); G.save(); refresh();
     });
     const sb = el('button', 'btn' + (have > 0 ? '' : ' dim'), `SELL`);

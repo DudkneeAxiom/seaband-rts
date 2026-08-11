@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import {
   PORTS, POIS, ISLANDS, HULLS, FACTIONS, NAMES, GOODS, RANKS, WORLD_SIZE, EDGE_NODES,
 } from './data/gamedata.js';
-import { clamp, clamp01, lerp, dist, angDiff, makeRNG, rngPick, rngInt, TAU, fmtCoin } from './core/util.js';
+import { clamp, clamp01, lerp, dist, angDiff, makeRNG, rngInt, TAU, fmtCoin } from './core/util.js';
 import { bakeHeights, makeDepthTexture, buildTerrain, depthAt } from './world/terrain.js';
 import { createWater, updateWater, waveHeight, setWaterQuality } from './world/water.js';
 import { createSky, updateSky, SKY } from './world/sky.js';
@@ -67,6 +67,7 @@ export class Game {
     this.discovered = new Set();
     this.tavernSeed = 1;
     this.tavernCache = {};
+    this.contractEpoch = {};       // bumped per port so the board turns over
     this.market = new Market();
     this.fleetOrder = 'follow';
     this.target = null;
@@ -125,6 +126,7 @@ export class Game {
     this.officers = []; this.prizes = []; this.quests = [];
     this.discovered = new Set();
     this.tavernCache = {};
+    this.contractEpoch = {};
     this.market = new Market();
     this.world.market = this.market;
     this.gameOver = false;
@@ -154,7 +156,6 @@ export class Game {
     for (const k in fx.standing) this.standing[k] = (this.standing[k] || 0) + fx.standing[k];
     this.equipCaptain();
 
-    this.quests.push(makeQuest('cargo_first'));
     this.seedTraffic();
     this.setupIntro();
     this.save();
@@ -245,7 +246,14 @@ export class Game {
         officers: this.officers.map(o => ({ ...o, ship: o.ship ? o.ship.id : null })),
         fleet: this.fleet.map(s => ({ ...s.serialize(), upgrades: s.upgrades || [] })),
         prizes: this.prizes,
-        quests: this.quests.map(q => ({ id: q.id, active: q.active, done: q.done, progress: q.progress, portId: q.portId })),
+        quests: this.quests.map(q => ({
+          id: q.id, active: q.active, done: q.done, progress: q.progress, portId: q.portId,
+          // a contract's terms are fixed when it is written, not re-derived from
+          // a market that has moved since
+          good: q.good, amount: q.amount, toPort: q.toPort, fromPort: q.fromPort,
+          reward: q.reward, advance: q.advance, loaded: q.loaded,
+        })),
+        contractEpoch: this.contractEpoch,
         discovered: [...this.discovered],
         market: this.market.save(),
         hintState: this.hintState,
@@ -289,10 +297,20 @@ export class Game {
       this.fleetOrder = data.fleetOrder || 'follow';
       this.prizes = data.prizes || [];
       this.officers = (data.officers || []).map(o => ({ ...o, ship: null, trait: o.trait || { name: 'Steady', tip: '' } }));
+      this.contractEpoch = data.contractEpoch || {};
       this.quests = (data.quests || []).map(q => {
-        const nq = makeQuest(q.id);
+        const nq = makeQuest(q.id, this.market);
         if (!nq) return null;
         nq.active = q.active; nq.done = q.done; nq.progress = q.progress || 0; nq.portId = q.portId;
+        if (nq.kind === 'cargo') {
+          // restore the terms as written, so a delivery cannot change price
+          for (const k of ['good', 'amount', 'toPort', 'fromPort', 'reward', 'advance']) {
+            if (q[k] !== undefined) nq[k] = q[k];
+          }
+          nq.loaded = q.loaded || 0;
+          const to = PORTS.find(x => x.id === nq.toPort);
+          if (to) nq.title = `${GOODS[nq.good].name} for ${to.name}`;
+        }
         return nq;
       }).filter(Boolean);
 
@@ -488,15 +506,36 @@ export class Game {
     if (!p || !p.alive) { this.checkGameOver(); return; }
 
     // ---- player upkeep ----
-    const eat = (p.crewTotal * dt) / 210;
+    // Empty barrels used to kill a hand every twenty seconds, which turned a
+    // bad afternoon into an unrecoverable one. Hunger now takes the edge off
+    // the crew long before it takes any of them: you lose performance, get
+    // told about it, and have time to make port.
+    const eat = (p.crewTotal * dt) / 380;
     p.provisions -= eat;
+    const low = p.provisions <= p.crewTotal * 0.8;
+    if (low && !this.hintState.lowProv) {
+      this.hintState.lowProv = 1;
+      toast('The barrels are running low. Make port before they are empty.', 'bad', 4200);
+    } else if (!low && this.hintState.lowProv && p.provisions > p.crewTotal * 1.6) {
+      this.hintState.lowProv = 0;
+    }
     if (p.provisions <= 0) {
       p.provisions = 0;
-      p.morale = Math.max(0.1, p.morale - dt * 0.02);
-      if (Math.random() < dt * 0.05 && p.crewTotal > 3) {
-        p.killCrew(1); this.stats.crewLost++;
-        toast('A hand has died of want. The barrels are empty.', 'bad');
+      p.hungry = Math.min(1, p.hungry + dt * 0.05);      // ~20s to fully worn down
+      p.morale = Math.max(0.15, p.morale - dt * 0.012);
+      if (!this.hintState.starving) {
+        this.hintState.starving = 1;
+        toast('Empty barrels. The hands are on short commons and working badly.', 'bad', 5000);
       }
+      // a death only once hunger has properly set in, and never below a
+      // working crew — a captain alone on a becalmed deck is not a game
+      if (p.hungry > 0.85 && Math.random() < dt * 0.008 && p.crewTotal > p.cls.crewMin) {
+        p.killCrew(1); this.stats.crewLost++;
+        toast('A hand has died of want.', 'bad');
+      }
+    } else if (p.hungry > 0) {
+      p.hungry = Math.max(0, p.hungry - dt * 0.14);      // fed again, back on their feet
+      if (this.hintState.starving && p.hungry === 0) this.hintState.starving = 0;
     }
     this.crewXP += dt * 0.35 * (this.combatHeat > 0 ? 3 : 1);
     this.stats.distance += p.speed * dt;
@@ -645,19 +684,19 @@ export class Game {
 
   updateContext(dt) {
     const p = this.player;
-    // dockable port
+    // dockable port. Inside the buoys you are under the shore's guns and the
+    // Tally have already sheered off, so the harbour is always open — running
+    // for port is the one move a losing captain has, and it has to work.
     let dock = null;
-    // no putting into port with a hostile inside gun range — you would be
-    // warping alongside a quay under fire, and it keeps the control stack short
-    let underThreat = false;
-    for (const s of this.ships) {
-      if (!s.alive || s.captured || s.isPlayer || this.fleet.includes(s)) continue;
-      if (!isHostile(p, s) && !s.hostileToPlayer) continue;
-      if (dist(p.x, p.z, s.x, s.z) < 210) { underThreat = true; break; }
+    for (const port of PORTS) {
+      if (dist(p.x, p.z, port.x, port.z) < port.dockR && p.speed < 7.5) { dock = port; break; }
     }
-    if (!underThreat) {
-      for (const port of PORTS) {
-        if (dist(p.x, p.z, port.x, port.z) < port.dockR && p.speed < 7.5) { dock = port; break; }
+    // outside them, a hostile alongside still stops you warping to a quay
+    if (dock) {
+      for (const s of this.ships) {
+        if (!s.alive || s.captured || s.isPlayer || this.fleet.includes(s)) continue;
+        if (!isHostile(p, s) && !s.hostileToPlayer) continue;
+        if (dist(s.x, s.z, dock.x, dock.z) < dock.dockR) { dock = null; break; }
       }
     }
     if (dock !== this.dockablePort) {
@@ -1240,16 +1279,34 @@ export class Game {
   onGoodsSold(gid, cnt, port) {
     this.progressQuest('cargo', { gid, cnt, port });
   }
+  /** Freight has to be loaded where the contract was written. Buying it at the
+      far end is shopping, not carrying, and the harbourmaster knows it. */
+  onGoodsBought(gid, cnt, port) {
+    for (const q of this.quests) {
+      if (!q.active || q.done || q.kind !== 'cargo') continue;
+      if (q.good !== gid || q.fromPort !== port.id) continue;
+      q.loaded = Math.min(q.amount, (q.loaded || 0) + cnt);
+      this.refreshObjective();
+    }
+  }
 
   /* =========================================================
      quests & discoveries
      ========================================================= */
+  /** The harbourmaster's board. Three runs, always, always out of this port —
+      a captain who can reach a quay can always find work. */
   contractsAt(port) {
     const out = [];
-    for (const q of this.quests) if (!q.active && !q.done && (!q.portId || q.portId === port.id) && q.board === 'harbour') out.push(q);
-    // keep a cargo contract available
-    if (!this.quests.some(q => q.kind === 'cargo' && (q.active || !q.done))) {
-      const nq = makeQuest('cargo_first');
+    for (const q of this.quests) {
+      if (q.active || q.done || q.board !== 'harbour') continue;
+      if (q.portId && q.portId !== port.id) continue;
+      out.push(q);
+    }
+    const epoch = this.contractEpoch[port.id] || 0;
+    for (let slot = 0; slot < 3; slot++) {
+      const id = `cargo:${port.id}:${slot}:${epoch}`;
+      if (this.quests.some(q => q.id === id)) continue;
+      const nq = makeQuest(id, this.market);
       if (nq) { this.quests.push(nq); out.push(nq); }
     }
     return out;
@@ -1280,7 +1337,13 @@ export class Game {
     if (!this.quests.includes(q)) this.quests.push(q);
     q.active = true; q.portId = q.portId || port.id;
     if (q.kind === 'hunt' && q.id === 'hunt_sant') this.spawnSant();
-    toast(`Undertaking accepted: ${q.title}`, 'gold', 3200);
+    if (q.advance) {
+      this.coin += q.advance;
+      sfxCoin();
+      toast(`${q.title} — ◆${q.advance} advanced against the freight.`, 'gold', 3600);
+    } else {
+      toast(`Undertaking accepted: ${q.title}`, 'gold', 3200);
+    }
     this.refreshObjective();
     this.save();
   }
@@ -1288,14 +1351,24 @@ export class Game {
     if (q.done) return q.doneText || 'Settled.';
     if (q.kind === 'cargo') {
       const p = PORTS.find(x => x.id === q.toPort);
-      return `Carry <b>${q.amount} ${GOODS[q.good].name}</b> to <b>${p.name}</b>. ${q.progress || 0}/${q.amount} delivered.`;
+      const from = PORTS.find(x => x.id === q.fromPort);
+      const loaded = q.loaded || 0;
+      if (loaded < q.amount) {
+        return `Load <b>${q.amount} ${GOODS[q.good].name}</b> at <b>${from ? from.name : 'the contract port'}</b>`
+          + ` — ${loaded}/${q.amount} aboard — then carry it to <b>${p.name}</b>.`;
+      }
+      return `Carry <b>${q.amount} ${GOODS[q.good].name}</b> to <b>${p.name}</b>.`;
     }
     if (q.kind === 'hunt') return `Sink or take <b>${q.targetName}</b>. ${q.progress || 0}/${q.count}`;
     return q.brief;
   }
   canCompleteHere(q, port) {
     if (q.done || !q.active) return false;
-    if (q.kind === 'cargo') return q.toPort === port.id && (this.player.cargo[q.good] || 0) >= q.amount;
+    if (q.kind === 'cargo') {
+      return q.toPort === port.id
+        && (this.player.cargo[q.good] || 0) >= q.amount
+        && (q.loaded || 0) >= q.amount;
+    }
     if (q.kind === 'hunt') return (q.progress || 0) >= q.count;
     return false;
   }
@@ -1306,13 +1379,26 @@ export class Game {
       if (p.cargo[q.good] <= 0) delete p.cargo[q.good];
     }
     q.done = true; q.active = false;
-    const got = this.gainCoin(q.reward);
+    const balance = Math.max(0, q.reward - (q.advance || 0));
+    const got = this.gainCoin(balance);
     const pres = this.gainPrestige(q.prestige);
+    // the board where it was written turns over, so the work is never the same twice
+    if (q.fromPort) this.contractEpoch[q.fromPort] = (this.contractEpoch[q.fromPort] || 0) + 1;
+    this.pruneContracts();
     sfxCoin();
-    toast(`${q.title} — settled. ◆${got}, prestige +${pres}`, 'gold', 4000);
+    toast(`${q.title} — settled. ◆${got} on delivery, prestige +${pres}`, 'gold', 4000);
     this.refreshObjective();
     this.save();
   }
+  /** Drop contracts nobody took from a board that has since turned over. */
+  pruneContracts() {
+    this.quests = this.quests.filter(q => {
+      if (q.active || q.done || q.kind !== 'cargo') return true;
+      const epoch = +(q.id.split(':')[3] || 0);
+      return epoch === (this.contractEpoch[q.portId] || 0);
+    });
+  }
+
   progressQuest(kind, payload) {
     for (const q of this.quests) {
       if (!q.active || q.done || q.kind !== kind) continue;
@@ -1483,24 +1569,56 @@ function applyUpgrades(ship) {
 /* =========================================================
    quest definitions
    ========================================================= */
-function makeQuest(id) {
-  const rng = makeRNG(id.length * 977 + Math.floor(Date.now() / 600000));
-  if (id === 'cargo_first') {
-    const from = 'ilovantu';
-    const goods = ['fish', 'timber', 'iron', 'cloth'];
-    const good = rngPick(rng, goods);
-    const toPort = rngPick(rng, PORTS.filter(p => p.id !== from)).id;
-    const amount = rngInt(rng, 8, 16);
-    const p = PORTS.find(x => x.id === toPort);
-    return {
-      id, kind: 'cargo', board: 'harbour', portId: from,
-      title: `${GOODS[good].name} for ${p.name}`,
-      brief: `Deliver ${amount} ${GOODS[good].name} to the harbourmaster at ${p.name}.`,
-      good, amount, toPort, reward: 30 * amount + 120, prestige: 4,
-      active: false, done: false, progress: 0,
-      doneText: 'Delivered and signed for.',
-    };
-  }
+/* A carrying contract, written for the port you are standing in.
+   It always names somewhere else to take the cargo, it has to be loaded
+   *here* — buying it at the far end is not carrying, it is shopping — and it
+   pays an advance big enough to buy the load, so a captain with an empty
+   strongbox can still take work. That last part is what stops a bad run
+   turning into a dead voyage. */
+function makeCargoQuest(id, market) {
+  const bits = id.split(':');                       // cargo:<port>:<slot>:<epoch>
+  const from = bits[1] || 'ilovantu';
+  const slot = +(bits[2] || 0);
+  const epoch = +(bits[3] || 0);
+  const fromPort = PORTS.find(p => p.id === from);
+  if (!fromPort) return null;
+  const rng = makeRNG(from.length * 7919 + slot * 313 + epoch * 97);
+
+  // pick something this port actually sells cheaply, and somewhere that wants it
+  const goods = Object.keys(GOODS);
+  const scored = goods.map(g => {
+    const here = fromPort.prices[g] ?? 1;
+    let bestTo = null, bestGap = -9;
+    for (const p of PORTS) {
+      if (p.id === from) continue;
+      const gap = (p.prices[g] ?? 1) - here;
+      if (gap > bestGap) { bestGap = gap; bestTo = p; }
+    }
+    return { g, to: bestTo, gap: bestGap };
+  }).filter(x => x.to).sort((a, b) => b.gap - a.gap);
+  const pick = scored[Math.min(slot, scored.length - 1)] || scored[0];
+  const good = pick.g, toPort = pick.to;
+
+  const amount = rngInt(rng, 8, 18);
+  const unit = market ? market.buyPrice(from, good) : GOODS[good].base;
+  const leg = dist(fromPort.x, fromPort.z, toPort.x, toPort.z);
+  // the fee: what the load costs you, plus a carrying rate on value and distance
+  const fee = Math.round(unit * amount * 1.55 + leg * 0.06 * amount / 10 + 90);
+  // enough up front to buy the cargo and a few barrels with it
+  const advance = Math.round(unit * amount * 1.05 + 40);
+  return {
+    id, kind: 'cargo', board: 'harbour', portId: from,
+    title: `${GOODS[good].name} for ${toPort.name}`,
+    brief: `Load ${amount} ${GOODS[good].name} here and carry it to the harbourmaster at ${toPort.name}.`,
+    good, amount, fromPort: from, toPort: toPort.id,
+    reward: fee, advance, prestige: 4,
+    active: false, done: false, progress: 0, loaded: 0,
+    doneText: 'Delivered and signed for.',
+  };
+}
+
+function makeQuest(id, market) {
+  if (id.startsWith('cargo:')) return makeCargoQuest(id, market);
   if (id === 'hunt_sant') {
     return {
       id, kind: 'hunt', board: 'tavern', portId: null,

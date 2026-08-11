@@ -61,6 +61,7 @@ export class Ship {
     this.target = null;
     this.aggro = 0;
     this.groundedT = 0;
+    this.hungry = 0;          // 0..1 — how far short commons have worn them down
     this.boarding = null;
     this.lockTo = null;
     this.smokeT = 0;
@@ -96,7 +97,8 @@ export class Ship {
   crewSkill(key) {
     const need = Math.max(4, this.cls.crewMax * 0.38);
     const base = clamp(crewPower(this.crew, key) / need, 0.25, 1.9);
-    return base * (this.capt ? (1 + (this.capt[key] || 0)) : 1);
+    const fed = 1 - 0.35 * this.hungry;      // a starving crew works badly
+    return base * fed * (this.capt ? (1 + (this.capt[key] || 0)) : 1);
   }
   officerBonus(role) {
     return this.officers.some(o => o.role === role) ? 1 : 0;

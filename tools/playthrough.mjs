@@ -121,11 +121,16 @@ ok('bought a yard upgrade', await G(() => window.__game.player.upgrades && windo
 await page.click('#sheet-close');
 await sleep(600);
 ok('port closed, back at sea', await G(() => document.getElementById('sheet').classList.contains('hidden')));
+await sleep(500);
+await dismissModal(page);      // making port closes a chapter, and it pauses to be read
 
 /* ---------- 4. combat ---------- */
 await G(() => {
   const g = window.__game;
   g.player.shot = 90;
+  // open water, well clear of any harbour — a raider under a fort's guns
+  // sheers off rather than fights, which is not what this is measuring
+  g.player.x = 120; g.player.z = 60; g.player.dest = null;
   // give the officer to the flagship crew and set up a fair fight
   const pir = g.ships.find(s => s.faction === 'pirate' && s.alive && !s.isSant)
     || g.spawnNPC('pirate');
@@ -153,6 +158,7 @@ for (let i = 0; i < 60; i++) {
     return { f, sail: t.sailFrac, hull: t.hullFrac, crew: t.crewTotal, board: g.boardable, alive: t.alive };
   });
   if (st.done) break;
+  if (await G(() => window.__game.paused)) await dismissModal(page);
   fired += st.f || 0;
   if (st.sail < 0.3 && st.crew < 12) break;
 }

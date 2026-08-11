@@ -87,6 +87,37 @@ function tryFire(ship, target, ctx, arc = 62) {
   }
 }
 
+/* ---------- harbours are refuges ----------
+   Every port here sits under somebody's guns. A raider that follows a prize
+   into the roads is picking a fight with the shore, and none of them want
+   that — so the approaches are the one place a beaten captain can run to.
+   This is also what makes DOCK reachable when you are being chased. */
+/* Roughly two and a half times the harbour itself: wide enough that a chased
+   captain is safe once the buoys are in sight, tight enough that it does not
+   sterilise the sea around every port. */
+export const GUARD_R = 190;
+export function portGuarding(x, z) {
+  for (const p of PORTS) {
+    if (dist(x, z, p.x, p.z) < GUARD_R + (p.size === 'major' ? 60 : 0)) return p;
+  }
+  return null;
+}
+/** Turn a hunter away from guarded water. Returns true if it sheered off.
+    Somebody already shooting at her is a different matter — she will finish
+    that where she stands. This only stops cold pursuit into a harbour. */
+function sheerOffFromPort(ship, dt) {
+  if (ship.aggro > 0) return false;
+  const guard = portGuarding(ship.x, ship.z);
+  if (!guard) return false;
+  const away = Math.atan2(ship.x - guard.x, ship.z - guard.z);
+  ship.headingCmd = avoidLand(ship, away, dt);
+  ship.dest = null;
+  ship.throttle = 1;
+  ship.target = null;
+  ship.brain.state = 'sheer';
+  return true;
+}
+
 function nearestPort(ship, factionOK) {
   let best = null, bd = 1e9;
   for (const p of PORTS) {
@@ -105,6 +136,7 @@ function findPrey(ship, ships) {
     if (!isHostile(ship, o) && !(ship.role === 'pirate' && o.faction !== 'pirate')) continue;
     const d = dist(ship.x, ship.z, o.x, o.z);
     if (d > 820) continue;
+    if (portGuarding(o.x, o.z)) continue;      // she is under the shore batteries
     const ratio = myStr / (strength(o) + 1);
     if (ratio < 0.95) continue;             // the Tally are bold, not suicidal
     const score = ratio * 100 - d * 0.25 + (o.cargoUsed > 8 ? 40 : 0) + (o.isPlayer ? 25 : 0);
@@ -257,6 +289,8 @@ function fisherAI(ship, dt, world, ctx) {
 /* ---------- pirate ---------- */
 function pirateAI(ship, dt, world, ctx, hurt, crippled) {
   const b = ship.brain;
+  // no Tally captain follows a chase in under a fort's guns
+  if (sheerOffFromPort(ship, dt)) return;
   if (hurt || crippled) {
     b.state = 'flee';
     const t = ship.target || nearestThreat(ship, world.ships, 600);

@@ -14,13 +14,17 @@ await newVoyage(page);
 const q = await G(() => {
   const g = window.__game;
   g.coin = 5000;
-  const quest = g.quests.find(x => x.kind === 'cargo');
-  g.acceptQuest(quest, g.PORTS[0]);
+  const port = g.PORTS[0];
+  const quest = g.contractsAt(port).find(x => x.kind === 'cargo');
+  g.acceptQuest(quest, port);
+  // load it off the quay that wrote the contract, as the harbourmaster expects
   g.player.cargo[quest.good] = quest.amount;
+  g.onGoodsBought(quest.good, quest.amount, port);
   const dest = g.PORTS.find(p => p.id === quest.toPort);
-  return { good: quest.good, amount: quest.amount, to: quest.toPort, destName: dest.name };
+  return { good: quest.good, amount: quest.amount, to: quest.toPort, destName: dest.name,
+    from: quest.fromPort, advance: quest.advance };
 });
-ok('a cargo contract can be accepted', !!q.to);
+ok(`a cargo contract can be accepted (${q.from} -> ${q.to}, ◆${q.advance} advanced)`, !!q.to);
 const delivered = await G((qq) => {
   const g = window.__game;
   const dest = g.PORTS.find(p => p.id === qq.to);
@@ -90,17 +94,27 @@ const shoal = await G(async () => {
 ok(`a cutter (draft ${shoal.drafts.cutter.toFixed(1)}) crosses the reef intact`, shoal.cutterHull > 0.9);
 ok('deep hulls draw more water than shallow ones', shoal.drafts.frigate > shoal.drafts.cutter * 2);
 
-/* ---- provisions running out ---- */
+/* ---- provisions running out ----
+   Hunger should take the edge off a crew long before it takes any of them:
+   an empty barrel is a reason to make port, not a death sentence. */
 const starve = await G(() => {
   const g = window.__game;
   const p = g.player;
-  p.provisions = 0;
-  const crew0 = p.crewTotal;
-  const morale0 = p.morale;
-  for (let i = 0; i < 60 * 90; i++) g.update(1 / 60);
-  return { crewLost: crew0 - p.crewTotal, moraleDrop: +(morale0 - p.morale).toFixed(2), alive: p.alive };
+  p.provisions = 0; p.hungry = 0;
+  const crew0 = p.crewTotal, morale0 = p.morale;
+  const skill0 = p.crewSkill('sail');
+  for (let i = 0; i < 60 * 90; i++) { g.update(1 / 60); p.hull = p.hullMax; }
+  return {
+    crewLost: crew0 - p.crewTotal, crew0,
+    moraleDrop: +(morale0 - p.morale).toFixed(2), alive: p.alive,
+    hungry: +p.hungry.toFixed(2),
+    skillDrop: +(1 - p.crewSkill('sail') / skill0).toFixed(2),
+  };
 });
-ok(`empty barrels cost crew over time (lost ${starve.crewLost})`, starve.crewLost > 0 && starve.alive);
+ok(`ninety seconds on empty barrels wears the crew down (hunger ${starve.hungry}, seamanship -${Math.round(starve.skillDrop * 100)}%)`,
+  starve.hungry > 0.8 && starve.skillDrop > 0.2 && starve.alive);
+ok(`and does not decimate them (lost ${starve.crewLost} of ${starve.crew0})`, starve.crewLost <= 2);
+ok(`morale falls with the barrels (-${starve.moraleDrop})`, starve.moraleDrop > 0);
 
 /* ---- out of shot ---- */
 const dry = await G(() => {
