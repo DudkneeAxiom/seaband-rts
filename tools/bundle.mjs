@@ -194,10 +194,19 @@ const script =
   `(function(){\n` +
   `var __m = Object.create(null);\n` +
   `function __def(id, fn){ __m[id] = { fn: fn, e: null }; }\n` +
+  /* Every module names itself on the way in. The entry module runs LAST —
+     everything it imports is evaluated first — so a mark placed inside
+     main.js cannot see the twenty-eight evaluations that happen before it,
+     which is exactly the stretch a boot can die in. A tester's loading card
+     sat there with an empty step line for that reason. Named here, the last
+     line on the card is the module that did not come back. */
   `function __req(id){\n` +
   `  var m = __m[id];\n` +
   `  if (!m) throw new Error('module not bundled: ' + id);\n` +
-  `  if (!m.e) { m.e = {}; var mod = { exports: m.e }; m.fn(m.e, __req, mod); m.e = mod.exports; }\n` +
+  `  if (!m.e) {\n` +
+  `    if (window.__boot) window.__boot(id.replace(/^src\\//, '').replace(/\\.js$/, ''));\n` +
+  `    m.e = {}; var mod = { exports: m.e }; m.fn(m.e, __req, mod); m.e = mod.exports;\n` +
+  `  }\n` +
   `  return m.e;\n` +
   `}\n` +
   def('three/core', three.coreCode) +

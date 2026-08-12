@@ -270,8 +270,10 @@
      stops: the one question worth answering is which part it stopped in, and
      on a tablet with no console attached the screen is the only place that
      answer can appear. */
+  var movedAt = +new Date();
   window.__boot = function (s) {
     step = s;
+    movedAt = +new Date();
     var line = document.getElementById('ld-step');
     if (line) line.textContent = s;
   };
@@ -365,13 +367,20 @@
     tell((r && (r.message || r)) || 'promise rejected');
   });
 
-  /* And the case with no exception at all — a boot that simply stops. Fifteen
-     seconds is far longer than the slowest phone takes to bake the terrain,
-     and the check is skipped entirely once the card is down. */
-  setTimeout(function () {
+  /* And the case with no exception at all — a boot that simply stops.
+     Stalled, not slow: an old tablet grinding through the terrain is still
+     working, and calling that a failure because it passed some fixed
+     deadline would be crying wolf at the one device most likely to be
+     honestly slow. What is wrong is a boot that stops *moving*, so the clock
+     runs from the last step rather than from the start. */
+  var watch = setInterval(function () {
     var box = document.getElementById('loading');
-    if (box && box.className.indexOf('hidden') < 0 && box.className.indexOf('out') < 0) tell(null);
-  }, 15000);
+    if (!box || box.className.indexOf('hidden') >= 0 || box.className.indexOf('out') >= 0) {
+      clearInterval(watch);
+      return;
+    }
+    if (+new Date() - movedAt > 15000) { clearInterval(watch); tell(null); }
+  }, 1000);
 })();
 </script>
 <script type="module" src="./src/main.js"></script>
