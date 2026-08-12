@@ -1313,7 +1313,12 @@ export class Game {
   playerFire() {
     const p = this.player;
     if (!p || !this.target || !this.fireSide) return;
-    if (p.reload[this.fireSide] > 0) { toast('Still reloading.', '', 1200); return; }
+    /* Silently. The button already says RELOADING and carries a ring that
+       fills as she loads — a message on top of that is telling the player
+       what they are looking at, once per tap, in a stack up the middle of
+       the screen. A control that is plainly not ready does not also need to
+       be told about. */
+    if (p.reload[this.fireSide] > 0) return;
     const n = fireBroadside(p, this.fireSide, this.target, this.ctx);
     if (n > 0) { this.mark('fired'); this.combatHeat = 12; }
   }

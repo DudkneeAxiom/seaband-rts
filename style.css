@@ -428,6 +428,10 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   display:flex; flex-direction:column; gap:6px; align-items:center;
   pointer-events:none; width:100%;
 }
+/* No rope on these. The border is for surfaces you dwell on — a card, a
+   panel, a sheet. A message that is gone in two seconds framed like a
+   ship's nameplate reads as an artefact, and four of them stacked up the
+   middle of the screen read as a fault. */
 .toast{
   background:rgba(10,26,34,.93); border:1px solid var(--stroke); border-radius:10px;
   padding:8px 14px; font-size:13.5px; box-shadow:var(--shadow); animation:toastIn .3s ease-out;
@@ -437,6 +441,8 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .toast.bad{border-color:rgba(217,85,63,.6); color:#f5c4b8;}
 .toast.gold{border-color:var(--brass); color:#ffe6b0;}
 .toast.out{animation:toastOut .35s ease-in forwards;}
+/* how many times you have now been told the same thing */
+.t-again{opacity:.6; font-size:11px; font-variant-numeric:tabular-nums; margin-left:2px;}
 @keyframes toastIn{from{opacity:0;transform:translateY(-10px) scale(.96);}}
 @keyframes toastOut{to{opacity:0;transform:translateY(-6px) scale(.98);}}
 
@@ -473,7 +479,7 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .rope::after, .rope-fine::after,
 #modal-card::after, #sheet-body::after, #enc-card::after,
 .icon-btn::after, .stat-chip::after, #speedctl::after,
-#targetcard::after, #objective::after, .toast::after, #fleetbar::after,
+#targetcard::after, #objective::after, #fleetbar::after,
 #pursuit::after, #battlebar::after{
   content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
   -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -491,7 +497,7 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .rope::after, #modal-card::after, #sheet-body::after, #enc-card::after{padding:4px;}
 .rope-fine::after,
 .icon-btn::after, .stat-chip::after, #speedctl::after,
-#targetcard::after, #objective::after, .toast::after, #fleetbar::after,
+#targetcard::after, #objective::after, #fleetbar::after,
 #pursuit::after, #battlebar::after{
   padding:2.5px;
   background-image:

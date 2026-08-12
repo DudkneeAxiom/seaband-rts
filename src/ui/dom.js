@@ -22,12 +22,34 @@ export function onTap(node, fn, freq = 620) {
 }
 
 /* ---------------- toasts ---------------- */
+/**
+ * Say something once.
+ *
+ * A thumb on a button that is refusing produces one refusal per tap, and
+ * they used to stack four deep up the middle of the screen — which reads as
+ * the game breaking rather than the game saying no. The same words twice in
+ * a row are the same message arriving again: it keeps its place, restarts
+ * its clock, and counts up instead of breeding.
+ */
+const MAX_TOASTS = 3;
 export function toast(msg, kind = '', ms = 2600) {
   const box = $('toasts');
+  const last = box.lastElementChild;
+  if (last && last._msg === msg && !last.classList.contains('out')) {
+    last._n = (last._n || 1) + 1;
+    last.innerHTML = `${msg} <span class="t-again">×${last._n}</span>`;
+    clearTimeout(last._timer);
+    last._timer = setTimeout(() => {
+      last.classList.add('out');
+      setTimeout(() => last.remove(), 400);
+    }, ms);
+    return;
+  }
   const t = el('div', 'toast ' + kind, msg);
+  t._msg = msg;
   box.appendChild(t);
-  while (box.children.length > 4) box.removeChild(box.firstChild);
-  setTimeout(() => {
+  while (box.children.length > MAX_TOASTS) box.removeChild(box.firstChild);
+  t._timer = setTimeout(() => {
     t.classList.add('out');
     setTimeout(() => t.remove(), 400);
   }, ms);

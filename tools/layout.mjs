@@ -128,10 +128,18 @@ for (const vp of Object.keys(VIEWPORTS)) {
       const n = document.getElementById(id);
       return !!n && !n.classList.contains('hidden') && n.getBoundingClientRect().width > 1;
     };
-    return { pursuit: seen('pursuit'), target: seen('targetcard'), fleet: seen('fleetbar') };
+    const g = window.__game;
+    return {
+      pursuit: seen('pursuit'), target: seen('targetcard'), fleet: seen('fleetbar'),
+      why: `mode ${g.mode}, pursuit ${g.pursuit ? 'set' : 'none'}, target `
+        + `${g.target ? g.target.name : 'none'}, fleet ${g.fleet.length}, paused ${g.paused}`,
+    };
   });
-  const missing = Object.keys(up).filter(k => !up[k]);
-  if (missing.length) { bad++; console.log(`\n   !! NOTHING TO MEASURE: ${missing.join(', ')} never came up`); }
+  const missing = ['pursuit', 'target', 'fleet'].filter(k => !up[k]);
+  if (missing.length) {
+    bad++;
+    console.log(`\n   !! NOTHING TO MEASURE: ${missing.join(', ')} never came up — ${up.why}`);
+  }
 
   console.log(`\n== ${vp}  ${res.W}x${res.H} ==  staged ${JSON.stringify(staged)}`);
   for (const b of res.boxes) console.log(`   ${b.sel.padEnd(16)} ${String(b.x).padStart(5)},${String(b.y).padStart(4)}  ${b.w}x${b.h}`);
