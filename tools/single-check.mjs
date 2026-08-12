@@ -32,6 +32,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 await page.goto(FILE, { waitUntil: 'load' });
 await sleep(2500);
 ok('single file loads from file:// with no server', await page.evaluate(() => !!document.getElementById('scene')));
+const stamped = await page.evaluate(() => {
+  const l = document.getElementById('loading');
+  return l ? l.getAttribute('data-build') : null;
+});
+ok(`and says which build it is (${stamped})`, !!stamped && stamped !== 'dev');
 ok('three.js came through the bundle', await page.evaluate(() => !!window.__renderer));
 await page.screenshot({ path: `${OUT}/single-title.png` });
 

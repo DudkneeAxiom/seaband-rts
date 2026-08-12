@@ -218,7 +218,8 @@
     </div>
   </div>
 
-  <div id="loading"><div class="ld-inner"><div class="ld-wave"></div><div>making sail…</div></div></div>
+  <div id="loading" data-build="dev"><div class="ld-inner"><div class="ld-wave"></div><div>making sail…</div>
+    <div class="ld-step" id="ld-step"></div></div></div>
 
   <!-- The one failure no script can report, because no script runs.
 
@@ -257,6 +258,23 @@
 <script>
 (function () {
   var told = false;
+  var step = 'nothing yet — the module never ran';
+
+  /* Boot says where it has got to, and the loading card shows it.
+     A card that only ever says "making sail…" tells nobody anything when it
+     stops: the one question worth answering is which part it stopped in, and
+     on a tablet with no console attached the screen is the only place that
+     answer can appear. */
+  window.__boot = function (s) {
+    step = s;
+    var line = document.getElementById('ld-step');
+    if (line) line.textContent = s;
+  };
+
+  function build() {
+    var box = document.getElementById('loading');
+    return (box && box.getAttribute('data-build')) || 'unknown';
+  }
 
   function facts(err) {
     var gl = 'unknown';
@@ -268,6 +286,8 @@
     } catch (e) { gl = 'blocked: ' + (e && e.message); }
     return [
       err ? ('error: ' + err) : 'error: none reported — it simply never finished',
+      'got as far as: ' + step,
+      'build: ' + build(),
       '3d: ' + gl,
       'page: ' + location.protocol,
       'browser: ' + navigator.userAgent,

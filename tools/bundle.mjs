@@ -153,9 +153,16 @@ const seen = new Set();
 const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 // keep only what lives inside <body>, minus the module script tag
+/* Stamp the build into the loading card. "Which copy is that?" is the first
+   question about any bug report from a device, and iOS answers downloads by
+   renaming them -2, -3, -4 rather than replacing them — so a tester can very
+   easily be looking at a file from three builds ago and neither of you can
+   tell. Now the card says. */
+const STAMP = new Date().toISOString().replace('T', ' ').slice(0, 16) + 'Z';
 const body = html
   .slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'))
   .replace(/<script type="module"[\s\S]*?<\/script>/g, '')
+  .replace('data-build="dev"', `data-build="${STAMP}"`)
   .trim();
 
 const def = (id, code) =>

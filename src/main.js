@@ -20,6 +20,13 @@ import {
 import { clamp } from './core/util.js';
 import { heightAt, depthAt, PORT_SHORE } from './world/terrain.js';
 
+/* Boot reports itself to the loading card. Declared before anything else
+   happens, because the very first thing that happens is asking for a 3D
+   context, and that is the single likeliest thing to fail on a strange
+   machine — a hang with nothing on screen names no step at all. */
+const mark = s => { if (window.__boot) window.__boot(s); };
+
+mark('opening a 3d canvas');
 const canvas = $('scene');
 const renderer = new THREE.WebGLRenderer({
   canvas, antialias: window.devicePixelRatio < 2, powerPreference: 'high-performance', alpha: false,
@@ -156,6 +163,7 @@ function boardEnd(b, winner) {
 
 /* ---------------- boot ---------------- */
 function boot() {
+  mark('building the world');
   game = new Game(scene, rig);
   game.onBoardStart = boardStart;
   game.onBoardUI = boardUI;
@@ -190,6 +198,7 @@ function boot() {
     }, 220);
   };
   onTap($('btn-menu'), () => { if (isSheetOpen()) closeSheet(); else openMenu(); }, 500);
+  mark('putting ships on the water');
   sizeRenderer();
   game.startAttract();
   // frame the free port from seaward and drift around it behind the title
@@ -314,7 +323,9 @@ function frame(now) {
   }
 }
 
+mark('starting the game');
 boot();
+mark('ready');
 requestAnimationFrame(frame);
 
 /* ---------------- title screen ---------------- */

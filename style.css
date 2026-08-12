@@ -886,6 +886,9 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   background-size:200% 100%; animation:wv 1.3s linear infinite;
 }
 @keyframes wv{to{background-position:-200% 0;}}
+/* where boot has got to, under the wave — small, and only ever readable if
+   you are looking for it, which is exactly when it matters */
+.ld-step{margin-top:10px; font-size:9.5px; letter-spacing:1.4px; color:rgba(230,178,94,.45);}
 
 /* ---------- No scripting: an attachment preview, usually ----------
    Sits above the loading card, because in this state that card is a lie —

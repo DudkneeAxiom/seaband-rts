@@ -53,11 +53,22 @@ export class Game {
     this.buildTag = 'build 1.0';
     this.quality = 1;
 
+    /* Boot is one long synchronous run — the height field, the shaders, every
+       island — and if it stops partway the loading card is the only witness a
+       tablet has. Each step names itself on the way past. */
+    const mark = s => { if (typeof window !== 'undefined' && window.__boot) window.__boot(s); };
+
+    mark('sounding the bottom');
     bakeHeights();
+    mark('drawing the seabed');
     this.depthTex = makeDepthTexture();
+    mark('raising the sky');
     createSky(scene);
+    mark('setting the sea');
     createWater(scene, this.depthTex, SKY);
+    mark('making the islands');
     buildTerrain(scene);
+    mark('rigging the world');
 
     this.wakes = new WakeField(scene);
     this.fx = new FX(scene, 1);
