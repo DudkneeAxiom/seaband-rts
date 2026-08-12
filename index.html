@@ -93,6 +93,21 @@
     <!-- contextual action stack, bottom-right -->
     <div id="actions" class="safe-bottom"></div>
 
+    <!-- The right-hand column. Both of these used to be pinned to the same
+         corner at the same height and simply drew on top of each other: a
+         raider closing while you had a ship marked put the pursuit panel
+         squarely over the target card. Stacked, they cannot, and whichever
+         is hidden costs nothing. -->
+    <div id="rightstack">
+    <!-- who is coming for you, on the campaign layer -->
+      <div id="pursuit" class="hidden">
+        <div class="pur-head"><span id="pur-name">—</span><span id="pur-verdict" class="pur-pip">—</span></div>
+        <div class="pur-row">
+          <span id="pur-state">—</span>
+          <span class="pur-dist"><b id="pur-dist">—</b>m</span>
+        </div>
+        <div class="pur-bar"><i id="pur-fill"></i></div>
+      </div>
     <!-- target readout -->
     <div id="targetcard" class="hidden">
       <button id="tc-close" class="tc-close" aria-label="Stop tracking this ship">
@@ -111,6 +126,7 @@
         <div class="pw-nums"><span>You <b id="pw-yn">0</b></span><span><b id="pw-tn">0</b> Her</span></div>
       </div>
     </div>
+    </div>
 
     <!-- hint / toast: one stack so they can never sit on top of each other -->
     <div id="notices">
@@ -118,16 +134,6 @@
       <div id="toasts"></div>
     </div>
     <div id="objective" class="hidden"><span class="obj-glyph">➤</span><span id="obj-text"></span></div>
-
-    <!-- who is coming for you, on the campaign layer -->
-    <div id="pursuit" class="hidden">
-      <div class="pur-head"><span id="pur-name">—</span><span id="pur-verdict" class="pur-pip">—</span></div>
-      <div class="pur-row">
-        <span id="pur-state">—</span>
-        <span class="pur-dist"><b id="pur-dist">—</b>m</span>
-      </div>
-      <div class="pur-bar"><i id="pur-fill"></i></div>
-    </div>
 
     <!-- and where you are while a fleet action is running -->
     <div id="battlebar" class="hidden">

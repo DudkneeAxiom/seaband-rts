@@ -324,8 +324,17 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .fleet-btn:active{transform:scale(.95);}
 
 /* ---------- Target card ---------- */
-#targetcard{
+/* The right-hand column: pursuit above, target card below, one gap between.
+   Both used to be absolutely placed at the same top and the same right, so
+   whenever a raider closed while a ship was marked they drew on top of each
+   other. Neither is always present, and a hidden one costs nothing here. */
+#rightstack{
   position:absolute; top:calc(122px + var(--st)); right:calc(10px + var(--sr));
+  display:flex; flex-direction:column; align-items:flex-end; gap:8px;
+  pointer-events:none;
+}
+#rightstack > *{pointer-events:auto;}
+#targetcard{
   width:174px;
   background:linear-gradient(180deg, rgba(26,56,70,.95), rgba(11,29,38,.95));
   border:1px solid var(--stroke);
@@ -970,7 +979,8 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   .bar-row{margin:3px 0;}
   /* short landscape: the right-hand column has to hold the target card and
      up to four controls, so both ends give a little */
-  #targetcard{top:calc(92px + var(--st)); padding:7px 9px;}
+  #rightstack{top:calc(92px + var(--st));}
+  #targetcard{padding:7px 9px;}
   #tc-power{margin-top:5px; padding-top:5px;}
   .pw-nums{display:none;}
   .pw-scale{height:8px; margin:4px 0 0;}
@@ -1045,7 +1055,6 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 
 /* ---------- being hunted ---------- */
 #pursuit{
-  position:absolute; right:calc(10px + var(--sr)); top:calc(122px + var(--st));
   width:186px; padding:8px 10px 9px; border-radius:12px;
   background:linear-gradient(180deg, rgba(58,26,22,.94), rgba(26,12,12,.95));
   border:1px solid rgba(120,64,44,.6); box-shadow:var(--shadow);

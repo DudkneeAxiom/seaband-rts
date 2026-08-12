@@ -304,7 +304,14 @@ export class HUD {
     if (g.dockablePort && !p.boarding) acts.push('dock');
     if (g.boardable) acts.push('board');
     const fireSide = g.fireSide;
-    if (g.target && g.target.alive && !g.target.captured) { acts.push('ammo'); acts.push('fire'); }
+    /* Guns belong to the action. On the campaign layer a marked ship is
+       something you are looking at, not something you are shooting at — so
+       offering FIRE out there, greyed and reading NO ARC, tells the player
+       there is a shot to line up when there is no shot to be had at all. It
+       is the same button that had a tester hunting for a way to attack. */
+    if (g.ctx.combatLive && g.target && g.target.alive && !g.target.captured) {
+      acts.push('ammo'); acts.push('fire');
+    }
 
     const key = acts.join(',') + '|' + (fireSide || '') + '|' + (g.dockablePort ? g.dockablePort.id : '');
     if (key !== this.actionKeys) { this.actionKeys = key; this.renderActions(acts); }

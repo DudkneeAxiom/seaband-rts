@@ -1096,6 +1096,13 @@ export class Game {
   endBattle(battle) {
     this.ctx.combatLive = false;
     this.mode = 'campaign';
+    /* The guns are quiet the moment the action is. combatHeat is set to 20 at
+       the start of a battle and only bleeds off a second at a time, and the
+       story refuses to open a chapter while it is burning — so finishing the
+       chapter that sends you to fight left the player waiting the better part
+       of half a minute, after the reckoning card had already told them they
+       had won. Long enough to read as broken. */
+    this.combatHeat = Math.min(this.combatHeat, 3);
     this.battle = null;
     this.encounterCooling = 12;
     this.pursuit = null;
@@ -1611,6 +1618,18 @@ export class Game {
     prize.hostileToPlayer = false;
     prize.target = null;
     prize.brain = { state: 'idle', t: 0 };
+    /* And everything that made her somebody else's ship. `fleeing` and
+       `chaseHold` are both tested before the role dispatch in updateAI, and
+       both mean "run from the player at full throttle" — so a prize that kept
+       either sailed off the moment the action ended and answered no order
+       given to her afterwards. She misses the battle's own reset too: that
+       clears the enemy list, and she left it the moment her colours came
+       down. This is the one place she changes hands, so it is the place to
+       put every trace of the old allegiance down. */
+    prize.fleeing = false;
+    prize.chaseHold = 0;
+    prize.aggro = 0;
+    prize.lastAttacker = null;
     prize.fleetOrder = this.fleetOrder;
     prize.formSlot = this.fleet.length;
     prize.captain = officer; officer.ship = prize;

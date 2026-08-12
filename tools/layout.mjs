@@ -6,6 +6,11 @@ import { launch, sleep, ff, newVoyage, VIEWPORTS } from './qa.mjs';
 const TARGETS = [
   '#topbar', '#compass', '#leftstack', '#shipstatus', '#speedctl', '#actions',
   '#fleetbar', '#targetcard', '#hint', '#objective', '#paused-badge', '#objptr',
+  /* The three panels the audit could not see. #pursuit and #targetcard were
+     pinned to the same corner at the same height and drew straight over one
+     another for as long as the pursuit panel has existed; neither this list
+     nor any assertion ever looked. A tester's screenshot found it. */
+  '#pursuit', '#battlebar', '#notices',
   '.act-btn.fire', '.act-btn.board', '.act-btn.dock', '.tc-close',
   '#ammo-strip', '.fleet-btn', '.spd', '#btn-menu',
 ];
