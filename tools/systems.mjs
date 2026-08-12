@@ -9,6 +9,29 @@ const G = (fn, arg) => page.evaluate(fn, arg);
 
 await sleep(900);
 await newVoyage(page);
+/** No raider is going to interrupt a test about menus.
+    Ending a battle puts the reckoning card up, which is a screen like any
+    other and holds the world — so this clears that too, or the very next
+    check finds a simulation that has stopped advancing. */
+const noEncounters = async () => {
+  await G(() => {
+    const g = window.__game;
+    if (g.mode === 'encounter') g.closeEncounter();
+    if (g.mode === 'battle' && g.battle) g.battle.finish('fled');
+  });
+  await page.click('.enc-opt[data-opt="done"]').catch(() => { });
+  await G(() => {
+    const g = window.__game;
+    document.getElementById('encounter').classList.add('hidden');
+    g.paused = false;
+    for (const s of g.ships) {
+      if (s.isPlayer || g.fleet.includes(s)) continue;
+      s.hostileToPlayer = false; s.target = null; s.chaseHold = 240;
+    }
+    g.encounterCooling = 600;
+  });
+};
+
 
 /* ---- cargo contract, end to end ---- */
 const q = await G(() => {
@@ -236,6 +259,7 @@ const objm = await G(() => {
 });
 ok(`the objective marker resolves (${objm && objm.label})`, !!objm && objm.hasPos);
 
+await noEncounters();
 /* ---- a fleet you cannot rearm is not a fleet ----
    The consort here is a real capture: sail her alongside, board her, take her.
    Nothing is asserted about a ship the game did not hand us itself. */
@@ -301,6 +325,7 @@ if (fleet.fleetSize > 1) {
   ok('a consort was taken to test fleet stores against', false);
 }
 
+await noEncounters();
 /* ---- a menu holds the world ----
    Waiting cannot prove the clock stopped, so count real animation frames and
    check the world did not move across them. If the loop is running and the

@@ -290,10 +290,11 @@ export class Game {
   }
 
   /* ---------- persistence ---------- */
+  /** Writes the voyage. Returns false when it refused, so a caller can tell. */
   save() {
     // belt and braces: the one state where the ship list is not the world
-    if (this.mode === 'battle') return;
-    if (this.gameOver) return;
+    if (this.mode === 'battle') return false;
+    if (this.gameOver) return false;
     try {
       const data = {
         v: 1,
@@ -323,7 +324,8 @@ export class Game {
         storyOver: this.storyOver,
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-    } catch (e) { void e; }
+      return true;
+    } catch (e) { void e; return false; }
   }
   static hasSave() {
     try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { void e; return false; }

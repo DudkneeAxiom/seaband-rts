@@ -277,7 +277,14 @@ if (fleet.n > 1) {
       if (s.isPlayer || g.fleet.includes(s)) continue;
       s.x = 9e4; s.z = 9e4; s.target = null; s.hostileToPlayer = false;
     }
-    if (c) { c.hull = c.hullMax; c.sails = c.sailMax; }
+    /* On station to begin with. An action scatters a fleet across the best
+       part of a mile, and this is a check about whether she *keeps* station,
+       not about how long it takes her to close a gap she was left with. */
+    if (c) {
+      c.hull = c.hullMax; c.sails = c.sailMax;
+      c.x = g.player.x - 40; c.z = g.player.z - 40;
+      c.target = null; c.fleeing = false; c.chaseHold = 0;
+    }
     g.setFleetOrder('follow');
     g.player.setDestination(g.player.x + 400, g.player.z + 200);
   });
@@ -290,8 +297,22 @@ if (fleet.n > 1) {
   await shot(page, `p10-fleet-${vp}`);
 }
 
-/* ---------- 7. save & reload ---------- */
-await G(() => window.__game.save());
+/* ---------- 7. save & reload ----------
+   Out of the action first. save() refuses while a battle is running, because
+   game.ships is the fight and not the world at that moment — saving there
+   would have left the last good save on disk and this check comparing live
+   state against it, which is exactly how it failed on the runner. */
+await waitFor(page, () => window.__game.mode === 'campaign', 20000);
+await G(() => { window.__game.paused = false; });
+await page.click('.enc-opt[data-opt="done"]').catch(() => { });
+await waitFor(page, () => document.getElementById('encounter').classList.contains('hidden'), 6000);
+await dismissModal(page);
+const wrote = await G(() => {
+  const g = window.__game;
+  // report the two states that make save() refuse, so a failure says which
+  return { ok: g.save(), mode: g.mode, gameOver: g.gameOver, alive: g.player.alive };
+});
+ok(`the voyage can be written once the action is over (${JSON.stringify(wrote)})`, wrote.ok === true);
 const pre = await G(() => ({ coin: Math.round(window.__game.coin), fleet: window.__game.fleet.length, cap: window.__game.stats.captured }));
 await page.reload({ waitUntil: 'networkidle' });
 // the title screen decides whether there is a voyage to continue once the
