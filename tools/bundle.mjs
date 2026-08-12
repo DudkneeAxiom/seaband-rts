@@ -163,6 +163,7 @@ const body = html
   .slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'))
   .replace(/<script type="module"[\s\S]*?<\/script>/g, '')
   .replace('data-build="dev"', `data-build="${STAMP}"`)
+  .replace('>dev build<', `>${STAMP}<`)
   .trim();
 
 const def = (id, code) =>

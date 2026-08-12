@@ -29,6 +29,16 @@ const log = [];
 const ok = (m, c) => log.push(`${c ? 'PASS' : 'FAIL'}  ${m}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/** What the loading card says about itself with scripting switched off. */
+async function quietStamp(file, br) {
+  const c = await br.newContext({ javaScriptEnabled: false });
+  const p = await c.newPage();
+  await p.goto(file, { waitUntil: 'load' });
+  const txt = await p.locator('#ld-build').textContent().catch(() => null);
+  await c.close();
+  return txt && txt.trim();
+}
+
 await page.goto(FILE, { waitUntil: 'load' });
 await sleep(2500);
 ok('single file loads from file:// with no server', await page.evaluate(() => !!document.getElementById('scene')));
@@ -37,6 +47,11 @@ const stamped = await page.evaluate(() => {
   return l ? l.getAttribute('data-build') : null;
 });
 ok(`and says which build it is (${stamped})`, !!stamped && stamped !== 'dev');
+/* Readable without scripting, because the screen this has to answer for is
+   usually a photograph of a page that never ran any. */
+const stampSeen = await quietStamp(FILE, browser);
+ok(`and prints it on the card where a photograph can see it (${stampSeen})`,
+  !!stampSeen && /\d{4}-\d{2}-\d{2}/.test(stampSeen));
 ok('three.js came through the bundle', await page.evaluate(() => !!window.__renderer));
 await page.screenshot({ path: `${OUT}/single-title.png` });
 
