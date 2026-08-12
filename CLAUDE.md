@@ -110,5 +110,6 @@ that is written down, and everything that asks "can I fire", "can I dock",
 ## State of it
 
 Feature-complete vertical slice with the campaign/encounter/battle spine in
-place. `tools/all.mjs` runs 230-odd checks across thirteen suites; all green at
-the last commit on this branch.
+place and six powers with water of their own. `tools/all.mjs` runs 270-odd
+checks across fifteen suites; all green at the last commit on this branch
+(15/15 in about eighteen minutes).
