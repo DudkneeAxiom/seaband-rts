@@ -956,9 +956,15 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   #fleetbar{gap:5px; padding:5px;}
   #shipstatus{width:min(50vw,196px);}
   #actions{gap:8px;}
+  /* A centred notice and a right-hand column both want this band on a 390px
+     screen and cannot be separated across it — 174px of card plus 10px of
+     margin reaches to x206, and a 289px notice centred on 390 reaches x339.
+     So they are separated down the screen instead, below whatever the column
+     actually is rather than below a guess at it. --clear is measured by the
+     HUD; the max() keeps the old floor when the column is empty. */
   #notices{width:min(74vw,330px); top:calc(180px + var(--st));}
-  /* the target card is tall once it carries the weight comparison */
-  #notices.low{top:calc(276px + var(--st));}
+  #notices,
+  #notices.low{top:max(calc(180px + var(--st)), var(--clear, 0px));}
   /* The action banner and the top bar both want the very top of the screen.
      On a wide one they share it — banner in the middle, chips either side —
      but across 390px the banner is nearly the full width and was landing

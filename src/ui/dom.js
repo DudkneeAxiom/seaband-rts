@@ -74,8 +74,21 @@ export function hideHint() {
   setTimeout(() => h.classList.add('hidden'), 400);
 }
 /** Drop the notice stack below the target card while one is on screen. */
+/**
+ * Keep the notice stack clear of the right-hand column.
+ *
+ * `.low` used to drop it to a fixed 276px, which was a guess at the height of
+ * a target card — and then the column grew a pursuit panel above the card and
+ * the guess was seventy pixels short, so a hint and the card sat on top of
+ * each other on a phone held upright. Measured instead: whatever the column
+ * happens to be right now, the notices start below it.
+ */
 export function setNoticesLow(low) {
-  $('notices').classList.toggle('low', !!low);
+  const n = $('notices');
+  n.classList.toggle('low', !!low);
+  const rs = $('rightstack');
+  const bottom = rs ? rs.getBoundingClientRect().bottom : 0;
+  n.style.setProperty('--clear', `${Math.round(bottom + 10)}px`);
 }
 
 /* ---------------- modal ---------------- */
