@@ -19,6 +19,10 @@ import { portGuarding } from '../ships/ai.js';
 export const ARENA_R = 640;
 /** No slipping away with a hostile this close aboard. */
 const BREAK_OFF_R = 165;
+/* Twice the range of a gun. Inside it two ships are in an action even if
+   neither is firing this second; outside it, for any length of time, they
+   are two ships in the same stretch of sea and nothing more. */
+const BROKEN_UP_R = 470;
 
 /**
  * What kind of water this is being fought over.
@@ -60,6 +64,7 @@ export class Battle {
     this.startCrew = game.player.crewTotal;
     this.startHull = game.player.hull;
     this.escapeArmed = false;
+    this.apartT = 0;          // how long nobody has been able to reach anybody
   }
 
   /* ---------------------------------------------------------------
@@ -177,6 +182,22 @@ export class Battle {
     }
 
     if (!this.enemies.length) { this.finish(this.startEnemies.some(s => !s.alive || s.captured) ? 'won' : 'routed'); return; }
+
+    /* An action where nobody can reach anybody has finished, whatever the
+       ships think they are doing. A beaten enemy who neither closes nor runs
+       — hull a third gone, seven hundred metres off, still nominally
+       fighting — leaves the player in a battle they can only leave by
+       fleeing, watching a ship that will not come. Twice gun range for
+       twenty seconds is not a lull in an engagement; it is the end of one.
+       Measured against the whole fleet, so a consort still in it holds the
+       action open. */
+    const mine = [p, ...this.allies.filter(s => s !== p && s.alive)];
+    let apart = Infinity;
+    for (const e of this.enemies) {
+      for (const f of mine) apart = Math.min(apart, dist(e.x, e.z, f.x, f.z));
+    }
+    this.apartT = apart > BROKEN_UP_R ? (this.apartT || 0) + dt : 0;
+    if (this.apartT > 20) { this.finish('routed'); return; }
 
     // getting clear: outside the arena, with nobody close aboard
     const d = dist(p.x, p.z, this.x, this.z);
