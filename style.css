@@ -870,6 +870,26 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 }
 @keyframes wv{to{background-position:-200% 0;}}
 
+/* ---------- No scripting: an attachment preview, usually ----------
+   Sits above the loading card, because in this state that card is a lie —
+   nothing is making sail and nothing ever will. Deliberately plain: no
+   custom properties, no viewport units, nothing that needs the rest of this
+   sheet to be understood, since whatever is rendering it is not a browser
+   doing its best work. */
+#nojs{
+  position:fixed; inset:0; z-index:70; background:#07161f; color:#e8dcc0;
+  display:flex; align-items:center; justify-content:center;
+  padding:28px; overflow:auto; -webkit-overflow-scrolling:touch;
+}
+.nojs-card{max-width:32em; font-size:15px; line-height:1.55;}
+.nojs-card h2{
+  margin:0 0 14px; font-size:21px; line-height:1.25; color:#e6b25e;
+  letter-spacing:.4px;
+}
+.nojs-card p{margin:0 0 12px;}
+.nojs-card b{color:#f3e7c8;}
+.nojs-alt{opacity:.72; font-size:13px;}
+
 /* ---------- Portrait: stack the bottom controls instead of racing them ---------- */
 @media (orientation:portrait){
   /* a narrow screen has no room for a wide objective chip beside the target

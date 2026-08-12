@@ -179,6 +179,31 @@ ok('and it names the likely cause and the facts to send on', told.named3d);
 await blind.screenshot({ path: `${OUT}/single-no-webgl.png` });
 await blind.close();
 
+/* ---------------------------------------------------------------
+   and the reader that runs no scripts at all
+
+   Mail an .html to an iPhone and tapping it opens Quick Look — the preview
+   with "Done" in the corner — which draws HTML and CSS and executes no
+   JavaScript whatsoever. The loading card renders, its bar animates, and
+   nothing else ever happens: not the game, and not the boot guard above,
+   which needs scripting like everything else. A tester lost an afternoon to
+   this. <noscript> is the only voice the page has left here, so it is worth
+   a check that runs with scripting genuinely switched off.
+   --------------------------------------------------------------- */
+const mute = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
+const quiet = await mute.newPage();
+await quiet.goto(FILE, { waitUntil: 'load' });
+await sleep(600);
+const noJs = await quiet.evaluate(() => 0).catch(() => null);   // scripting really is off
+const seen = await quiet.locator('#nojs').isVisible().catch(() => false);
+const words = await quiet.locator('#nojs').textContent().catch(() => '');
+ok(`scripting off is a page that explains itself (${seen ? 'shown' : 'nothing'})`,
+  noJs === null && seen);
+ok('and it says how to get out of a preview and into a browser',
+  /Open in Safari/.test(words) && /preview/i.test(words));
+await quiet.screenshot({ path: `${OUT}/single-no-js.png` });
+await mute.close();
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

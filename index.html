@@ -216,6 +216,32 @@
   </div>
 
   <div id="loading"><div class="ld-inner"><div class="ld-wave"></div><div>making sail…</div></div></div>
+
+  <!-- The one failure no script can report, because no script runs.
+
+       Open this file from a mail attachment on an iPhone or iPad and iOS
+       shows it in Quick Look — the preview with "Done" in the corner — which
+       renders HTML and CSS but executes no JavaScript at all. The loading
+       card draws, the bar animates, and nothing else ever happens. A tester
+       sat looking at "making sail…" and neither of us could see why, because
+       the boot guard that was supposed to explain it needs scripting too.
+       <noscript> is the only thing on the page that speaks in that state. -->
+  <noscript>
+    <div id="nojs">
+      <div class="nojs-card">
+        <h2>This preview cannot run the game</h2>
+        <p>You are looking at a file preview, and previews do not run
+          programs — only text and pictures. The game needs to actually run.</p>
+        <p><b>On iPhone or iPad:</b> tap <b>Done</b>, then the share button,
+          then <b>Open in Safari</b>. Or save the file to Files first and open
+          it from there.</p>
+        <p><b>On a computer:</b> save the file to the desktop and double-click
+          it, rather than viewing it inside a mail window.</p>
+        <p class="nojs-alt">If your browser has JavaScript switched off, the
+          game needs it turned back on.</p>
+      </div>
+    </div>
+  </noscript>
 </div>
 <!-- Boot guard. Plain ES5, no module, and first in the document on purpose.
 
