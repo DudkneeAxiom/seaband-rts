@@ -159,13 +159,17 @@ for (let i = 0; i < 60; i++) {
     // put her under, taking the whole boarding half of this test with her
     const worthTaking = t.hullFrac > 0.35;
     if (worthTaking && g.fireSide && g.player.reload[g.fireSide] <= 0) { g.playerFire(); f = 1; }
-    return { f, sail: t.sailFrac, hull: t.hullFrac, crew: t.crewTotal, board: g.boardable, alive: t.alive };
+    return { f, sail: t.sailFrac, hull: t.hullFrac, crew: t.crewTotal, board: g.boardable,
+      alive: t.alive, pHull: g.player.hullFrac };
   });
   if (st.done) break;
   if (await G(() => window.__game.paused)) await dismissModal(page);
   fired += st.f || 0;
   if (st.board) break;          // grapples will reach: stop shooting and close
   if (st.sail < 0.3 && st.crew < 12) break;
+  // and break off while there is still a ship under you — nobody trades
+  // broadsides down to the waterline when the plan was to take her
+  if (st.pHull < 0.55) break;
 }
 ok(`fired ${fired} broadsides`, fired > 0);
 const enemy = await G(() => {
@@ -182,23 +186,50 @@ await shot(page, `p7-combat-${vp}`);
 
 /* ---------- 5. board & capture ---------- */
 await G(() => {
-  const g = window.__game, t = g.target;
-  if (!t) return;
-  // close and slow, as a player would
-  const a = t.yaw;
-  g.player.x = t.x - Math.cos(a) * 22; g.player.z = t.z + Math.sin(a) * 22;
-  /* Take the sail off her. Zeroing speed alone left the throttle at full and
-     a heading still commanded from the gunnery loop, so she was under way
-     again within the second — and grapples will not reach off a ship doing
-     six knots. stop() is the same call the helm gives. */
-  g.player.stop(); t.speed = 0; g.player.dest = null;
-  g.player.crew.marine += 10; g.player.crew.veteran += 6;
+  const g = window.__game;
+  if (!g.target) return;
+  g.player.crew.marine += 10; g.player.crew.veteran += 6;   // boarders enough to win it
+  /* And a hull to board her from. Holding station at pistol shot while she
+     keeps firing had been killing the player outright on a long fight, and a
+     dead captain boards nothing — canBoard's first test is that you are
+     alive. This section is about the boarding, not about surviving to it. */
+  g.player.hull = g.player.hullMax; g.player.sails = g.player.sailMax;
 });
 await dismissModal(page);      // a chapter may have closed while we sailed
-// wait for the game to agree she can be taken, rather than sampling one instant
-await waitFor(page, () => window.__game.boardable, 5000);
-const boardable = await G(() => window.__game.boardable);
-ok('BOARD becomes available alongside a slowed enemy', boardable);
+/* Lay her alongside and *keep* her there. Staging the position once was not
+   enough: her AI has the way on her again within the second, and grapples do
+   not reach off a ship still making six knots, so she would sail out of range
+   before the check. A player matches her speed and holds station — this is
+   that, re-applied every poll, until the game agrees she can be taken. */
+await waitFor(page, () => {
+  const g = window.__game, t = g.target;
+  if (!t || !t.alive) return false;
+  const a = t.yaw;
+  g.player.x = t.x - Math.cos(a) * 22; g.player.z = t.z + Math.sin(a) * 22;
+  g.player.stop(); g.player.speed = 0; g.player.dest = null;
+  t.speed = 0;
+  return g.boardable;
+}, 8000);
+/* When this fails it fails rarely, so it has to explain itself: every input
+   canBoard looks at, captured at the moment the verdict was taken. */
+const bd = await G(() => {
+  const g = window.__game, p = g.player, t = g.target;
+  if (!t) return { boardable: false, why: 'no target' };
+  const rel = Math.abs(p.speed - t.speed * Math.cos(
+    Math.atan2(Math.sin(p.yaw - t.yaw), Math.cos(p.yaw - t.yaw))));
+  return {
+    boardable: g.boardable,
+    d: +Math.hypot(t.x - p.x, t.z - p.z).toFixed(1),
+    reach: +(34 + (p.cls.len + t.cls.len) * 0.25).toFixed(1),
+    rel: +rel.toFixed(2), pSpeed: +p.speed.toFixed(2), tSpeed: +t.speed.toFixed(2),
+    pAlive: p.alive, pHull: +p.hullFrac.toFixed(3),
+    tAlive: t.alive, tCaptured: t.captured, boarding: !!(p.boarding || t.boarding),
+    tHull: +t.hullFrac.toFixed(3), tCrew: t.crewTotal, pCrew: p.crewTotal,
+    paused: g.paused, modal: !document.getElementById('modal').classList.contains('hidden'),
+  };
+});
+ok(`BOARD becomes available alongside a slowed enemy ${JSON.stringify(bd)}`, bd.boardable);
+const boardable = bd.boardable;
 if (boardable) await page.click('.act-btn.board');
 await sleep(1200);
 await shot(page, `p8-boarding-${vp}`);

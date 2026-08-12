@@ -35,6 +35,7 @@ export class Ship {
     this.yaw = opts.yaw ?? 0;
     this.speed = 0;
     this.dest = null;                    // {x,z}
+    this.route = null;                   // remaining waypoints, when one was needed
     this.headingCmd = null;              // radians, used when no dest
     this.throttle = 1;                   // 0..1 sail set
 
@@ -129,9 +130,16 @@ export class Ship {
   }
 
   /* ---------- orders ---------- */
-  setDestination(x, z) { this.dest = { x, z }; this.headingCmd = null; }
-  setHeading(a) { this.headingCmd = a; this.dest = null; }
-  stop() { this.dest = null; this.headingCmd = this.yaw; this.throttle = 0; }
+  setDestination(x, z) { this.dest = { x, z }; this.headingCmd = null; this.route = null; }
+  /** A course that works its way round the islands instead of into them. */
+  setRoute(pts) {
+    if (!pts || !pts.length) return;
+    this.route = pts.slice();
+    this.dest = this.route.shift();
+    this.headingCmd = null;
+  }
+  setHeading(a) { this.headingCmd = a; this.dest = null; this.route = null; }
+  stop() { this.dest = null; this.route = null; this.headingCmd = this.yaw; this.throttle = 0; }
 
   /* ---------- update ---------- */
   update(dt, world) {
@@ -146,9 +154,14 @@ export class Ship {
       const dx = this.dest.x - this.x, dz = this.dest.z - this.z;
       const d = Math.hypot(dx, dz);
       if (d < Math.max(9, this.cls.len * 0.6)) {
-        // arrived: hold the heading but take the way off her
-        this.dest = null; this.headingCmd = this.yaw;
-        if (this.isPlayer) this.throttle = 0.12;
+        if (this.route && this.route.length) {
+          // a waypoint, not the destination — round it and carry on
+          this.dest = this.route.shift();
+        } else {
+          // arrived: hold the heading but take the way off her
+          this.dest = null; this.headingCmd = this.yaw;
+          if (this.isPlayer) this.throttle = 0.12;
+        }
       }
       else want = Math.atan2(dx, dz);
     } else if (this.headingCmd != null) want = this.headingCmd;
@@ -320,7 +333,7 @@ export class Ship {
 
   sink() {
     if (!this.alive) return;
-    this.alive = false; this.sinking = 0; this.dest = null;
+    this.alive = false; this.sinking = 0; this.dest = null; this.route = null;
     this.speed *= 0.4;
   }
 

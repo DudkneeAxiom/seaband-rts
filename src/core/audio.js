@@ -8,7 +8,20 @@ let ctx = null, master = null, ambBus = null, sfxBus = null, musBus = null;
 let started = false, muted = false;
 let waveLFO = null, windGain = null, waveGain = null;
 let gullTimer = 0, creakTimer = 0, musicTimer = 0, harbourGain = null;
-let noiseBuf = null;
+let noiseBuf = null, echoIn = null;
+
+/* A broadside is one call per gun, and a fleet action is several broadsides
+   at once. Past a couple of dozen simultaneous voices the mix is mud and the
+   audio thread starts missing its deadline, which is what actually makes the
+   harsh noise — so count them and drop the ones nobody would hear anyway. */
+const MAX_VOICES = 24;
+let voices = 0;
+function voice(seconds) {
+  if (voices >= MAX_VOICES) return false;
+  voices++;
+  setTimeout(() => { voices--; }, seconds * 1000);
+  return true;
+}
 
 export const audio = {
   get ready() { return started && !!ctx; },
@@ -39,7 +52,14 @@ export function initAudio() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
   ctx = new AC();
-  master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+  master = ctx.createGain(); master.gain.value = 0.9;
+  /* Everything is synthesised live and a broadside can stack a dozen voices in
+     one frame, which clips the sum into a fizzing mess. One limiter across the
+     end of the chain costs nothing and keeps the peaks civil. */
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -10; limiter.knee.value = 6;
+  limiter.ratio.value = 12; limiter.attack.value = 0.004; limiter.release.value = 0.18;
+  master.connect(limiter); limiter.connect(ctx.destination);
   ambBus = ctx.createGain(); ambBus.gain.value = 0.0; ambBus.connect(master);
   sfxBus = ctx.createGain(); sfxBus.gain.value = 0.85; sfxBus.connect(master);
   musBus = ctx.createGain(); musBus.gain.value = 0.0; musBus.connect(master);
@@ -68,6 +88,18 @@ export function initAudio() {
   hb.type = 'bandpass'; hb.frequency.value = 480; hb.Q.value = 1.1;
   harbourGain = ctx.createGain(); harbourGain.gain.value = 0;
   n3.connect(hb); hb.connect(harbourGain); harbourGain.connect(ambBus); n3.start();
+
+  /* One echo line for the whole score. A delay inside a feedback loop is a
+     cycle, and every node in a cycle has an incoming connection, so nothing in
+     it is ever collected — building a fresh one per note leaked a live delay
+     line every couple of seconds until the audio thread was carrying hundreds
+     of them and started to screech. Build it once, send the notes to it. */
+  echoIn = ctx.createGain(); echoIn.gain.value = 0.34;
+  const dl = ctx.createDelay(1); dl.delayTime.value = 0.34;
+  const fb = ctx.createGain(); fb.gain.value = 0.30;
+  const tame = ctx.createBiquadFilter();          // each repeat duller than the last
+  tame.type = 'lowpass'; tame.frequency.value = 2200;
+  echoIn.connect(dl); dl.connect(tame); tame.connect(fb); fb.connect(dl); dl.connect(musBus);
 
   started = true;
   ambBus.gain.setTargetAtTime(0.55, ctx.currentTime, 2.5);
@@ -114,7 +146,7 @@ function env(node, gain, a, d, dest = sfxBus) {
 }
 
 export function sfxCannon(dist = 0) {
-  if (!started) return;
+  if (!started || !voice(0.6)) return;
   const vol = Math.max(0.06, 0.85 - dist * 0.0016);
   const n = src(false);
   const f = ctx.createBiquadFilter(); f.type = 'lowpass';
@@ -131,7 +163,7 @@ export function sfxCannon(dist = 0) {
   o.start(); o.stop(ctx.currentTime + 0.42);
 }
 export function sfxSplash(dist = 0) {
-  if (!started) return;
+  if (!started || !voice(0.4)) return;
   const vol = Math.max(0.03, 0.4 - dist * 0.0011);
   const n = src(false);
   const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.8;
@@ -141,7 +173,7 @@ export function sfxSplash(dist = 0) {
   n.start(); n.stop(ctx.currentTime + 0.4);
 }
 export function sfxWood(dist = 0) {
-  if (!started) return;
+  if (!started || !voice(0.3)) return;
   const vol = Math.max(0.05, 0.55 - dist * 0.0013);
   const o = ctx.createOscillator(); o.type = 'triangle';
   o.frequency.setValueAtTime(220, ctx.currentTime);
@@ -213,19 +245,24 @@ export function sfxHorn() {
   f.connect(g); g.connect(sfxBus); o.start(); o.stop(ctx.currentTime + 1.7);
 }
 function gull() {
-  const o = ctx.createOscillator(); o.type = 'sawtooth';
+  if (!voice(0.4)) return;
+  /* A sawtooth through a narrow bandpass is a sound effect and a dentist's
+     drill in equal measure. A triangle carries the same rising cry with none
+     of the upper harmonics, and a lowpass keeps the top off it. */
+  const o = ctx.createOscillator(); o.type = 'triangle';
   const t = ctx.currentTime;
-  const base = 900 + Math.random() * 500;
+  const base = 780 + Math.random() * 380;
   o.frequency.setValueAtTime(base, t);
-  o.frequency.linearRampToValueAtTime(base * 1.7, t + 0.09);
-  o.frequency.linearRampToValueAtTime(base * 0.8, t + 0.26);
-  const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1500; f.Q.value = 2.5;
+  o.frequency.linearRampToValueAtTime(base * 1.55, t + 0.09);
+  o.frequency.linearRampToValueAtTime(base * 0.78, t + 0.26);
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2600; f.Q.value = 0.7;
   o.connect(f);
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.05, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.038, t + 0.04);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
   f.connect(g); g.connect(ambBus); o.start(); o.stop(t + 0.36);
+  o.onended = () => { o.disconnect(); f.disconnect(); g.disconnect(); };
 }
 function creak() {
   const o = ctx.createOscillator(); o.type = 'sawtooth';
@@ -269,10 +306,9 @@ function pluck(semi, vol) {
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
-  const dl = ctx.createDelay(); dl.delayTime.value = 0.34;
-  const fb = ctx.createGain(); fb.gain.value = 0.30;
-  o.connect(g); g.connect(musBus); g.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(musBus);
+  o.connect(g); g.connect(musBus); g.connect(echoIn);
   o.start(); o.stop(t + 2.0);
+  o.onended = () => { o.disconnect(); g.disconnect(); };
 }
 function musicStep(st) {
   const tense = st.combat ? 1 : 0;

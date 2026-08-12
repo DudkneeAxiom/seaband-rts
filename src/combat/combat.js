@@ -12,7 +12,13 @@ export const BOARD_RANGE = 34;
 export const GRAVITY = 34;
 const MUZZLE = 152;      // ball speed; elevation is solved per shot from the range
 
-export function gunDamage(ship) { return 4.4 + ship.cls.len * 0.145; }
+/* Measured against a fresh cutter, hove to, taking every ball: at 4.4 + len×0.145
+   a four-gun raider killed in 9 volleys and had half the hull off in 4, which
+   is where a fight stops being a fight and starts being an execution — you are
+   dead a minute after the first shot, and the first thirty seconds go by before
+   most players notice they are under fire. A fifth off gives room to bear away,
+   and the aggro rings give warning enough to avoid it in the first place. */
+export function gunDamage(ship) { return 3.55 + ship.cls.len * 0.116; }
 export function reloadFor(ship) {
   let t = 7.6 - ship.cls.masts * 0.3;
   t /= clamp(0.55 + 0.55 * ship.crewSkill('gun'), 0.5, 1.7);

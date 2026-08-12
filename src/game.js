@@ -6,13 +6,14 @@ import {
   PORTS, POIS, ISLANDS, HULLS, FACTIONS, NAMES, GOODS, RANKS, WORLD_SIZE, EDGE_NODES,
 } from './data/gamedata.js';
 import { clamp, clamp01, lerp, dist, angDiff, makeRNG, rngInt, TAU, fmtCoin } from './core/util.js';
+import { findRoute } from './core/route.js';
 import { bakeHeights, makeDepthTexture, buildTerrain, depthAt, PORT_SHORE } from './world/terrain.js';
 import { createWater, updateWater, waveHeight, setWaterQuality } from './world/water.js';
 import { createSky, updateSky, SKY } from './world/sky.js';
 import { WakeField } from './fx/wake.js';
 import { FX } from './fx/particles.js';
 import { Ship, emptyCrew, crewCount } from './ships/ship.js';
-import { updateAI, isHostile, strength } from './ships/ai.js';
+import { updateAI, isHostile, strength, willHunt, PREY_RANGE } from './ships/ai.js';
 import {
   Projectiles, fireBroadside, bestSide, canBoard, Boarding, boardOdds, GUN_RANGE, BOARD_RANGE,
 } from './combat/combat.js';
@@ -814,7 +815,12 @@ export class Game {
     const p = this.player;
     if (!p || !p.alive || p.boarding) return;
     if (p.lockTo) return;
-    p.setDestination(x, z);
+    /* Steer round the islands rather than into them. findRoute returns null
+       when the rhumb line is already clear, which is most taps — a course
+       across open water is still a straight run at the point you touched. */
+    const route = findRoute(p.x, p.z, x, z, this.limit);
+    if (route) p.setRoute(route);
+    else p.setDestination(x, z);
     p.throttle = 1;
     this.markers.pingMove(x, z);
     this.mark('sailed');
@@ -1737,6 +1743,56 @@ void main(){
   gl_FragColor = vec4(uCol, a);
 }`;
 
+/* ---- hunting rings ---------------------------------------------------
+   The water a raider is watching. Built like the firing arcs — flat,
+   tessellated, heights stamped from the wave field each frame — because a
+   ring this wide drawn at a fixed height cuts through every crest it
+   crosses. No end-fade here: the band closes on itself, and fading the
+   seam would put a gap in it. */
+function ringBand(r0, r1, tSeg = 72, rSeg = 2) {
+  const pos = [], aR = [], idx = [];
+  for (let i = 0; i <= rSeg; i++) {
+    const fr = i / rSeg, r = r0 + (r1 - r0) * fr;
+    for (let j = 0; j <= tSeg; j++) {
+      const a = (j / tSeg) * Math.PI * 2;
+      pos.push(Math.cos(a) * r, 0, -Math.sin(a) * r);
+      aR.push(fr);
+    }
+  }
+  const row = tSeg + 1;
+  for (let i = 0; i < rSeg; i++) {
+    for (let j = 0; j < tSeg; j++) {
+      const a = i * row + j, b = a + 1, c = a + row, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aR', new THREE.Float32BufferAttribute(aR, 1));
+  g.setIndex(idx);
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), r1 * 1.5);
+  return g;
+}
+const RING_VS = /* glsl */`
+attribute float aR;
+varying float vR;
+void main(){
+  vR = aR;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+}`;
+const RING_FS = /* glsl */`
+precision mediump float;
+varying float vR;
+uniform vec3 uCol;
+uniform float uK;
+void main(){
+  // soft on both edges, brightest along the middle of the band
+  float band = smoothstep(0.0, 0.5, vR) * (1.0 - smoothstep(0.5, 1.0, vR));
+  float a = band * uK;
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(uCol, a);
+}`;
+
 /* =========================================================
    world markers: destination ping, target ring, port pennants
    ========================================================= */
@@ -1783,6 +1839,24 @@ class Markers {
     }
     this.arcs.visible = false;
     scene.add(this.arcs);
+
+    /* Hunting rings: the water each raider is watching, so a fight can be
+       steered around instead of blundered into. Pooled, because stamping the
+       swell into one costs a few hundred wave lookups a frame. */
+    this.hunts = [];
+    for (let i = 0; i < 3; i++) {
+      const m = new THREE.ShaderMaterial({
+        vertexShader: RING_VS, fragmentShader: RING_FS,
+        uniforms: { uCol: { value: new THREE.Color(0xff6a4d) }, uK: { value: 0.0 } },
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(ringBand(PREY_RANGE - 26, PREY_RANGE), m);
+      mesh.renderOrder = 4;
+      mesh.visible = false;
+      scene.add(mesh);
+      this.hunts.push({ mesh, mat: m });
+    }
 
     // fighting-weight pips: one shared texture per tier, sprites pooled per ship
     this.pipTex = PIP_TIERS.map(makePip);
@@ -1901,6 +1975,35 @@ class Markers {
         attr.needsUpdate = true;
       }
     }
+    /* The water the raiders are watching. Only ships that would actually come
+       after *this* player get a ring — willHunt runs the same three tests the
+       AI does, so the circle cannot promise a fight that would not happen. */
+    const hunters = [];
+    for (const s of game.ships) {
+      if (s.isPlayer || game.fleet.includes(s)) continue;
+      const d = dist(s.x, s.z, p.x, p.z);
+      if (d > PREY_RANGE + 620) continue;         // no rings for the whole ocean
+      if (!willHunt(s, p)) continue;
+      hunters.push({ s, d });
+    }
+    hunters.sort((a, b) => a.d - b.d);
+    for (let i = 0; i < this.hunts.length; i++) {
+      const h = this.hunts[i], hunter = hunters[i];
+      if (!hunter) { h.mesh.visible = false; continue; }
+      const { s, d } = hunter;
+      h.mesh.visible = true;
+      h.mesh.position.set(s.x, 0, s.z);
+      // brighter as you close on the edge of it, and brightest once inside
+      const inside = d < PREY_RANGE;
+      h.mat.uniforms.uK.value = inside ? 0.30 + 0.10 * Math.sin(game.time * 4) : 0.16;
+      h.mat.uniforms.uCol.value.setHex(inside ? 0xff7d55 : 0xd8734f);
+      const attr = h.mesh.geometry.attributes.position, a = attr.array;
+      for (let k = 0; k < a.length; k += 3) {
+        a[k + 1] = waveHeight(s.x + a[k], s.z + a[k + 2]) + 1.5;
+      }
+      attr.needsUpdate = true;
+    }
+
     if (t && t.alive && !t.captured) {
       this.targetRing.visible = true;
       const s = t.cls.len * 0.72;
