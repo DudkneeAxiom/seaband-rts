@@ -107,24 +107,31 @@ const arc = await page.evaluate(async () => {
   if (asked) g.chooseEncounter('fight');
   const inBattle = g.mode === 'battle';
 
-  let fired = false;
+  /* Lay her alongside and let the game decide there is a shot: `fireSide`
+     comes off the real arc check, so bringing the enemy abeam is the way to
+     get it rather than setting the flag by hand. */
+  let fired = false, hadSide = null;
   if (inBattle) {
-    g.selectTarget(g.battle.enemies[0]);
+    const e = g.battle.enemies[0];
+    g.selectTarget(e);
+    g.player.yaw = 0; g.player.speed = 0; g.player.dest = null;
+    e.x = g.player.x + 60; e.z = g.player.z; e.speed = 0; e.dest = null;
     arm();
-    g.update(0.1);
+    g.update(1 / 60);
+    hadSide = g.fireSide;
     arm();
     const before = shots();
     g.playerFire();
     fired = shots() > before;
     g.battle.finish('fled');
   }
-  return { dockable, sheet, coldOnTheOcean, asked, inBattle, fired, mode: g.mode };
+  return { dockable, sheet, coldOnTheOcean, asked, inBattle, fired, side: hadSide, mode: g.mode };
 });
 ok('the harbour opens', arc.dockable && arc.sheet);
 ok('the guns stay cold on the campaign layer', arc.coldOnTheOcean);
 ok(`contact asks before it shoots, and fighting makes a battle (asked ${arc.asked}, battle ${arc.inBattle})`,
   arc.asked && arc.inBattle);
-ok('a broadside fires in the action', arc.fired);
+ok(`a broadside fires in the action (${arc.side || 'no side bore'})`, arc.fired);
 
 // localStorage works from file:// (saves)
 const saved = await page.evaluate(() => {
