@@ -1,7 +1,7 @@
 /* Full-arc functional test: new game → sail → dock → trade/recruit/hire
    → sea → combat → board → capture → two-ship fleet → save/load.
    Uses real UI clicks wherever a player would. */
-import { launch, shot, sleep, ff, newVoyage, dismissModal } from './qa.mjs';
+import { launch, shot, sleep, ff, newVoyage, dismissModal, waitFor } from './qa.mjs';
 
 const vp = process.argv[2] || 'phone';
 const { browser, page, errors } = await launch(vp);
@@ -154,12 +154,17 @@ for (let i = 0; i < 60; i++) {
     g.player.setHeading(bearing + Math.PI / 2);
     g.player.ammo = t.sailFrac > 0.35 ? 'chain' : 'grape';
     let f = 0;
-    if (g.fireSide && g.player.reload[g.fireSide] <= 0) { g.playerFire(); f = 1; }
+    // a captain who wants the ship rather than the wreck stops hulling her:
+    // chain and grape still tell on the timbers, and 60 rounds of it will
+    // put her under, taking the whole boarding half of this test with her
+    const worthTaking = t.hullFrac > 0.35;
+    if (worthTaking && g.fireSide && g.player.reload[g.fireSide] <= 0) { g.playerFire(); f = 1; }
     return { f, sail: t.sailFrac, hull: t.hullFrac, crew: t.crewTotal, board: g.boardable, alive: t.alive };
   });
   if (st.done) break;
   if (await G(() => window.__game.paused)) await dismissModal(page);
   fired += st.f || 0;
+  if (st.board) break;          // grapples will reach: stop shooting and close
   if (st.sail < 0.3 && st.crew < 12) break;
 }
 ok(`fired ${fired} broadsides`, fired > 0);
@@ -168,6 +173,10 @@ const enemy = await G(() => {
   return t ? { sail: t.sailFrac, hull: t.hullFrac, crew: t.crewTotal, alive: t.alive } : null;
 });
 log.push(`      enemy after gunnery: ${JSON.stringify(enemy)}`);
+/* She has to still be there. This used to be tolerated by `!enemy ||`, which
+   meant losing her passed here and then failed three checks later, in the
+   boarding, where the cause was nowhere in sight. */
+ok('the enemy is still afloat to be boarded', !!enemy && enemy.alive);
 ok('gunnery damaged the enemy', !enemy || enemy.sail < 0.9 || enemy.hull < 0.95 || !enemy.alive);
 await shot(page, `p7-combat-${vp}`);
 
@@ -178,11 +187,16 @@ await G(() => {
   // close and slow, as a player would
   const a = t.yaw;
   g.player.x = t.x - Math.cos(a) * 22; g.player.z = t.z + Math.sin(a) * 22;
-  g.player.speed = 0; t.speed = 0; g.player.dest = null;
+  /* Take the sail off her. Zeroing speed alone left the throttle at full and
+     a heading still commanded from the gunnery loop, so she was under way
+     again within the second — and grapples will not reach off a ship doing
+     six knots. stop() is the same call the helm gives. */
+  g.player.stop(); t.speed = 0; g.player.dest = null;
   g.player.crew.marine += 10; g.player.crew.veteran += 6;
 });
-await sleep(700);
 await dismissModal(page);      // a chapter may have closed while we sailed
+// wait for the game to agree she can be taken, rather than sampling one instant
+await waitFor(page, () => window.__game.boardable, 5000);
 const boardable = await G(() => window.__game.boardable);
 ok('BOARD becomes available alongside a slowed enemy', boardable);
 if (boardable) await page.click('.act-btn.board');

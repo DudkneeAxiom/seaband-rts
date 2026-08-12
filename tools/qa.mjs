@@ -105,11 +105,13 @@ export async function dismissModal(page) {
   return true;
 }
 
-/** Poll for a condition in the page. Fixed sleeps lie on a software renderer. */
-export async function waitFor(page, fn, ms = 9000) {
+/** Poll for a condition in the page. Fixed sleeps lie on a software renderer.
+    `arg` is passed through to the page, since the predicate is serialised and
+    cannot close over anything out here. */
+export async function waitFor(page, fn, ms = 9000, arg = undefined) {
   const t0 = Date.now();
   for (;;) {
-    if (await page.evaluate(fn)) return true;
+    if (await page.evaluate(fn, arg)) return true;
     if (Date.now() - t0 > ms) return false;
     await sleep(120);
   }
