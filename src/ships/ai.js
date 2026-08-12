@@ -73,13 +73,23 @@ function combatSteer(ship, target, dt, range = 120) {
   ship.throttle = 1;
 }
 
+/** Sails under the player's colours — her own ship or one of her consorts. */
+function underYourFlag(s) { return !!s && (s.isPlayer || s.faction === 'player'); }
+
 function tryFire(ship, target, ctx, arc = 62) {
   if (!target || !target.alive || target.captured) return;
   /* The campaign layer is not a gunfight. A raider who has run you down does
      not open fire on the open sea — she makes contact, the world stops, and
      the encounter decides whether there is a battle at all. Ships still shoot
-     at each other out there, because that world carries on without you. */
-  if (!ctx.combatLive && (target.isPlayer || target.faction === 'player')) return;
+     at each other out there, because that world carries on without you.
+
+     Both ends of it, not one. This used to ask only whether the *target* was
+     yours, which protected your ships from being fired on and said nothing
+     about yours doing the firing — so a consort under ENGAGE opened up on a
+     marked enemy out on the open sea and started the action before the
+     encounter had asked whether you wanted one. Your flag does not fire
+     outside an action, and nothing fires at it. */
+  if (!ctx.combatLive && (underYourFlag(target) || underYourFlag(ship))) return;
   const d = dist(ship.x, ship.z, target.x, target.z);
   if (d > GUN_RANGE) return;
   const side = bestSide(ship, target, arc);
@@ -361,7 +371,8 @@ function pirateAI(ship, dt, world, ctx, hurt, crippled) {
     else combatSteer(ship, t, dt, 105);
     tryFire(ship, t, ctx, 62);
     // board weak prize
-    if (!t.isPlayer && canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.75 && ctx.startBoarding) {
+    if (!underYourFlag(t) && !underYourFlag(ship)
+      && canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.75 && ctx.startBoarding) {
       ctx.startBoarding(ship, t);
     }
     return;
@@ -480,7 +491,9 @@ function patrolAI(ship, dt, world, ctx, hurt) {
     if (d > GUN_RANGE || (!ctx.combatLive && (t.isPlayer || t.faction === 'player'))) steerTo(ship, t.x, t.z, dt);
     else combatSteer(ship, t, dt, 115);
     tryFire(ship, t, ctx, 62);
-    if (canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.6 && ctx.startBoarding) ctx.startBoarding(ship, t);
+    if (ctx.combatLive && canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.6 && ctx.startBoarding) {
+      ctx.startBoarding(ship, t);
+    }
     return;
   }
   if (!b.wpPos || dist(ship.x, ship.z, b.wpPos.x, b.wpPos.z) < 110) {
@@ -512,7 +525,11 @@ function consortAI(ship, dt, world, ctx) {
       if (d > GUN_RANGE * 1.05) steerTo(ship, t.x, t.z, dt);
       else combatSteer(ship, t, dt, 110);
       tryFire(ship, t, ctx, 62);
-      if (canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.7 && ctx.startBoarding) ctx.startBoarding(ship, t);
+        /* Grapples are the action too. A consort that cannot fire out here must
+         not simply climb aboard instead. */
+      if (ctx.combatLive && canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.7 && ctx.startBoarding) {
+        ctx.startBoarding(ship, t);
+      }
       return;
     }
   }

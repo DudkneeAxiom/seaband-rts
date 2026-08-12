@@ -106,6 +106,52 @@ const noGuns = await G(() => {
 ok('no shot is fired on the campaign layer, however close she is',
   noGuns.shots === 0 && !noGuns.live && !noGuns.fireSide && noGuns.hull === 1);
 
+/* Nor by your own consorts, which is the half this used to miss. The rule
+   asked only whether the *target* sailed under your flag, so it stopped
+   anyone shooting at you and said nothing about your ships shooting out —
+   a consort under ENGAGE opened up on a marked enemy in open water and
+   started the action before the encounter had asked whether you wanted one. */
+const consortGuns = await G(() => {
+  const g = window.__game, p = g.player;
+  let con = g.ships.find(s => !s.isPlayer && s.alive && !g.fleet.includes(s));
+  for (let i = 0; i < 20 && !con; i++) con = g.spawnNPC('merchant');
+  con.faction = 'player'; con.role = 'consort'; con.isPlayer = false;
+  con.hostileToPlayer = false; con.fleeing = false; con.chaseHold = 0;
+  con.formSlot = 1; con.shot = 90;
+  con.x = p.x + 30; con.z = p.z + 20;
+  g.fleet.push(con);
+  g.setFleetOrder('engage', true);
+  // a hostile squarely inside her arc, and marked, which is what she acts on
+  let foe = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+  for (let i = 0; i < 20 && !foe; i++) foe = g.spawnNPC('pirate');
+  foe.x = con.x + 60; foe.z = con.z;
+  foe.hostileToPlayer = true; foe.chaseHold = 0; foe.fleeing = false;
+  g.selectTarget(foe);
+  g.encounterCooling = 900;      // hold the campaign layer while we watch
+  const before = g.projectiles.list.length + g.projectiles.pending.length;
+  for (let i = 0; i < 240; i++) g.update(1 / 30);
+  return {
+    fired: (g.projectiles.list.length + g.projectiles.pending.length) - before,
+    order: con.fleetOrder, mode: g.mode, boarding: g.boardings.length,
+    foeHull: +foe.hullFrac.toFixed(2),
+  };
+});
+ok(`nor do your consorts, however you have set them (order ${consortGuns.order}, `
+  + `${consortGuns.fired} shots, her hull ${consortGuns.foeHull})`,
+consortGuns.fired === 0 && consortGuns.foeHull === 1 && consortGuns.boarding === 0);
+await G(() => {
+  const g = window.__game;
+  g.setFleetOrder('follow', true);
+  for (const s of g.fleet.slice(1)) {
+    const i = g.fleet.indexOf(s);
+    if (i > 0) g.fleet.splice(i, 1);
+    s.faction = 'freehold'; s.role = 'merchant';
+    s.x = 9e4; s.z = 9e4;
+  }
+  g.clearTarget();
+  g.encounterCooling = 0;
+});
+
 /* ---------------------------------------------------------------
    3 · contact stops the world and asks
    --------------------------------------------------------------- */
