@@ -1,6 +1,6 @@
 /* Systems test: contracts, discoveries, shoal water, supplies, reputation,
    crew progression, and the awkward states players actually hit. */
-import { launch, sleep, ff, shot, newVoyage, waitFor } from './qa.mjs';
+import { launch, sleep, ff, shot, newVoyage, waitFor, dismissModal } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -235,6 +235,71 @@ const objm = await G(() => {
   return m ? { label: m.label, hasPos: Number.isFinite(m.x) && Number.isFinite(m.z) } : null;
 });
 ok(`the objective marker resolves (${objm && objm.label})`, !!objm && objm.hasPos);
+
+/* ---- a fleet you cannot rearm is not a fleet ----
+   The consort here is a real capture: sail her alongside, board her, take her.
+   Nothing is asserted about a ship the game did not hand us itself. */
+const fleet = await G(() => {
+  const g = window.__game, p = g.player;
+  g.coin = 4000;
+  p.crew.marine += 14; p.crew.veteran += 8;
+  p.hull = p.hullMax; p.alive = true;
+  let prize = g.ships.find(s => !s.isPlayer && s.alive && !g.fleet.includes(s)) || g.spawnNPC('pirate');
+  // alongside and hove to, which is what canBoard asks for
+  for (let i = 0; i < 60 && !g.boardings.length; i++) {
+    prize.x = p.x + 20; prize.z = p.z; prize.speed = 0; prize.yaw = p.yaw;
+    prize.hull = prize.hullMax * 0.5; prize.crew = { deckhand: 2, sailor: 1, gunner: 0, marine: 0, rigger: 0, veteran: 0 };
+    p.speed = 0; p.dest = null; g.selectTarget(prize);
+    g.startBoarding(p, prize);
+    g.update(0.1);
+  }
+  for (let i = 0; i < 900 && g.boardings.length; i++) g.update(0.1);
+  return { beaten: !!prize.captured };
+});
+// the prize dialog decides what becomes of her, exactly as it would for a player
+if (fleet.beaten) {
+  await waitFor(page, () => !document.getElementById('modal').classList.contains('hidden'), 8000);
+  await page.evaluate(() => {
+    const bs = [...document.querySelectorAll('#modal-actions .btn')];
+    const give = bs.find(b => b.textContent.startsWith('GIVE HER TO'));
+    (give || bs[0]).click();
+  });
+  await sleep(600);
+  await dismissModal(page);
+}
+fleet.fleetSize = await G(() => window.__game.fleet.length);
+
+if (fleet.fleetSize > 1) {
+  const stores = await G(() => {
+    const g = window.__game;
+    const c = g.fleet.find(s => !s.isPlayer);
+    c.shot = 0;                                   // she has fought her way dry
+    const before = g.fleetStores();
+    const coin0 = g.coin;
+    const done = g.storeFleet();
+    return {
+      short: before.short, dry: before.dry, cost: before.cost, done,
+      spent: coin0 - g.coin, shotAfter: c.shot, wanted: Math.round(c.cls.guns * 3),
+      againShort: g.fleetStores().short,
+    };
+  });
+  ok(`an empty consort shows as short (${stores.short} rounds, ${stores.dry} dry)`,
+    stores.short > 0 && stores.dry === 1);
+  ok(`the harbour fills her lockers for ◆${stores.cost}`,
+    stores.done && stores.shotAfter === stores.wanted && stores.spent === stores.cost);
+  ok('and once full there is nothing left to buy', stores.againShort === 0);
+
+  const broke = await G(() => {
+    const g = window.__game;
+    const c = g.fleet.find(s => !s.isPlayer);
+    c.shot = 0; g.coin = 0;
+    return { refused: g.storeFleet() === false, stillEmpty: c.shot === 0 };
+  });
+  ok('an empty purse cannot store the fleet', broke.refused && broke.stillEmpty);
+  await G(() => { window.__game.coin = 2000; window.__game.storeFleet(); });
+} else {
+  ok('a consort was taken to test fleet stores against', false);
+}
 
 /* ---- a menu holds the world ----
    Waiting cannot prove the clock stopped, so count real animation frames and

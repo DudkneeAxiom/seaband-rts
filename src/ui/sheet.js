@@ -124,6 +124,32 @@ function harbourTab(n, port) {
   n.appendChild(supplyRow('Shot &amp; Powder', '◉', `Each broadside burns a few. ${p.shot} aboard.`,
     SHOT_PRICE, () => { p.shot += 10 * qtyMult; }, 10));
 
+  /* Powder for the rest of the fleet.
+     Stores only ever went aboard the flagship, and nothing anywhere refilled a
+     consort — so a prize taken into the fleet fired off what was in her lockers
+     when you took her and was a hull with sails after that. A captain with four
+     ships had one ship and three witnesses. This fills every locker in the
+     fleet at the same price a barrel costs the flagship. */
+  const stores = G.fleetStores();
+  if (stores.consorts.length) {
+    const { short, dry, cost } = stores;
+    const r = el('div', 'row');
+    r.appendChild(el('div', 'rmain',
+      `<div class="rtitle">Powder for the Consorts</div>
+       <div class="rsub">${short
+        ? `${stores.consorts.length} consort${stores.consorts.length > 1 ? 's' : ''}, ${short} short between them`
+          + `${dry ? ` · <b>${dry} with empty lockers</b>` : ''}`
+        : 'Every locker in the fleet is full.'}</div>`));
+    const bb = el('button', 'btn' + (short ? ' gold' : ' dim'), short ? `◆ ${cost}` : 'FULL');
+    bb.disabled = !short || G.coin < cost;
+    onTap(bb, () => {
+      if (!G.storeFleet()) return toast('Not enough coin.', 'bad');
+      sfxCoin(); toast('The fleet is stored.', 'good'); refresh();
+    });
+    r.appendChild(bb);
+    n.appendChild(r);
+  }
+
   const contracts = G.contractsAt(port);
   n.appendChild(el('div', 'sec-title', 'HARBOURMASTER'));
   if (!contracts.length) n.appendChild(el('div', 'note', 'No work on the board today. Try the tavern.'));

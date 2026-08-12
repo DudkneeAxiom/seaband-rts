@@ -17,7 +17,7 @@ import { updateAI, isHostile, strength } from './ships/ai.js';
 import {
   Projectiles, fireBroadside, bestSide, canBoard, Boarding, boardOdds, GUN_RANGE, BOARD_RANGE,
 } from './combat/combat.js';
-import { Market, repairCost } from './sim/economy.js';
+import { Market, repairCost, SHOT_PRICE } from './sim/economy.js';
 import { makeOfficer, rollTavernOfficers, addOfficerXP, officerLabel } from './sim/officers.js';
 import {
   CHAPTERS, NEMESES, ENDINGS, AMBITIONS, sumOrigin, rollOrigin, rollCaptainName, findOption,
@@ -93,6 +93,8 @@ export class Game {
     this.santDown = false;
     this.storyOver = false;
 
+    /** ship id -> when we last said she was dry, so it is news and not nagging */
+    this.dryWarned = new Map();
     this.ctx = {
       fx: this.fx,
       projectiles: this.projectiles,
@@ -102,7 +104,17 @@ export class Game {
       onGunFired: () => { },
       startBoarding: (a, b) => this.startBoarding(a, b),
       onArrive: () => { },
-      onOutOfShot: (sh) => { if (sh.isPlayer) toast('Shot lockers are empty.', 'bad'); },
+      onOutOfShot: (sh) => {
+        if (sh.isPlayer) { toast('Shot lockers are empty.', 'bad'); return; }
+        if (!this.fleet.includes(sh)) return;
+        /* A consort running dry used to say nothing at all, so a fleet quietly
+           stopped being a fleet and the captain never learned why. Once per
+           ship rather than once per gun per second. */
+        const last = this.dryWarned.get(sh.id) || -99;
+        if (this.time - last < 25) return;
+        this.dryWarned.set(sh.id, this.time);
+        toast(`${sh.name} has fired her last shot.`, 'bad', 2300);
+      },
     };
     this.world = {
       ships: this.ships, windAng: this.windAng, time: 0, limit: this.limit,
@@ -754,6 +766,35 @@ export class Game {
     for (const s of this.fleet) if (s.alive) n += strength(s);
     return n;
   }
+  /**
+   * The state of the fleet's shot lockers, and what filling them would cost.
+   *
+   * Stores only ever went aboard the flagship and nothing refilled a consort,
+   * so a prize fired off whatever was in her when you took her and was a hull
+   * with sails after that — a captain with four ships had one ship and three
+   * witnesses. A full locker is three rounds a gun, the same as she is built
+   * with, at the same price a barrel costs you.
+   */
+  fleetStores() {
+    const consorts = this.fleet.filter(s => !s.isPlayer && s.alive);
+    const full = s => Math.round(s.cls.guns * 3);
+    const short = consorts.reduce((t, s) => t + Math.max(0, full(s) - s.shot), 0);
+    return {
+      consorts, short, full,
+      dry: consorts.filter(s => s.shot < 3).length,
+      cost: Math.ceil(short * SHOT_PRICE / 10),
+    };
+  }
+  /** Fill them. False if there is nothing to fill or the purse will not stretch. */
+  storeFleet() {
+    const { consorts, short, cost, full } = this.fleetStores();
+    if (!short || this.coin < cost) return false;
+    this.coin -= cost;
+    for (const s of consorts) s.shot = full(s);
+    this.save();
+    return true;
+  }
+
   /** Ratio of their weight to yours, and the verdict a sailing master would give. */
   weighUp(other) {
     const mine = Math.max(1, this.fleetStrength);
