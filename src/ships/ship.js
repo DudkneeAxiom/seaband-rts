@@ -76,12 +76,47 @@ export class Ship {
     this.visible = true;
     this.wakeStrength = 0;
 
-    this.mesh = buildShip(this.classId, this.faction, opts.colors);
+    this.colors = opts.colors || null;
+    this.mesh = buildShip(this.classId, this.faction, this.meshOpts());
     this.mesh.position.set(this.x, 0, this.z);
     this.mesh.rotation.y = this.yaw;
     this.mesh.userData.ship = this;
     this.baseSailOpacity = 1;
     this._hitFlash = 0;
+  }
+
+  /** Everything the factory needs to draw this particular ship. */
+  meshOpts() {
+    return {
+      ...(this.colors || {}),
+      upgrades: this.upgrades || [],
+      guns: this.gunsMax ? this.gunsMax * 2 : undefined,
+    };
+  }
+
+  /**
+   * Rebuild her hull from her current state, in place.
+   *
+   * A refit is not a new ship: she keeps her name, her crew, her damage and
+   * her place in the world, and the only thing that changes is what she looks
+   * like. The old geometry is disposed rather than orphaned, because a captain
+   * who refits a fleet of six should not pay for it in memory.
+   */
+  refitMesh(scene) {
+    const old = this.mesh;
+    const next = buildShip(this.classId, this.faction, this.meshOpts());
+    next.position.copy(old.position);
+    next.rotation.copy(old.rotation);
+    next.scale.copy(old.scale);
+    next.visible = old.visible;
+    next.userData.ship = this;
+    if (scene) { scene.add(next); scene.remove(old); }
+    old.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
+    });
+    this.mesh = next;
+    return next;
   }
 
   /* ---------- derived ---------- */

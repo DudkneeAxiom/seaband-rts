@@ -384,6 +384,8 @@ export class Game {
         sh.gunsPort = sd.gunsPort; sh.gunsStb = sd.gunsStb;
         sh.upgrades = sd.upgrades || [];
         applyUpgrades(sh);
+        // her refit history is saved; her hull is rebuilt from it
+        if ((sh.upgrades || []).length) sh.refitMesh(this.scene);
         this.addShip(sh);
         this.fleet.push(sh);
         if (sd.isPlayer) { this.player = sh; this.world.player = sh; }
@@ -1650,21 +1652,32 @@ export class Game {
   upgradesFor(ship) {
     ship.upgrades = ship.upgrades || [];
     const defs = [
-      { id: 'copper', name: 'Copper Sheathing', desc: 'Clean bottom, half a knot more. +8% speed.', cost: 620 },
-      { id: 'timbers', name: 'Doubled Timbers', desc: 'Extra frames along the waterline. +25% hull.', cost: 780 },
-      { id: 'ports', name: 'Cut Two More Gunports', desc: 'One more gun to a side. +2 guns.', cost: 900 },
-      { id: 'lockers', name: 'Deepened Lockers', desc: 'More room for shot and stores. +20 cargo.', cost: 460 },
+      { id: 'copper', name: 'Copper Sheathing', desc: 'Clean bottom, half a knot more. +8% speed.',
+        cost: 620, seen: 'Her bottom is plated to the boot-top.' },
+      { id: 'timbers', name: 'Doubled Timbers', desc: 'Extra frames along the waterline. +25% hull.',
+        cost: 780, seen: 'Heavy wales run her whole length now.' },
+      { id: 'ports', name: 'Cut Two More Gunports', desc: 'One more gun to a side. +2 guns.',
+        cost: 900, seen: 'Two new muzzles run out.' },
+      { id: 'lockers', name: 'Deepened Lockers', desc: 'More room for shot and stores. +20 cargo.',
+        cost: 460, seen: 'A wider hatch, and stores lashed on deck.' },
     ];
     return defs.map(d => ({ ...d, owned: ship.upgrades.includes(d.id) }));
   }
+  /** Recompute a ship's numbers from her refit list. Exposed for QA. */
+  applyUpgradesTo(ship) { applyUpgrades(ship); }
+
   buyUpgrade(ship, up) {
     if (this.coin < up.cost) { toast('Not enough coin.', 'bad'); return; }
     this.coin -= up.cost;
     ship.upgrades = ship.upgrades || [];
     ship.upgrades.push(up.id);
     applyUpgrades(ship);
+    /* And she is rebuilt on the spot. A refit that only moved numbers made
+       every upgrade feel like a spreadsheet entry; the point is that the
+       captain leaves the yard, looks at his ship and sees the work. */
+    ship.refitMesh(this.scene);
     sfxCoin();
-    toast(`${up.name} fitted.`, 'good', 3000);
+    toast(`${up.name} fitted. ${up.seen}`, 'good', 3600);
     this.save();
   }
 

@@ -164,7 +164,19 @@ export class Battle {
       }
     }
 
-    if (!this.enemies.length) { this.finish('won'); return; }
+    /* And anyone who has simply left. A ship that is no longer anywhere near
+       this water is not in this action, whether she broke off, was driven off
+       or was moved. Without this the fight has no way to end while she is
+       alive and elsewhere — which is a battle that never closes, a campaign
+       that never comes back, and a save that refuses for ever. */
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      if (dist(this.enemies[i].x, this.enemies[i].z, this.x, this.z) > ARENA_R * 1.5) {
+        this.enemies[i].fleeing = false;
+        this.enemies.splice(i, 1);
+      }
+    }
+
+    if (!this.enemies.length) { this.finish(this.startEnemies.some(s => !s.alive || s.captured) ? 'won' : 'routed'); return; }
 
     // getting clear: outside the arena, with nobody close aboard
     const d = dist(p.x, p.z, this.x, this.z);

@@ -210,6 +210,7 @@ function boot() {
   // to gamble on rather than inferring them from outcomes
   window.__enc = { fleeChance, talkChance, buildEncounter, CONTACT_R };
   window.__renderer = renderer;
+  window.__applyUp = sh => window.__game.applyUpgradesTo(sh);
   window.__ui = { hint, hideHint, setObjective };
 
   // desk play: a keyboard is a better tiller than a tap, and a mouse should

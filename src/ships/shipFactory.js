@@ -16,14 +16,32 @@ const widthAt = t => Math.pow(Math.sin(Math.PI * (0.13 + 0.85 * t)), 0.72);
 const sheerAt = t => 1 + 0.85 * Math.pow(Math.abs(t - 0.42) / 0.58, 2.3);
 const keelAt = t => 1 - 0.75 * clamp01((t - 0.52) / 0.48) ** 1.7 - 0.18 * clamp01((0.16 - t) / 0.16);
 
-function hullGeometry(cls, col) {
+function hullGeometry(cls, col, mods = []) {
   const L = cls.len, B = cls.beam, D = B * 0.52, FB = B * 0.30;
   const pos = [], colr = [];
   const cHull = new THREE.Color(col.hull);
-  const cBelow = new THREE.Color(col.hull).multiplyScalar(0.42).lerp(new THREE.Color(0x2b2118), 0.5);
   const cTrim = new THREE.Color(col.trim);
   const cDeck = new THREE.Color(0xb99a6c);
   const tmp = new THREE.Color();
+
+  /* Copper sheathing is the hull's own colour below the waterline, not a
+     shell bolted over it: no extra geometry, nothing to z-fight, and it
+     follows her lines exactly however far she heels. The boot-top is carried
+     a little above the water on purpose — plating that stops dead at the
+     waterline is invisible from a camera looking down at the sea, and an
+     upgrade the player cannot see is the thing this is here to fix.
+
+     Weathered, never bright: sheathing went dull brown within a season, and
+     green where she sat wet. */
+  const coppered = mods.includes('copper');
+  const cBelow = coppered
+    ? new THREE.Color(0x9a6a44)
+    : new THREE.Color(col.hull).multiplyScalar(0.42).lerp(new THREE.Color(0x2b2118), 0.5);
+  const cBoot = coppered ? new THREE.Color(0xa9714a) : null;
+  /* Half the freeboard. Plating that stops at the waterline is under the sea
+     from every angle this game is played at — the band has to carry up the
+     topsides far enough to be read from a camera looking down. */
+  const bootTop = FB * 0.52;
 
   const ring = (t) => {
     const w = (B / 2) * widthAt(t), d = -D * keelAt(t), fb = FB * sheerAt(t);
@@ -35,7 +53,11 @@ function hullGeometry(cls, col) {
   };
 
   const shade = (y, out) => {
-    if (y < -0.15) out.copy(cBelow).lerp(cHull, clamp01((y + D) / (D * 0.9)) * 0.5);
+    if (coppered && y < bootTop) {
+      // deeper plates duller, and a darker band right on the boot-top
+      if (y > -0.15) out.copy(cBoot);
+      else out.copy(cBelow).lerp(new THREE.Color(0x6d4b30), clamp01(-y / D) * 0.55);
+    } else if (y < -0.15) out.copy(cBelow).lerp(cHull, clamp01((y + D) / (D * 0.9)) * 0.5);
     else if (y > FB * 0.72) out.copy(cTrim);
     else out.copy(cHull);
     return out;
@@ -118,8 +140,16 @@ function hullGeometry(cls, col) {
 }
 
 /** Where the guns poke out. Returns array of {x,y,z, side} in local space. */
-export function gunPorts(cls) {
-  const perSide = Math.max(1, Math.round(cls.guns / 2));
+/**
+ * Where the guns are.
+ *
+ * Takes the count rather than reading it off the class, because a ship that
+ * has had two more ports cut carries more guns than her class was built with
+ * — and if the card says six guns the player has to be able to count six.
+ * The muzzles, the ports and the projectile origins all come from here.
+ */
+export function gunPorts(cls, guns = cls.guns) {
+  const perSide = Math.max(1, Math.round(guns / 2));
   const out = [];
   const L = cls.len, B = cls.beam, FB = B * 0.30;
   for (let s = 0; s < 2; s++) {
@@ -133,7 +163,7 @@ export function gunPorts(cls) {
   return out;
 }
 
-function detailGeos(cls, col) {
+function detailGeos(cls, col, guns = cls.guns, mods = []) {
   const parts = [];
   const L = cls.len, B = cls.beam, FB = B * 0.30;
   const deckY = FB * 0.75;
@@ -147,7 +177,7 @@ function detailGeos(cls, col) {
     }
   }
   // gun barrels
-  for (const p of gunPorts(cls)) {
+  for (const p of gunPorts(cls, guns)) {
     const g = new THREE.CylinderGeometry(0.24, 0.30, B * 0.42, 5);
     xf(g, { x: p.x + Math.sign(p.x) * B * 0.14, y: p.y, z: p.z, rz: Math.PI / 2 });
     parts.push(prep(g, 0x2e2a26));
@@ -174,6 +204,88 @@ function detailGeos(cls, col) {
   parts.push(prep(xf(new THREE.BoxGeometry(0.3, B * 0.5, B * 0.32), { y: -B * 0.2, z: -L * 0.5 - 0.2 }), 0x5b4429));
 
   return parts;
+}
+
+/* ===========================================================
+   Refit modules — the work a shipyard actually does to a hull.
+
+   The rule this exists to serve: if an upgrade physically modifies a ship,
+   the player can see it. These are lofted off the same station functions as
+   the hull, so they sit on her lines rather than floating beside them, and
+   they are merged into the one body mesh — a refitted ship costs no more
+   draw calls than a stock one.
+
+   Each module is small, independent and keyed by upgrade id, so a new
+   physical upgrade is a new case here and nothing else.
+   =========================================================== */
+
+/** Doubled timbers: she is not bigger, she is built heavier. */
+function timberGeos(cls, col) {
+  const L = cls.len, B = cls.beam, FB = B * 0.30;
+  const parts = [];
+  const wale = new THREE.Color(col.hull).multiplyScalar(0.72).getHex();
+  for (const side of [1, -1]) {
+    // two heavy wales run the length of her, following the sheer
+    for (const [band, thick] of [[0.30, 0.62], [0.70, 0.5]]) {
+      for (let i = 0; i < 10; i++) {
+        const t = 0.08 + (i / 9) * 0.84;
+        const w = (B / 2) * widthAt(t) * 1.01;
+        const y = FB * sheerAt(t) * band;
+        const seg = new THREE.BoxGeometry(0.34, thick, L * 0.1);
+        xf(seg, { x: side * w, y, z: (t - 0.5) * L });
+        parts.push(prep(seg, wale, 0.03));
+      }
+    }
+    // and a thicker rail cap on top of the gunwale
+    for (let i = 0; i < 8; i++) {
+      const t = 0.12 + (i / 7) * 0.78;
+      const w = (B / 2) * widthAt(t) * 0.95;
+      const cap = new THREE.BoxGeometry(0.5, 0.34, L * 0.12);
+      xf(cap, { x: side * w, y: FB * sheerAt(t) + 0.85, z: (t - 0.5) * L });
+      parts.push(prep(cap, 0x6d5533, 0.03));
+    }
+  }
+  // breast-hook: extra framing across the bow, where she takes a sea hardest
+  parts.push(prep(xf(new THREE.BoxGeometry(B * 0.5, 0.7, 0.8), { y: FB * 0.9, z: L * 0.40 }), wale, 0.03));
+  parts.push(prep(xf(new THREE.BoxGeometry(B * 0.34, 0.6, 0.7), { y: FB * 1.25, z: L * 0.44 }), wale, 0.03));
+  return parts;
+}
+
+/** Deepened lockers: more room below, and it shows on deck. */
+function lockerGeos(cls, col) {
+  void col;
+  const L = cls.len, B = cls.beam, FB = B * 0.30;
+  const deckY = FB * 0.75;
+  const parts = [];
+  // a bigger main hatch with a grating over it
+  parts.push(prep(xf(new THREE.BoxGeometry(B * 0.46, 0.62, L * 0.2), { y: deckY + 0.26, z: -L * 0.02 }), 0x6a5233, 0.03));
+  parts.push(prep(xf(new THREE.BoxGeometry(B * 0.40, 0.18, L * 0.17), { y: deckY + 0.62, z: -L * 0.02 }), 0x8a6f45, 0.04));
+  // stores lashed down where there is deck to spare — restrained: she still
+  // has to read as a ship from above, not as a pile of boxes
+  const crates = [
+    [B * 0.22, L * 0.20], [-B * 0.24, L * 0.16], [B * 0.20, -L * 0.20],
+  ];
+  for (const [x, z] of crates) {
+    parts.push(prep(xf(new THREE.BoxGeometry(B * 0.2, 0.8, B * 0.24), { x, y: deckY + 0.4, z }), 0x7d6440, 0.05));
+  }
+  for (const side of [1, -1]) {
+    parts.push(prep(xf(new THREE.CylinderGeometry(0.42, 0.42, 0.9, 7),
+      { x: side * B * 0.3, y: deckY + 0.45, z: -L * 0.12 }), 0x6b5334, 0.04));
+  }
+  return parts;
+}
+
+/* copper is handled in the hull's own colouring — see hullGeometry */
+const REFITS = { timbers: timberGeos, lockers: lockerGeos };
+
+/** Everything a ship's refit history adds to her hull. */
+function refitGeos(cls, col, mods) {
+  const out = [];
+  for (const id of mods) {
+    const fn = REFITS[id];
+    if (fn) out.push(...fn(cls, col));
+  }
+  return out;
 }
 
 /* ===========================================================
@@ -377,14 +489,29 @@ function makeRigMaterial() {
 }
 
 /** Build a complete ship object3D + metadata. */
+/**
+ * Build a vessel.
+ *
+ * `opts.upgrades` is her refit history and `opts.guns` what she actually
+ * carries — both come off the ship's own persistent state, so a saved ship
+ * reconstructs the right hull without storing any geometry. A stock cutter
+ * and a coppered, reinforced, six-gun one are the same code path.
+ */
 export function buildShip(classId, factionId, opts = {}) {
   const cls = HULLS[classId];
   const fac = FACTIONS[factionId] || FACTIONS.freehold;
   const col = { hull: opts.hull ?? fac.hull, trim: opts.trim ?? fac.trim, sail: opts.sail ?? fac.sail, flag: opts.flag ?? fac.flag };
+  const mods = opts.upgrades || [];
+  const guns = opts.guns ?? cls.guns;
 
   const group = new THREE.Group();
   const rigParts = rig(cls, col);
-  const body = mergeGeos([hullGeometry(cls, col), ...detailGeos(cls, col), ...rigParts.spars]);
+  const body = mergeGeos([
+    hullGeometry(cls, col, mods),
+    ...detailGeos(cls, col, guns, mods),
+    ...refitGeos(cls, col, mods),
+    ...rigParts.spars,
+  ]);
   const bodyMesh = new THREE.Mesh(body, litMaterial());
   bodyMesh.name = 'body';
   group.add(bodyMesh);
@@ -405,7 +532,8 @@ export function buildShip(classId, factionId, opts = {}) {
 
   group.userData = {
     cls, mastTop: rigParts.mastTop, deckY: rigParts.deckY,
-    ports: gunPorts(cls), bodyMesh, rigMesh, flagMesh,
+    ports: gunPorts(cls, guns), bodyMesh, rigMesh, flagMesh,
+    upgrades: mods.slice(), guns,
     rigUniforms: rigMat.userData.uniforms,
   };
   return group;

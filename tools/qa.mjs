@@ -179,6 +179,35 @@ export async function intoBattle(page, opts = {}) {
   });
 }
 
+/**
+ * Come out of an action and hand the campaign back.
+ *
+ * The counterpart to intoBattle. A suite that goes into a fight and then
+ * carries on testing something else has to leave properly — the reckoning
+ * card is a screen like any other and holds the world while it is up, so
+ * closing the battle without closing the card leaves a frozen simulation
+ * behind for every check that follows.
+ */
+export async function leaveBattle(page) {
+  await page.evaluate(() => {
+    const g = window.__game;
+    if (g.mode === 'battle' && g.battle) g.battle.finish('fled');
+    if (g.mode === 'encounter') g.closeEncounter();
+  });
+  await page.click('.enc-opt[data-opt="done"]').catch(() => { });
+  await page.evaluate(() => {
+    const g = window.__game;
+    document.getElementById('encounter').classList.add('hidden');
+    g.paused = false;
+    for (const s of g.ships) {
+      if (s.isPlayer || g.fleet.includes(s)) continue;
+      s.hostileToPlayer = false; s.target = null; s.chaseHold = 300;
+    }
+    g.encounterCooling = 600;
+  });
+  return waitFor(page, () => window.__game.mode === 'campaign', 6000);
+}
+
 /** Poll for a condition in the page. Fixed sleeps lie on a software renderer.
     `arg` is passed through to the page, since the predicate is serialised and
     cannot close over anything out here. */

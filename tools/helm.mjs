@@ -1,6 +1,6 @@
 /* The compass, and playing at a desk. Both are read off the running game
    rather than assumed: a card that lies about north is worse than no card. */
-import { launch, sleep, shot, newVoyage, waitFor, dismissModal, intoBattle } from './qa.mjs';
+import { launch, sleep, shot, newVoyage, waitFor, dismissModal, intoBattle, leaveBattle } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -239,6 +239,11 @@ ok(`Space fires the battery that bears in action (${foe && foe.name}: ${beforeSh
 await page.keyboard.press('Escape');
 await sleep(250);
 ok('Escape lets her go', !(await G(() => !!window.__game.target)));
+
+/* Out of the action before the rest of the keys. F puts into port and M opens
+   the log, and neither has anything to say from the middle of a fleet action
+   in open water — the checks that follow are campaign-layer checks. */
+await leaveBattle(page);
 
 /* ---------- time ---------- */
 await page.keyboard.press('p');
