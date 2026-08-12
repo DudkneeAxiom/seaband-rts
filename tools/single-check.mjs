@@ -194,11 +194,16 @@ const mute = await browser.newContext({ javaScriptEnabled: false, viewport: { wi
 const quiet = await mute.newPage();
 await quiet.goto(FILE, { waitUntil: 'load' });
 await sleep(600);
-const noJs = await quiet.evaluate(() => 0).catch(() => null);   // scripting really is off
+/* That the panel is on screen at all is the proof: a browser renders what is
+   inside <noscript> only when it is not running scripts. Asking Playwright
+   whether scripting is off does not work — it keeps its own execution context
+   either way, so page.evaluate answers happily from a page the document
+   itself cannot script. */
 const seen = await quiet.locator('#nojs').isVisible().catch(() => false);
 const words = await quiet.locator('#nojs').textContent().catch(() => '');
-ok(`scripting off is a page that explains itself (${seen ? 'shown' : 'nothing'})`,
-  noJs === null && seen);
+const sailing = await quiet.locator('#loading').isVisible().catch(() => false);
+ok(`scripting off is a page that explains itself (${seen ? 'shown' : 'nothing'}${sailing ? ', over the loading card' : ''})`,
+  seen);
 ok('and it says how to get out of a preview and into a browser',
   /Open in Safari/.test(words) && /preview/i.test(words));
 await quiet.screenshot({ path: `${OUT}/single-no-js.png` });
