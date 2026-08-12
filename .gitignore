@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.zip
 dist-single/
+
+# QA screenshots
+shots/

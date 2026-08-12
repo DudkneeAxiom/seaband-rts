@@ -1,10 +1,16 @@
 {
-  "name": "seaband-rts",
+  "name": "salt-and-tally",
   "version": "1.0.0",
-  "description": "",
+  "description": "A maritime sandbox for phones and desks: trade, fight and build a fleet in the Vantu Shoals.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node tools/serve.mjs",
+    "test": "node tools/all.mjs",
+    "test:fast": "node tools/all.mjs --fast",
+    "build": "node tools/build.mjs",
+    "bundle": "node tools/bundle.mjs",
+    "sweep": "node tools/sweep.mjs desktop",
+    "setup": "npm install && npx playwright install chromium"
   },
   "repository": {
     "type": "git",
@@ -12,7 +18,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/DudkneeAxiom/seaband-rts/issues"
   },
@@ -22,5 +28,9 @@
   },
   "devDependencies": {
     "playwright": "^1.56.1"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
   }
 }

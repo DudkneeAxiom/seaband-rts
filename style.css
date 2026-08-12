@@ -810,6 +810,9 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 
 /* ---------- Portrait: stack the bottom controls instead of racing them ---------- */
 @media (orientation:portrait){
+  /* a narrow screen has no room for a wide objective chip beside the target
+     card: 10 + chip + gap + card + 10 has to fit across 390px */
+  #objective{max-width:min(45vw,176px);}
   #fleetbar{bottom:calc(var(--sb) + 264px);}
   #shipstatus{width:min(50vw,196px);}
   #actions{gap:8px;}

@@ -3,10 +3,13 @@
 import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 
-const ROOT = path.resolve(new URL('..', import.meta.url).pathname);
-const FILE = 'file://' + path.join(ROOT, 'dist-single', 'salt-and-tally.html');
-const OUT = process.env.QA_OUT || '/tmp/claude-0/-home-user-seaband-rts/596e8234-72fc-559d-b926-c631e5408168/scratchpad/shots';
+const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+const FILE = pathToFileURL(path.join(ROOT, 'dist-single', 'salt-and-tally.html')).href;
+// screenshots land beside the repo unless QA_OUT says otherwise, so a clone
+// on any machine writes somewhere that exists
+const OUT = process.env.QA_OUT || path.join(ROOT, 'shots');
 fs.mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch({

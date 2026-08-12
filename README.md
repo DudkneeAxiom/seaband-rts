@@ -12,17 +12,38 @@ Runs entirely in the browser, no backend, no build step.
 ## Play it
 
 ```bash
-npx http-server . -p 8080 -c-1
-# then open http://localhost:8080
+npm start          # http://localhost:8080
 ```
 
-Any static file server works — the game is plain ES modules and one vendored copy of
-three.js. Open it on a phone on the same network for the real thing.
+That is a twenty-line static server in `tools/serve.mjs` — no dependency, works
+offline. Any other static file server does just as well: the game is plain ES modules
+and one vendored copy of three.js, with no build step. Open it on a phone on the same
+network for the real thing. `PORT=9000 npm start` if 8080 is taken.
+
+## Working on it
+
+```bash
+npm run setup      # npm install + playwright's chromium — first time only
+npm start          # the game
+npm test           # every suite, against a server it starts itself  (~10 min)
+npm run test:fast  # the same minus the two slow calibration runs    (~7 min)
+npm run sweep      # walk every screen and write screenshots to shots/
+npm run bundle     # dist-single/salt-and-tally.html — the whole game in one file
+npm run build      # dist/ + the itch.io zip
+```
+
+Node 18 or newer. `npm install` is only needed for the QA harnesses — the game itself
+runs with nothing installed. Any suite can also be run on its own
+(`node tools/helm.mjs`) and will start a server if one is not already up.
+Screenshots go to `shots/`, which is gitignored; `QA_OUT` overrides the location.
+
+`CLAUDE.md` carries the working notes: how the tests are meant to be written, what the
+conventions are, and which mistakes this codebase has already made once.
 
 ### Without a server
 
 ```bash
-node tools/bundle.mjs     # writes dist-single/salt-and-tally.html — the whole game in one file
+npm run bundle     # writes dist-single/salt-and-tally.html — the whole game in one file
 ```
 
 That single ~1 MB file has three.js, every module, the stylesheet and the markup
@@ -35,7 +56,7 @@ for hosts that supply their own document skeleton.
 ### For itch.io
 
 ```bash
-node tools/build.mjs      # writes dist/ and salt-and-tally-web.zip (~267 KB)
+npm run build      # writes dist/ and salt-and-tally-web.zip
 ```
 
 Upload the zip, tick *"This file will be played in the browser"*, set the viewport to
@@ -321,6 +342,7 @@ power is visible in the world rather than in a number.
 All suites drive the real game in Chromium via Playwright.
 
 ```bash
+npm test                          # all of the below, in one go, with a summary
 node tools/origin.mjs             # 46 checks: the questionnaire, its effects, the story
 node tools/trade.mjs              # 29 checks: the merchant road, upkeep and the way back
 node tools/shore.mjs              # 15 checks: harbours built on land, credit for shared kills
@@ -436,7 +458,8 @@ src/combat/           ballistics, broadsides, boarding
 src/fx/               wake ribbons, pooled particles
 src/sim/              market, officers and portraits
 src/ui/               DOM helpers, HUD, bottom-sheet port screens, the questionnaire
-tools/                the QA harnesses, the static build and the single-file bundler
+tools/                the QA harnesses, the dev server, the build and the bundler
+CLAUDE.md             working notes: test discipline, conventions, past mistakes
 vendor/three.module.min.js   three.js r180, vendored — no CDN, no network at runtime
 dist/ + salt-and-tally-web.zip   the static build
 dist-single/salt-and-tally.html  the whole game as one self-contained file

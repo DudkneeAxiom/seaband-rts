@@ -2,10 +2,17 @@
    and screenshots. Usage: node tools/qa.mjs [scenario] */
 import { chromium } from 'playwright';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { serve, isUp } from './serve.mjs';
 
-const OUT = process.env.QA_OUT || '/tmp/claude-0/-home-user-seaband-rts/596e8234-72fc-559d-b926-c631e5408168/scratchpad/shots';
+// screenshots land beside the repo unless QA_OUT says otherwise, so a clone
+// on any machine writes somewhere that exists
+const OUT = process.env.QA_OUT
+  || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'shots');
 fs.mkdirSync(OUT, { recursive: true });
-const URL = 'http://localhost:8080/index.html';
+const PORT = +(process.env.PORT || 8080);
+const URL = `http://localhost:${PORT}/index.html`;
 
 export const VIEWPORTS = {
   // iPhone 14-class landscape
@@ -18,7 +25,17 @@ export const VIEWPORTS = {
   desktop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },
 };
 
+/* Any suite can be run on its own: if nothing is serving the game, this starts
+   a server and keeps it for the life of the process. One less thing to remember
+   than "did I leave http-server running in the other terminal". */
+let ownServer = null;
+async function ensureServer() {
+  if (ownServer || await isUp(PORT)) return;
+  ownServer = await serve(PORT);
+}
+
 export async function launch(vp = 'phone') {
+  await ensureServer();
   const browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH || undefined,
     args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage', '--no-sandbox'],
@@ -33,6 +50,10 @@ export async function launch(vp = 'phone') {
   await page.goto(URL, { waitUntil: 'networkidle' });
   return { browser, page, errors };
 }
+
+/** Let go of the server this process started, so node can exit. */
+export function stopServer() { if (ownServer) { ownServer.close(); ownServer = null; } }
+process.on('exit', () => { if (ownServer) ownServer.close(); });
 
 export async function shot(page, name) {
   await page.screenshot({ path: `${OUT}/${name}.png` });
