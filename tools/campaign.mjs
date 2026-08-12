@@ -296,7 +296,13 @@ await untilContact();
 /* Counted either side of this one transition. Measuring across the whole
    suite counted the staging instead: ships parked at 9e4 to get them out of a
    scenario are culled as too distant, which is the world working correctly. */
-const worldBefore = await G(() => ({ ships: window.__game.ships.length }));
+/* Live hulls, not raw entries. A wreck still going down somewhere else is
+   benched with everyone else and deliberately not handed back — "a hull that
+   went down during it simply is not there" — so counting her before and not
+   after reads as the world losing a ship when it has only lost a wreck. */
+const worldBefore = await G(() => ({
+  ships: window.__game.ships.filter(s => s.alive).length,
+}));
 await G(() => { const g = window.__game; if (g.mode === 'encounter') g.chooseEncounter('fight'); });
 await waitFor(page, () => window.__game.mode === 'battle', 6000);
 let ended = false;
@@ -324,7 +330,7 @@ const won = await G(() => ({
     ? (e => `${e.name} hull ${Math.round(e.hullFrac * 100)}% ${e.fleeing ? 'fleeing' : 'fighting'} `
       + `${Math.round(Math.hypot(e.x - window.__game.player.x, e.z - window.__game.player.z))}m off`)(window.__game.battle.enemies[0])
     : 'none left',
-  ships: window.__game.ships.length,
+  ships: window.__game.ships.filter(s => s.alive).length,
   sunk: window.__game.battleLastSunk || 0,
   title: document.getElementById('enc-title').textContent,
   alive: window.__game.player.alive,
