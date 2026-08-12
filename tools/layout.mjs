@@ -1,7 +1,7 @@
 /* HUD layout audit: measures every visible control across viewports and
    reports anything that overflows the screen, overlaps another control,
    or is smaller than a comfortable touch target. */
-import { launch, sleep, ff, newVoyage, VIEWPORTS } from './qa.mjs';
+import { launch, sleep, ff, newVoyage, dismissModal, waitFor, VIEWPORTS } from './qa.mjs';
 
 const TARGETS = [
   '#topbar', '#compass', '#leftstack', '#shipstatus', '#speedctl', '#actions',
@@ -21,6 +21,11 @@ for (const vp of Object.keys(VIEWPORTS)) {
   const { browser, page } = await launch(vp);
   await sleep(900);
   await newVoyage(page);
+  /* The opening scene is a modal, and a modal holds the world: no simulation
+     runs, so nothing recomputes who is chasing you and the HUD has nothing
+     new to draw. Every other suite closes it; this one never did, which is
+     why its screen was empty and its verdict meaningless. */
+  await dismissModal(page);
   /* Force the busiest HUD there is, and check afterwards that it is actually
      up. This staged a hostile twenty-four metres off, which is inside contact
      range: the encounter opened, the target was cleared, the world paused,
@@ -36,7 +41,7 @@ for (const vp of Object.keys(VIEWPORTS)) {
     for (let i = 0; i < 20 && !pir; i++) pir = g.spawnNPC('pirate');
     if (pir) {
       pir.x = p.x + 260; pir.z = p.z + 40; pir.speed = 6;
-      pir.sails = pir.sailMax * 0.2;
+      pir.sails = pir.sailMax;
       pir.hostileToPlayer = true; pir.target = p; pir.chaseHold = 0; pir.fleeing = false;
       g.selectTarget(pir);
     }
@@ -50,6 +55,36 @@ for (const vp of Object.keys(VIEWPORTS)) {
     }
     return { pir: !!pir, con: !!con };
   });
+
+  /* Hold the pose while the tape measure is out, and let the world turn over
+     enough to notice her. A raider chasing a fleet of two may decide she is
+     outmatched and break off, which is the AI being right and the panel
+     correctly going away — but this is a layout audit, and what these look
+     like when they are up is the whole question. */
+  const hold = () => page.evaluate(() => {
+    const g = window.__game;
+    const pir = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+    if (pir) {
+      pir.hostileToPlayer = true; pir.target = g.player;
+      pir.fleeing = false; pir.chaseHold = 0;
+    }
+    g.encounterCooling = 900;
+  });
+  await hold();
+  await ff(page, 1);
+  await hold();
+
+  /* And wait for the HUD to draw rather than sleeping and hoping: ff()
+     advances the simulation, the panels are redrawn by the render loop, and
+     at software-GL frame rates a couple of hundred milliseconds can be no
+     frames at all. */
+  await waitFor(page, () => {
+    const seen = id => {
+      const n = document.getElementById(id);
+      return !!n && !n.classList.contains('hidden') && n.getBoundingClientRect().width > 1;
+    };
+    return seen('targetcard') && seen('fleetbar') && seen('pursuit');
+  }, 20000);
   // Two passes, because a hint and the objective chip are never lit together:
   //   A = a hint is up (the objective chip is muted, as hint() does)
   //   B = no hint, the objective chip is showing
