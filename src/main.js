@@ -10,7 +10,10 @@ import { initSheet, openMenu, isSheetOpen, closeSheet } from './ui/sheet.js';
 import { $, onTap, isModalOpen, hint, hideHint, setObjective } from './ui/dom.js';
 import { openOrigin, isOriginOpen } from './ui/origin.js';
 import { bindKeys, applyHeld } from './core/keys.js';
-import { initAudio, resumeAudio, updateAudio } from './core/audio.js';
+import {
+  initAudio, resumeAudio, updateAudio, audioStats,
+  sfxCannon, sfxWood, sfxSplash, sfxClash, sfxClick, sfxBell, sfxHorn, sfxCoin,
+} from './core/audio.js';
 import { clamp } from './core/util.js';
 import { heightAt, depthAt, PORT_SHORE } from './world/terrain.js';
 
@@ -108,6 +111,15 @@ function boot() {
   rig.setZoom(205); rig.distance = 205;
   rig.azimuth = 1.55;
   window.__game = game;       // handy for QA
+  /* A handle on the mixer for the audio suite. Sound is the one part of this
+     that no screenshot and no assertion about game state can check, so the
+     tests drive it directly and listen to what comes out. */
+  window.__audio = {
+    stats: audioStats,
+    update: updateAudio,
+    cannon: sfxCannon, wood: sfxWood, splash: sfxSplash, clash: sfxClash,
+    click: sfxClick, bell: sfxBell, horn: sfxHorn, coin: sfxCoin,
+  };
   window.__renderer = renderer;
   window.__ui = { hint, hideHint, setObjective };
 

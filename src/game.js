@@ -985,7 +985,11 @@ export class Game {
     if (!canBoard(a, b)) return;
     const bd = new Boarding(a, b, {
       onBoardTick: (bb, ka, kd) => {
-        sfxClash();
+        /* Where the fighting is. The world boards ships whether you are there
+           or not, and this fires every 0.62s for as long as it lasts — without
+           a distance the whole map's melee arrived in your ears at once. */
+        const p = this.player;
+        sfxClash(p ? dist(bb.a.x, bb.a.z, p.x, p.z) : 9e4);
         if (bb.a.isPlayer || bb.d.isPlayer) {
           this.stats.crewLost += bb.a.isPlayer ? ka : kd;
           if (this.onBoardUI) this.onBoardUI(bb);

@@ -38,7 +38,11 @@ export async function launch(vp = 'phone') {
   await ensureServer();
   const browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH || undefined,
-    args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage', '--no-sandbox'],
+    args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+      '--disable-dev-shm-usage', '--no-sandbox',
+      // the audio suite has to hear something, and there is no thumb here to
+      // satisfy the gesture requirement before the context will start
+      '--autoplay-policy=no-user-gesture-required'],
   });
   const cfg = VIEWPORTS[vp];
   if (!cfg) throw new Error('unknown viewport ' + vp);

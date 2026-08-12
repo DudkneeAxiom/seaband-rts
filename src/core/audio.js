@@ -8,19 +8,54 @@ let ctx = null, master = null, ambBus = null, sfxBus = null, musBus = null;
 let started = false, muted = false;
 let waveLFO = null, windGain = null, waveGain = null;
 let gullTimer = 0, creakTimer = 0, musicTimer = 0, harbourGain = null;
-let noiseBuf = null, echoIn = null;
+let noiseBuf = null, echoIn = null, probe = null;
 
 /* A broadside is one call per gun, and a fleet action is several broadsides
    at once. Past a couple of dozen simultaneous voices the mix is mud and the
    audio thread starts missing its deadline, which is what actually makes the
    harsh noise — so count them and drop the ones nobody would hear anyway. */
+/** Where the master sits when it is not muted, in one place so unmuting
+    cannot restore a level the mixer was never set to. */
+const MASTER = 0.75;
 const MAX_VOICES = 24;
 let voices = 0;
 function voice(seconds) {
   if (voices >= MAX_VOICES) return false;
   voices++;
-  setTimeout(() => { voices--; }, seconds * 1000);
+  setTimeout(() => { voices--; }, Math.max(1, seconds * 1000));
   return true;
+}
+
+/* Every number that reaches an AudioParam goes through here first.
+
+   This is not defensive tidiness. A NaN written to a gain or a frequency does
+   not merely spoil one voice: it propagates into the internal state of every
+   filter and compressor downstream, and those never recover — the graph
+   screams until the page is reloaded. One bad distance from one bad frame is
+   enough. So nothing reaches a param without being finite and in range. */
+function num(v, fallback, lo, hi) {
+  const n = (typeof v === 'number' && Number.isFinite(v)) ? v : fallback;
+  return Math.min(hi, Math.max(lo, n));
+}
+/** Gains for exponential ramps must be positive and non-zero, never 0. */
+function gainOf(v, hi = 1) { return num(v, 0.02, 0.0002, hi); }
+
+/**
+ * How loud something that far away should be, and zero once it is somebody
+ * else's business entirely.
+ *
+ * Everything used to have a volume floor instead of a cutoff, so a boarding
+ * or a broadside on the far side of the shoals arrived at the same level as
+ * one alongside — and the world simulates those whether you are watching or
+ * not. Out past `far` you hear nothing, which is both correct and what keeps
+ * the voice count for things actually happening to you.
+ */
+function atten(dist, near, far) {
+  const d = num(dist, 0, 0, 1e6);
+  if (d >= far) return 0;
+  if (d <= near) return 1;
+  const t = 1 - (d - near) / (far - near);
+  return t * t;                       // falls away quickly, then tails off
 }
 
 export const audio = {
@@ -52,14 +87,24 @@ export function initAudio() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
   ctx = new AC();
-  master = ctx.createGain(); master.gain.value = 0.9;
+  master = ctx.createGain(); master.gain.value = MASTER;
   /* Everything is synthesised live and a broadside can stack a dozen voices in
-     one frame, which clips the sum into a fizzing mess. One limiter across the
-     end of the chain costs nothing and keeps the peaks civil. */
+     one frame, which clips the sum into a fizzing mess.
+
+     A compressor alone does not settle this: at a 4ms attack the front of a
+     transient is already through before it acts, and a fleet action measured
+     1.076 at the destination — past full scale, which is distortion, which is
+     exactly the harshness this is meant to prevent. So: a lower threshold, a
+     fast attack, and a fixed ceiling behind it. The headroom costs a little
+     loudness and buys a mix that cannot be made to spit. */
   const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.value = -10; limiter.knee.value = 6;
-  limiter.ratio.value = 12; limiter.attack.value = 0.004; limiter.release.value = 0.18;
-  master.connect(limiter); limiter.connect(ctx.destination);
+  limiter.threshold.value = -16; limiter.knee.value = 4;
+  limiter.ratio.value = 20; limiter.attack.value = 0.001; limiter.release.value = 0.14;
+  const ceiling = ctx.createGain(); ceiling.gain.value = 0.82;
+  master.connect(limiter); limiter.connect(ceiling); ceiling.connect(ctx.destination);
+  // a tap on the very end of the chain, so a test can see what the ear gets
+  probe = ctx.createAnalyser(); probe.fftSize = 2048;
+  ceiling.connect(probe);
   ambBus = ctx.createGain(); ambBus.gain.value = 0.0; ambBus.connect(master);
   sfxBus = ctx.createGain(); sfxBus.gain.value = 0.85; sfxBus.connect(master);
   musBus = ctx.createGain(); musBus.gain.value = 0.0; musBus.connect(master);
@@ -111,43 +156,79 @@ export function resumeAudio() {
 }
 export function toggleMute() {
   muted = !muted;
-  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.9, ctx.currentTime, 0.1);
+  if (master) master.gain.setTargetAtTime(muted ? 0 : MASTER, ctx.currentTime, 0.1);
   return muted;
 }
 
 /* ---------------- ambience driving ---------------- */
 export function updateAudio(dt, st) {
-  if (!started) return;
+  if (!started || !st) return;
   const t = ctx.currentTime;
-  if (waveGain) waveGain.gain.setTargetAtTime(0.34 + st.speedN * 0.30 + st.shallow * 0.18, t, 0.6);
-  if (windGain) windGain.gain.setTargetAtTime(0.06 + st.speedN * 0.09, t, 0.8);
-  if (harbourGain) harbourGain.gain.setTargetAtTime(st.nearPort * 0.30, t, 1.2);
+  /* This is the one path where the world writes into the audio graph every
+     frame, so it is the one place a stray NaN — an unplaced ship, a divide by
+     a zero-length voyage — would get in and stay in. Everything is coerced. */
+  const speedN = num(st.speedN, 0, 0, 1);
+  const shallow = num(st.shallow, 0, 0, 1);
+  const nearShore = num(st.nearShore, 0, 0, 1);
+  const nearPort = num(st.nearPort, 0, 0, 1);
+  const step = num(dt, 0, 0, 1);
 
-  gullTimer -= dt;
+  if (waveGain) waveGain.gain.setTargetAtTime(0.34 + speedN * 0.30 + shallow * 0.18, t, 0.6);
+  if (windGain) windGain.gain.setTargetAtTime(0.06 + speedN * 0.09, t, 0.8);
+  if (harbourGain) harbourGain.gain.setTargetAtTime(nearPort * 0.30, t, 1.2);
+
+  gullTimer -= step;
   if (gullTimer <= 0) {
     gullTimer = 2.2 + Math.random() * 6;
-    if (st.nearShore > 0.25 && Math.random() < st.nearShore) gull();
+    if (nearShore > 0.25 && Math.random() < nearShore) gull();
   }
-  creakTimer -= dt;
-  if (creakTimer <= 0) { creakTimer = 3 + Math.random() * 7; if (st.speedN > 0.15) creak(); }
+  creakTimer -= step;
+  if (creakTimer <= 0) { creakTimer = 3 + Math.random() * 7; if (speedN > 0.15) creak(); }
 
-  musicTimer -= dt;
+  musicTimer -= step;
   if (musicTimer <= 0) { musicTimer = musicStep(st); }
+}
+
+/**
+ * What is actually coming out of the end of the chain.
+ *
+ * A test hook, and the reason this bug cannot come back quietly: `bad` counts
+ * samples that are not finite, and `peak` is the loudest sample in the last
+ * buffer. Assertions can watch both while the game throws everything it has at
+ * the mixer, which is the only way to catch a sound nobody happens to be
+ * listening for.
+ */
+export function audioStats() {
+  if (!started || !probe) return null;
+  const buf = new Float32Array(probe.fftSize);
+  probe.getFloatTimeDomainData(buf);
+  let peak = 0, bad = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const v = buf[i];
+    if (!Number.isFinite(v)) { bad++; continue; }
+    const a = Math.abs(v);
+    if (a > peak) peak = a;
+  }
+  return { peak, bad, voices, state: ctx.state, time: ctx.currentTime };
 }
 
 /* ---------------- one-shots ---------------- */
 function env(node, gain, a, d, dest = sfxBus) {
   const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, ctx.currentTime);
-  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), ctx.currentTime + a);
-  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + a + d);
+  const t = ctx.currentTime;
+  const at = num(a, 0.005, 0.001, 4), dc = num(d, 0.2, 0.01, 12);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gainOf(gain), t + at);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + at + dc);
   node.connect(g); g.connect(dest);
   return g;
 }
 
 export function sfxCannon(dist = 0) {
-  if (!started || !voice(0.6)) return;
-  const vol = Math.max(0.06, 0.85 - dist * 0.0016);
+  if (!started) return;
+  // a broadside two thousand units away is somebody else's war
+  const vol = 0.85 * atten(dist, 120, 900);
+  if (vol <= 0.012 || !voice(0.6)) return;
   const n = src(false);
   const f = ctx.createBiquadFilter(); f.type = 'lowpass';
   f.frequency.setValueAtTime(2400, ctx.currentTime);
@@ -163,8 +244,9 @@ export function sfxCannon(dist = 0) {
   o.start(); o.stop(ctx.currentTime + 0.42);
 }
 export function sfxSplash(dist = 0) {
-  if (!started || !voice(0.4)) return;
-  const vol = Math.max(0.03, 0.4 - dist * 0.0011);
+  if (!started) return;
+  const vol = 0.4 * atten(dist, 70, 560);
+  if (vol <= 0.008 || !voice(0.4)) return;
   const n = src(false);
   const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.8;
   f.frequency.setValueAtTime(1500, ctx.currentTime);
@@ -173,8 +255,9 @@ export function sfxSplash(dist = 0) {
   n.start(); n.stop(ctx.currentTime + 0.4);
 }
 export function sfxWood(dist = 0) {
-  if (!started || !voice(0.3)) return;
-  const vol = Math.max(0.05, 0.55 - dist * 0.0013);
+  if (!started) return;
+  const vol = 0.55 * atten(dist, 90, 700);
+  if (vol <= 0.01 || !voice(0.3)) return;
   const o = ctx.createOscillator(); o.type = 'triangle';
   o.frequency.setValueAtTime(220, ctx.currentTime);
   o.frequency.exponentialRampToValueAtTime(70, ctx.currentTime + 0.16);
@@ -183,28 +266,56 @@ export function sfxWood(dist = 0) {
   f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 1.2;
   n.connect(f); env(f, vol * 0.6, 0.002, 0.14); n.start(); n.stop(ctx.currentTime + 0.2);
 }
-export function sfxClash() {
+/**
+ * Steel on steel — and the sound this project got most wrong.
+ *
+ * It was three square waves between 700 and 2100 Hz. A square at two kilohertz
+ * puts harmonics at six, ten and fourteen, which is the exact band the ear
+ * refuses to forgive, and boarding ticks every 0.62 seconds for as long as a
+ * boarding lasts. It had no distance term and no voice cap, and the world
+ * simulates boardings between strangers whether you are near them or not — so
+ * a melee anywhere on the map arrived in your ears at full volume, out of
+ * nowhere, four times a second if a few were running at once.
+ *
+ * Now: a filtered noise scrape for the blade, two soft triangles well below a
+ * kilohertz for the ring, everything lowpassed, attenuated by distance, cut
+ * off entirely past 620 units, and counted against the voice budget.
+ */
+export function sfxClash(dist = 0) {
   if (!started) return;
-  for (let i = 0; i < 3; i++) {
-    const o = ctx.createOscillator(); o.type = 'square';
-    const base = 700 + Math.random() * 1400;
-    o.frequency.setValueAtTime(base, ctx.currentTime + i * 0.03);
-    o.frequency.exponentialRampToValueAtTime(base * 0.4, ctx.currentTime + i * 0.03 + 0.12);
+  const vol = atten(dist, 90, 620);
+  if (vol <= 0.012 || !voice(0.4)) return;
+  const t0 = ctx.currentTime;
+  for (let i = 0; i < 2; i++) {
+    const at = t0 + i * 0.055;
+    const o = ctx.createOscillator(); o.type = 'triangle';
+    const base = num(300 + Math.random() * 210, 380, 120, 900);
+    o.frequency.setValueAtTime(base, at);
+    o.frequency.exponentialRampToValueAtTime(base * 0.55, at + 0.14);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = 2100; lp.Q.value = 0.6;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.03);
-    g.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + i * 0.03 + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.03 + 0.16);
-    o.connect(g); g.connect(sfxBus); o.start(ctx.currentTime + i * 0.03); o.stop(ctx.currentTime + i * 0.03 + 0.2);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(gainOf(0.05 * vol, 0.2), at + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.17);
+    o.connect(lp); lp.connect(g); g.connect(sfxBus);
+    o.start(at); o.stop(at + 0.22);
+    o.onended = () => { o.disconnect(); lp.disconnect(); g.disconnect(); };
   }
   const n = src(false); const f = ctx.createBiquadFilter();
-  f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = 0.6;
-  n.connect(f); env(f, 0.12, 0.01, 0.3); n.start(); n.stop(ctx.currentTime + 0.4);
+  f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 0.7;
+  n.connect(f); env(f, 0.08 * vol, 0.008, 0.22);
+  n.start(); n.stop(t0 + 0.32);
+  n.onended = () => { n.disconnect(); f.disconnect(); };
 }
 export function sfxClick(freq = 620) {
-  if (!started) return;
+  if (!started || !voice(0.15)) return;
   const o = ctx.createOscillator(); o.type = 'triangle';
-  o.frequency.setValueAtTime(freq, ctx.currentTime);
+  // the one param a caller passes straight through: a NaN or an out-of-range
+  // frequency here throws, and every UI tap goes through this
+  o.frequency.setValueAtTime(num(freq, 620, 40, 12000), ctx.currentTime);
   env(o, 0.10, 0.003, 0.07); o.start(); o.stop(ctx.currentTime + 0.12);
+  o.onended = () => o.disconnect();
 }
 export function sfxCoin() {
   if (!started) return;

@@ -16,6 +16,7 @@ const SUITES = [
   ['trade', 'the merchant road, upkeep and the way back from nothing'],
   ['shore', 'harbours built on land, and credit for shared kills'],
   ['helm', 'the compass against the real projection, and every key'],
+  ['audio', 'the mixer under abuse: nothing clips, nothing goes NaN'],
   ['touch', 'taps, drags and pinches on the real canvas'],
   ['rig', 'the sails against the wind'],
   ['playthrough', 'the whole arc, driven through the real UI'],
