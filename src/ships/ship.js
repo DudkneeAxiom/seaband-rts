@@ -21,6 +21,14 @@ export function crewPower(c, key) {
   let p = 0; for (const k in c) p += c[k] * (RANKS[k]?.[key] || 0); return p;
 }
 
+/** A ship's name is the one thing about her that never changes, so it is what
+    her procedural details are drawn from: reload a save and she is herself. */
+function nameSeed(name) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < (name || '').length; i++) h = Math.imul(h ^ name.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
 export class Ship {
   constructor(opts) {
     this.id = NEXT_ID++;
@@ -77,6 +85,17 @@ export class Ship {
     this.wakeStrength = 0;
 
     this.colors = opts.colors || null;
+    /** The yard she came out of. Never changes hands, whoever owns her. */
+    this.builtBy = opts.builtBy || this.faction;
+    /* Her history, kept as two counts and nothing else.
+       `scars` is the number of times she has been brought in badly hurt and
+       put back together; `prizes` is what she has taken. Everything the
+       player sees of either is derived in the factory, so a save carries two
+       small numbers and reopens on the same ship. */
+    this.scars = opts.scars | 0;
+    this.prizes = opts.prizes | 0;
+    /** Her own thread of the variation stream: the same hull every time. */
+    this.seed = nameSeed(this.name);
     this.mesh = buildShip(this.classId, this.faction, this.meshOpts());
     this.mesh.position.set(this.x, 0, this.z);
     this.mesh.rotation.y = this.yaw;
@@ -91,7 +110,28 @@ export class Ship {
       ...(this.colors || {}),
       upgrades: this.upgrades || [],
       guns: this.gunsMax ? this.gunsMax * 2 : undefined,
+      /* Where she was built, which is not where she sails from. A prize taken
+         into the fleet flies your colours and keeps her bones: League hulls
+         stay heavy, Covenant hulls stay light, and a late fleet reads as a
+         history of the campaign rather than five copies of one ship. */
+      build: this.builtBy ? (FACTIONS[this.builtBy] || {}).build : undefined,
+      seed: this.seed,
+      history: { scars: this.scars | 0, prizes: this.prizes | 0 },
     };
+  }
+
+  /**
+   * Mark what she has been through, and redraw her if it shows.
+   *
+   * Returns true when the hull needs rebuilding, so the caller can do it once
+   * at the moment it happens — in harbour, where a refit belongs — rather than
+   * the renderer checking every ship every frame for a number that changes
+   * perhaps five times in a campaign.
+   */
+  recordHistory({ scar = 0, prize = 0 } = {}) {
+    const was = `${Math.min(3, this.scars)}/${Math.min(3, this.prizes)}`;
+    this.scars += scar; this.prizes += prize;
+    return was !== `${Math.min(3, this.scars)}/${Math.min(3, this.prizes)}`;
   }
 
   /**
@@ -387,6 +427,7 @@ export class Ship {
       shot: this.shot, provisions: this.provisions, gunsPort: this.gunsPort, gunsStb: this.gunsStb,
       officers: this.officers.map(o => o.id), captain: this.captain ? this.captain.id : null,
       role: this.role, isPlayer: this.isPlayer,
+      scars: this.scars | 0, prizes: this.prizes | 0,
     };
   }
 }

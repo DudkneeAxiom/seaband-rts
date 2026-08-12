@@ -9,6 +9,7 @@ import { HUD } from './ui/hud.js';
 import { initSheet, openMenu, isSheetOpen, closeSheet } from './ui/sheet.js';
 import { $, el, clear, onTap, isModalOpen, hint, hideHint, setObjective } from './ui/dom.js';
 import { openOrigin, isOriginOpen } from './ui/origin.js';
+import { buildShip } from './ships/shipFactory.js';
 import { initEncounter, openEncounter, closeEncounter, isEncounterOpen, showBattleResult } from './ui/encounter.js';
 import { fleeChance, talkChance, buildEncounter, CONTACT_R } from './sim/encounter.js';
 import { bindKeys, applyHeld } from './core/keys.js';
@@ -211,6 +212,10 @@ function boot() {
   window.__enc = { fleeChance, talkChance, buildEncounter, CONTACT_R };
   window.__renderer = renderer;
   window.__applyUp = sh => window.__game.applyUpgradesTo(sh);
+  /* The factory itself, so a suite can put six hulls of the same class side by
+     side and photograph them. Comparing a Covenant dhow with a League brig
+     proves nothing about how the two powers build. */
+  window.__buildShip = buildShip;
   window.__ui = { hint, hideHint, setObjective };
 
   // desk play: a keyboard is a better tiller than a tap, and a mouse should
@@ -225,6 +230,7 @@ function boot() {
   window.__hud = hud;
   window.__worldToScreen = worldToScreen;
   window.__keys = keys;
+  window.__cam = rig;                         // the camera rig, for framing shots
 }
 
 /** New voyages go through the questionnaire first; a saved one resumes. */

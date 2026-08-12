@@ -4,12 +4,23 @@
 import { GOODS, PORTS } from '../data/gamedata.js';
 import { clamp, lerp, makeRNG } from '../core/util.js';
 
+/* A port's opening books depend on that port and nothing else.
+   One shared stream would have been simpler, but then every harbour added to
+   PORTS shifts the draw for everything after it in the list — which is how
+   adding Greywake and Tideglass quietly turned Fort Escarra into a spice
+   famine and put a ◆385/min run on the board that nobody had tuned. */
+function seedFor(id) {
+  let h = 20260811;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
 export class Market {
   constructor(saved) {
     this.ports = {};
     this.haggle = 0;          // the captain's own way with a harbourmaster
-    const rng = makeRNG(20260811);
     for (const p of PORTS) {
+      const rng = makeRNG(seedFor(p.id));
       const st = { stock: {}, demand: {} };
       for (const gid in GOODS) {
         const mod = p.prices[gid] ?? 1;

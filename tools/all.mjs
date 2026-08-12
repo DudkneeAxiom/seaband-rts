@@ -14,6 +14,7 @@ const SUITES = [
   ['origin', 'the questionnaire, its effects and the story spine'],
   ['campaign', 'the campaign / encounter / battle spine and every road between'],
   ['refit', 'upgrades that show on the ship, not just in the numbers'],
+  ['factions', 'two new powers: their water, their harbours, their yards'],
   ['systems', 'rules: contracts, discoveries, shoals, weight, time'],
   ['trade', 'the merchant road, upkeep and the way back from nothing'],
   ['shore', 'harbours built on land, and credit for shared kills'],

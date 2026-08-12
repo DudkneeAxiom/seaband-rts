@@ -123,6 +123,8 @@ function choose(id, enc, flee) {
     flee: ['You are clear', 'The gap opens. By the time she has worn round you are hull down.'],
     cargo: ['They take the hold', 'Boats come across, the hatches are opened, and she lets you go.'],
     bribe: [`◆${r.cost} lighter`, 'The coin goes across. She sheers off without a shot.'],
+    dues: [`◆${r.cost} to the League`, 'A clerk writes you a receipt from the rail, and the Sound is open.'],
+    chart: [`◆${r.cost} for the passage`, 'They call the marks across to you, and then they are gone.'],
     colours: ['They know your colours', 'The hail is answered, the guns run in, and she passes on.'],
     parley: ['They stand off', 'Whatever they have heard about you, it was enough.'],
     demand: ['She strikes', r.coin ? `Her cargo comes across — ◆${r.coin}.` : 'Her colours come down without a shot.'],

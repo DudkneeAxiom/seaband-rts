@@ -208,10 +208,27 @@ ok(`and ninety more never strip her below a working watch (${food.lowest} hands 
 const refuge = await G(() => {
   const g = window.__game, p = g.player;
   const out = [];
+  /* Lay the raider in the approach, not on the breakwater. Due east of the
+     harbour used to do, back when every port was an open roadstead; Greywake
+     is walled and Tideglass sits inside a reef, so a fixed bearing puts her
+     hard aground and a ship that cannot move cannot sheer off — which would
+     have failed this check for a reason that has nothing to do with it.
+     So: the bearing with water under it at 150m *and* a clear way out at 260m,
+     which is where a raider standing off a harbour would actually be. */
+  const layOff = port => {
+    let best = null;
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 24) {
+      const at = r => window.__terrain.depthAt(port.x + Math.sin(a) * r, port.z + Math.cos(a) * r);
+      const score = Math.min(at(150), at(200), at(260));
+      if (!best || score > best.score) best = { a, score };
+    }
+    return { x: port.x + Math.sin(best.a) * 150, z: port.z + Math.cos(best.a) * 150, water: Math.round(best.score) };
+  };
   for (const port of g.PORTS) {
     p.x = port.x; p.z = port.z; p.speed = 0; p.dest = null;
     const pir = g.ships.find(s => s.faction === 'pirate' && s.alive) || g.spawnNPC('pirate');
-    pir.x = port.x + 120; pir.z = port.z; pir.hostileToPlayer = true;
+    const lay = layOff(port);
+    pir.x = lay.x; pir.z = lay.z; pir.hostileToPlayer = true;
     pir.target = p; pir.alive = true;
     g.update(0.1);
     const chased = !!g.dockablePort;
@@ -221,13 +238,15 @@ const refuge = await G(() => {
     const d0 = Math.hypot(before.x - port.x, before.z - port.z);
     const d1 = Math.hypot(pir.x - port.x, pir.z - port.z);
     pir.x = 9e4; pir.z = 9e4; pir.hostileToPlayer = false; pir.target = null;
-    out.push({ port: port.name, chased, sheeredOff: d1 > d0 + 10, state: pir.brain.state });
+    out.push({ port: port.name, chased, water: lay.water,
+      sheeredOff: d1 > d0 + 10, moved: Math.round(d1 - d0), state: pir.brain.state });
   }
   return out;
 });
 for (const r of refuge) {
   ok(`you can put into ${r.port} with a raider on your tail`, r.chased);
-  ok(`and she sheers off rather than follow you under the guns of ${r.port}`, r.sheeredOff);
+  ok(`and she sheers off rather than follow you under the guns of ${r.port} (${r.moved >= 0 ? '+' : ''}${r.moved}m, ${r.state}, ${r.water}m under her)`,
+    r.sheeredOff);
 }
 
 /* ---------- and a hostile alongside the quay still blocks it ---------- */

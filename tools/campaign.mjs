@@ -454,7 +454,7 @@ const post = await G(() => ({
 }));
 ok(`a voyage that has been in action round-trips (${JSON.stringify(pre)} -> ${JSON.stringify(post)})`,
   post.coin === pre.stored && post.fleet === pre.fleet);
-ok('and reloads onto the campaign layer with a whole world',
+ok(`and reloads onto the campaign layer with a whole world (${post.mode}, guns ${post.live ? 'live' : 'cold'}, ${post.ships} sail)`,
   post.mode === 'campaign' && !post.live && post.ships > 2);
 
 console.log(log.join('\n'));

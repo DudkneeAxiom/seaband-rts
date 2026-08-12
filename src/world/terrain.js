@@ -123,7 +123,32 @@ const C_ROCK = new THREE.Color(0x8d8577);
 const C_ROCK_D = new THREE.Color(0x6b655c);
 const C_SEABED = new THREE.Color(0x93825e);
 
-function shadeLand(h, slope, out) {
+/* The Iron Sound is dark wet rock with almost nothing growing on it, and the
+   Glass Reach is pale sand barely out of the water. Both are the same shading
+   function with a different palette, because the geography is the argument
+   each of those factions makes and it should be legible from a mile off. */
+const C_IRON = new THREE.Color(0x4a4f55);
+const C_IRON_D = new THREE.Color(0x33383d);
+const C_IRON_SCRUB = new THREE.Color(0x4f5a4a);
+const C_PALE = new THREE.Color(0xe8dcbb);
+const C_PALE_SCRUB = new THREE.Color(0x9fb383);
+
+function shadeLand(h, slope, out, ground) {
+  if (ground === 'iron') {
+    if (h < -1.2) out.copy(C_SEABED).lerp(C_IRON_D, clamp01((h + 14) / 13));
+    else if (h < 3) out.copy(C_IRON_D).lerp(C_IRON, clamp01((h + 1.2) / 4.2));
+    else if (h < 40) out.copy(C_IRON).lerp(C_IRON_SCRUB, clamp01((h - 3) / 37) * 0.5);
+    else out.copy(C_IRON).lerp(C_IRON_D, clamp01((h - 40) / 60));
+    if (slope > 0.5) out.lerp(C_IRON_D, clamp01((slope - 0.5) / 0.34) * 0.9);
+    return out;
+  }
+  if (ground === 'pale') {
+    if (h < -1.2) out.copy(C_SEABED).lerp(C_PALE, clamp01((h + 14) / 13) * 0.7);
+    else if (h < 4) out.copy(C_PALE);
+    else out.copy(C_PALE).lerp(C_PALE_SCRUB, clamp01((h - 4) / 20));
+    if (slope > 0.7) out.lerp(C_ROCK, clamp01((slope - 0.7) / 0.3) * 0.5);
+    return out;
+  }
   if (h < -1.2) out.copy(C_SEABED).lerp(C_WETSAND, clamp01((h + 14) / 13));
   else if (h < 2.2) out.copy(C_WETSAND).lerp(C_SAND, clamp01((h + 1.2) / 3.4));
   else if (h < 8) out.copy(C_SAND).lerp(C_GRASS, clamp01((h - 2.2) / 5.8));
@@ -168,7 +193,7 @@ function islandMesh(isl) {
       .cross(new THREE.Vector3(p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2])).normalize();
     const slope = 1 - Math.abs(tmpN.y);
     const hAvg = (p0[1] + p1[1] + p2[1]) / 3;
-    shadeLand(hAvg, slope, cA);
+    shadeLand(hAvg, slope, cA, isl.ground);
     const j2 = 1 + (Math.random() - 0.5) * 0.11;
     for (const p of [p0, p1, p2]) { pos.push(p[0], p[1], p[2]); col.push(cA.r * j2, cA.g * j2, cA.b * j2); }
   };
@@ -389,6 +414,100 @@ function buildSettlement(port, group) {
       const sz = rngRange(rng, 2.2, 3.6);
       parts.push(prep(xf(new THREE.BoxGeometry(sz, sz, sz), { x: qx, y: qh + sz / 2, z: qz, ry: rng() * 3 }), 0x8a6a44, 0.12));
     }
+  }
+
+  /* ---------------------------------------------------------------
+     Faction construction. A port should say who holds it before the player
+     opens any interface — and the approach is where that has to happen,
+     because that is what they see first from seaward.
+     --------------------------------------------------------------- */
+  /* Harbour works — breakwaters, marks, beacons — go in their own mesh.
+     They stand in open water on purpose, which is the whole point of a
+     breakwater and of a staked channel, so they are kept apart from the
+     buildings: a check asking "is anything standing on nothing" still means
+     something, and these do not trip it. */
+  const seaworks = [];
+  if (port.style === 'fortified') {
+    /* GREYWAKE: two stone arms reaching out to very nearly meet, with the
+       harbour mouth between them. The League's whole argument, in masonry:
+       whoever controls where ships can safely stop controls the sea. */
+    const stone = 0x5b5f63, stoneLit = 0x7d8288;
+    for (const side of [1, -1]) {
+      const armLen = 200, seg = 13;
+      for (let i = 0; i < seg; i++) {
+        const t = i / (seg - 1);
+        // each arm curves in toward the mouth as it runs out
+        const out = 46 + t * armLen;
+        const across = side * (128 - t * 74);
+        const bx = base.x - inland.x * out + perpG.x * across;
+        const bz = base.y - inland.y * out + perpG.y * across;
+        const h = 13 - t * 3;
+        seaworks.push(prep(xf(new THREE.BoxGeometry(22, h, 26), { x: bx, y: h * 0.5 - 3, z: bz, ry: pierAng }),
+          i % 3 === 0 ? stoneLit : stone, 0.05));
+      }
+      // a light on the head of each arm, where the mouth is
+      const hx = base.x - inland.x * (46 + armLen) + perpG.x * side * 54;
+      const hz = base.y - inland.y * (46 + armLen) + perpG.y * side * 54;
+      seaworks.push(prep(xf(new THREE.CylinderGeometry(3.4, 4.6, 22, 7), { x: hx, y: 10, z: hz }), stoneLit, 0.04));
+      seaworks.push(prep(xf(new THREE.BoxGeometry(5, 4, 5), { x: hx, y: 22, z: hz }), 0x8e2b28, 0.05));
+    }
+    // signal towers along the waterfront, and a dry dock cut into it
+    for (const off of [-96, 0, 96]) {
+      const tx = base.x + perpG.x * off + inland.x * 30;
+      const tz = base.y + perpG.y * off + inland.y * 30;
+      const th = Math.max(2, heightAtAnalytic(tx, tz));
+      const hgt = 34 + Math.abs(off) * 0.06;
+      seaworks.push(prep(xf(new THREE.CylinderGeometry(4.5, 6.5, hgt, 6), { x: tx, y: th + hgt * 0.5 - 2, z: tz }), stone, 0.04));
+      seaworks.push(prep(xf(new THREE.BoxGeometry(11, 3, 11), { x: tx, y: th + hgt - 1, z: tz }), stoneLit, 0.05));
+      seaworks.push(prep(xf(new THREE.BoxGeometry(2, 9, 2), { x: tx, y: th + hgt + 5, z: tz }), 0x8e2b28, 0.06));
+    }
+  } else if (port.style === 'lagoon') {
+    /* TIDEGLASS: nothing defended. The reef is the wall and the way in is the
+       gate, so what the approach shows is stakes — a marked channel through
+       water that has drowned better captains — and light timber on stilts. */
+    const teal = 0x2f8f86, pale = 0xd9d2c0;
+    const chLen = 300;
+    for (let i = 0; i < 12; i++) {
+      const t = i / 11;
+      const out = 40 + t * chLen;
+      // the channel narrows as it comes in, and the stakes mark both sides
+      const across = 34 + t * 46;
+      for (const side of [1, -1]) {
+        const sx = base.x - inland.x * out + perpG.x * side * across;
+        const sz = base.y - inland.y * out + perpG.y * side * across;
+        seaworks.push(prep(xf(new THREE.CylinderGeometry(0.75, 0.95, 17, 5), { x: sx, y: 3.5, z: sz }), 0x9a8560, 0.06));
+        // a painted top, so the line of them reads from seaward
+        seaworks.push(prep(xf(new THREE.BoxGeometry(2.2, 2.2, 2.2), { x: sx, y: 12, z: sz }),
+          side > 0 ? teal : 0xc4553a, 0.05));
+      }
+    }
+    // low waterfront under sailcloth, and a beacon platform on stilts
+    for (const off of [-70, 12, 82]) {
+      const ax = base.x + perpG.x * off + inland.x * 16;
+      const az = base.y + perpG.y * off + inland.y * 16;
+      const ah = Math.max(1.4, heightAtAnalytic(ax, az));
+      for (const s2 of [-6, 6]) {
+        seaworks.push(prep(xf(new THREE.CylinderGeometry(0.55, 0.55, 12, 5),
+          { x: ax + perpG.x * s2, y: ah + 5, z: az + perpG.y * s2 }), 0x8a7048));
+      }
+      seaworks.push(prep(xf(new THREE.BoxGeometry(20, 0.9, 14), { x: ax, y: ah + 11, z: az, ry: pierAng }), pale, 0.07));
+    }
+    {
+      const bx = base.x - inland.x * 74 + perpG.x * 70;
+      const bz = base.y - inland.y * 74 + perpG.y * 70;
+      for (const [ox, oz] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) {
+        seaworks.push(prep(xf(new THREE.CylinderGeometry(0.8, 0.8, 26, 5),
+          { x: bx + perpG.x * ox + inland.x * oz, y: 6, z: bz + perpG.y * ox + inland.y * oz }), 0x8a7048));
+      }
+      seaworks.push(prep(xf(new THREE.BoxGeometry(16, 1.2, 16), { x: bx, y: 19, z: bz, ry: pierAng }), pale, 0.06));
+      seaworks.push(prep(xf(new THREE.BoxGeometry(3, 7, 3), { x: bx, y: 23, z: bz }), teal, 0.05));
+    }
+  }
+
+  if (seaworks.length) {
+    const m = new THREE.Mesh(mergeGeos(seaworks), litMaterial());
+    m.name = 'seaworks';
+    group.add(m);
   }
 
   // lighthouse for the major port, signal mast for the fort

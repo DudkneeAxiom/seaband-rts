@@ -211,6 +211,8 @@ export function updateAI(ship, dt, world, ctx) {
     case 'fisher': fisherAI(ship, dt, world, ctx, hurt); break;
     case 'pirate': pirateAI(ship, dt, world, ctx, hurt, crippled); break;
     case 'patrol': patrolAI(ship, dt, world, ctx, hurt); break;
+    case 'sable': sableAI(ship, dt, world, ctx, hurt); break;
+    case 'veyra': veyraAI(ship, dt, world, ctx, hurt); break;
     case 'consort': consortAI(ship, dt, world, ctx); break;
     default: idleAI(ship, dt, world);
   }
@@ -224,7 +226,10 @@ function merchantAI(ship, dt, world, ctx, hurt) {
     b.state = 'flee';
     b.flee = 6;
     // run downwind, away from the threat
-    const away = Math.atan2(ship.x - threat.x, ship.z - threat.z);
+    // she can be hurt with nothing in sight — run downwind then, not at a ghost
+    const away = threat
+      ? Math.atan2(ship.x - threat.x, ship.z - threat.z)
+      : world.windAng + Math.PI;
     const dw = world.windAng;
     const use = Math.abs(angDiff(away, dw)) < 1.5 ? dw : away;
     ship.headingCmd = avoidLandPublic(ship, use);
@@ -289,7 +294,10 @@ function fisherAI(ship, dt, world, ctx) {
   const b = ship.brain;
   const threat = nearestThreat(ship, world.ships, 300);
   if (threat) {
-    const away = Math.atan2(ship.x - threat.x, ship.z - threat.z);
+    // she can be hurt with nothing in sight — run downwind then, not at a ghost
+    const away = threat
+      ? Math.atan2(ship.x - threat.x, ship.z - threat.z)
+      : world.windAng + Math.PI;
     ship.headingCmd = avoidLandPublic(ship, away);
     ship.throttle = 1;
     return;
@@ -364,6 +372,92 @@ function pirateAI(ship, dt, world, ctx, hurt, crippled) {
     b.wpPos = { x: Math.cos(a) * r, z: Math.sin(a) * r };
   }
   steerTo(ship, b.wpPos.x, b.wpPos.z, dt);
+}
+
+/* ---------- Sable League: hold the water, do not chase it ----------
+   Their whole argument is that controlling where ships can stop controls the
+   sea, so their captains behave like it. A Sable brig works a station, closes
+   on anything hostile inside it, and turns back the moment the chase would
+   take her away from what she is guarding. She will not follow you across the
+   Shoals; she does not have to. */
+const SABLE_STATION = { x: -1450, z: -1280 };
+const SABLE_REACH = 900;
+
+function sableAI(ship, dt, world, ctx, hurt) {
+  const b = ship.brain;
+  if (!b.post) {
+    // each of them keeps a different gate of the Sound
+    const a = (ship.name.length * 1.7) % TAU;
+    b.post = { x: SABLE_STATION.x + Math.cos(a) * 380, z: SABLE_STATION.z + Math.sin(a) * 380 };
+  }
+  const fromPost = dist(ship.x, ship.z, b.post.x, b.post.z);
+
+  if (hurt) {                                  // damaged ships go home to the yard
+    const home = nearestPort(ship, p => p.faction === 'sable') || nearestPort(ship);
+    steerTo(ship, home.x, home.z, dt);
+    ship.target = null;
+    return;
+  }
+
+  if (!ship.target || !ship.target.alive || ship.target.captured) {
+    if (b.cooldown <= 0) { ship.target = findEnemy(ship, world.ships, 640); b.cooldown = 1.2; }
+  }
+  const t = ship.target;
+  if (t) {
+    // she breaks off rather than be drawn off station
+    const theirFromPost = dist(t.x, t.z, b.post.x, b.post.z);
+    if (theirFromPost > SABLE_REACH || fromPost > SABLE_REACH) { ship.target = null; }
+    else {
+      const d = dist(ship.x, ship.z, t.x, t.z);
+      if (d > GUN_RANGE || (!ctx.combatLive && (t.isPlayer || t.faction === 'player'))) steerTo(ship, t.x, t.z, dt);
+      else combatSteer(ship, t, dt, 118);
+      tryFire(ship, t, ctx, 62);
+      return;
+    }
+  }
+  // back to the gate, and hold it
+  if (fromPost > 120) steerTo(ship, b.post.x, b.post.z, dt);
+  else { ship.throttle = 0.22; ship.headingCmd = avoidLandPublic(ship, ship.yaw + dt * 0.25); }
+}
+
+/* ---------- Veyra Covenant: knowledge of the water, used ----------
+   They do not fight things they can outsail. Threatened, a Veyra captain runs
+   for water too thin for whatever is chasing her — which is the faction's
+   identity taught by watching it happen rather than by reading a blurb. */
+function veyraAI(ship, dt, world, ctx, hurt) {
+  const b = ship.brain;
+  const threat = nearestThreat(ship, world.ships, 520);
+  if (threat || hurt) {
+    b.state = 'flee';
+    /* Not simply downwind: toward the shallowest water she can find that she
+       still floats in. A deeper hull following her into it grounds. */
+    // she can be hurt with nothing in sight — run downwind then, not at a ghost
+    const away = threat
+      ? Math.atan2(ship.x - threat.x, ship.z - threat.z)
+      : world.windAng + Math.PI;
+    let best = away, bestScore = -1e9;
+    for (let i = 0; i < 9; i++) {
+      const a = away + (i - 4) * 0.34;
+      const px = ship.x + Math.sin(a) * 320, pz = ship.z + Math.cos(a) * 320;
+      const d = depthAt(px, pz);
+      if (d < ship.draft * 3.2 + 3) continue;         // she has to float too
+      // thin water is worth more the deeper the thing behind her draws
+      const thin = threat ? clamp(1 - (d - 12) / 40, 0, 1) : 0;
+      const score = thin * 60 - Math.abs(i - 4) * 3;
+      if (score > bestScore) { bestScore = score; best = a; }
+    }
+    ship.headingCmd = avoidLandPublic(ship, best);
+    ship.throttle = 1;
+    ship.target = null;
+    return;
+  }
+  // otherwise she is going somewhere, by a route she knows
+  if (!b.wpPos || dist(ship.x, ship.z, b.wpPos.x, b.wpPos.z) < 110) {
+    const a = Math.random() * TAU, r = 260 + Math.random() * 620;
+    b.wpPos = { x: 1440 + Math.cos(a) * r, z: 1300 + Math.sin(a) * r };
+  }
+  steerTo(ship, b.wpPos.x, b.wpPos.z, dt);
+  void ctx;
 }
 
 /* ---------- patrol ---------- */

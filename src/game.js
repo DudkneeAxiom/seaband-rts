@@ -25,6 +25,7 @@ import {
 import { toast, hint, hideHint, modal, isModalOpen, setObjective } from './ui/dom.js';
 import {
   CONTACT_R, PURSUIT_R, buildEncounter, enemyBand, resolveFlee, talkChance, bribeCost,
+  duesFor, chartFor,
 } from './sim/encounter.js';
 import { Battle } from './sim/battle.js';
 import { openPort, closeSheet, isSheetOpen } from './ui/sheet.js';
@@ -33,7 +34,17 @@ import {
 } from './core/audio.js';
 
 const SAVE_KEY = 'salt-and-tally-v1';
-const TRAFFIC = { merchant: 4, fisher: 3, pirate: 3, patrol: 2 };
+const TRAFFIC = { merchant: 4, fisher: 3, pirate: 3, patrol: 2, sable: 2, veyra: 2 };
+
+/* The two regional powers keep to their own water. A Sable channel patrol is
+   guarding the Iron Sound, not looking for you, and a Veyra navigator is
+   crossing the Glass Reach because that is where the passages are — so they
+   spawn in their region rather than over the player's shoulder. Sailing far
+   enough to meet them is the point of them existing. */
+const HOMES = {
+  sable: { x: -1450, z: -1280, r: 620 },
+  veyra: { x: 1440, z: 1300, r: 640 },
+};
 
 export class Game {
   constructor(scene, cameraRig) {
@@ -63,7 +74,7 @@ export class Game {
     this.limit = WORLD_SIZE * 0.46;
 
     this.coin = 0; this.prestige = 0; this.infamy = 0;
-    this.standing = { freehold: 0, admiralty: 0, compact: 0 };
+    this.standing = { freehold: 0, admiralty: 0, compact: 0, sable: 0, veyra: 0 };
     this.crewXP = 0;
     this.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 };
     this.officers = [];
@@ -148,7 +159,7 @@ export class Game {
     this.ships.length = 0; this.fleet.length = 0;
     this.setOrigin(origin);
     this.coin = 240; this.prestige = 0; this.infamy = 0;
-    this.standing = { freehold: 6, admiralty: 0, compact: 0 };
+    this.standing = { freehold: 6, admiralty: 0, compact: 0, sable: 0, veyra: 0 };
     this.crewXP = 0;
     this.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 };
     this.officers = []; this.prizes = []; this.quests = [];
@@ -302,7 +313,7 @@ export class Game {
         standing: this.standing, crewXP: this.crewXP, stats: this.stats,
         windAng: this.windAng,
         officers: this.officers.map(o => ({ ...o, ship: o.ship ? o.ship.id : null })),
-        fleet: this.fleet.map(s => ({ ...s.serialize(), upgrades: s.upgrades || [] })),
+        fleet: this.fleet.map(s => ({ ...s.serialize(), upgrades: s.upgrades || [], builtBy: s.builtBy })),
         prizes: this.prizes,
         quests: this.quests.map(q => ({
           id: q.id, active: q.active, done: q.done, progress: q.progress, portId: q.portId,
@@ -345,7 +356,10 @@ export class Game {
       this.storyOver = !!data.storyOver;
       this.coin = data.coin ?? 200;
       this.prestige = data.prestige ?? 0; this.infamy = data.infamy ?? 0;
-      this.standing = data.standing || { freehold: 0, admiralty: 0, compact: 0 };
+      /* A voyage begun before these factions existed has no standing with
+         them. Fill the gaps rather than replacing the object, so an old save
+         opens on a world that simply has two more powers in it than it had. */
+      this.standing = { freehold: 0, admiralty: 0, compact: 0, sable: 0, veyra: 0, ...(data.standing || {}) };
       this.crewXP = data.crewXP || 0;
       this.stats = Object.assign({ sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 }, data.stats);
       this.windAng = data.windAng ?? 2.1; this.windTargetAng = this.windAng;
@@ -381,11 +395,13 @@ export class Game {
           colors: { hull: FACTIONS.player.hull, trim: FACTIONS.player.trim, sail: FACTIONS.player.sail, flag: FACTIONS.player.flag },
         });
         sh.hull = sd.hull; sh.sails = sd.sails; sh.shot = sd.shot; sh.provisions = sd.provisions;
+        if (sd.builtBy) sh.builtBy = sd.builtBy;
+        sh.scars = sd.scars | 0; sh.prizes = sd.prizes | 0;
         sh.gunsPort = sd.gunsPort; sh.gunsStb = sd.gunsStb;
         sh.upgrades = sd.upgrades || [];
         applyUpgrades(sh);
         // her refit history is saved; her hull is rebuilt from it
-        if ((sh.upgrades || []).length) sh.refitMesh(this.scene);
+        if ((sh.upgrades || []).length || sh.scars || sh.prizes) sh.refitMesh(this.scene);
         this.addShip(sh);
         this.fleet.push(sh);
         if (sd.isPlayer) { this.player = sh; this.world.player = sh; }
@@ -447,7 +463,15 @@ export class Game {
     const r = typeof rng === 'function' ? rng : Math.random;
     const p = this.player;
     let x, z, guard = 0;
-    do {
+    const home = HOMES[kind];
+    if (home) {
+      for (let i = 0; i < 40; i++) {
+        const a = r() * TAU, d = r() * home.r;
+        x = home.x + Math.cos(a) * d; z = home.z + Math.sin(a) * d;
+        if (depthAt(x, z) > 22 && Math.hypot(x, z) < this.limit * 0.95) break;
+      }
+      if (depthAt(x, z) < 18) return null;
+    } else do {
       if (initial || !p) {
         const a = r() * TAU, d = 260 + r() * (this.limit * 0.85);
         x = Math.cos(a) * d; z = Math.sin(a) * d;
@@ -474,6 +498,13 @@ export class Game {
         + (this.origin && this.origin.ambition === 'known' ? 2 : 0);
       const heavy = clamp01((notoriety - 1) / 5) * 0.7;
       faction = 'pirate'; classId = r() < heavy ? 'lugger' : 'cutter'; role = 'pirate'; names = NAMES.ship_pirate;
+    } else if (kind === 'sable') {
+      // heavy, and they do not travel far from what they are guarding
+      faction = 'sable'; classId = r() > 0.55 ? 'brig' : 'lugger';
+      role = 'sable'; names = NAMES.ship_sable;
+    } else if (kind === 'veyra') {
+      faction = 'veyra'; classId = r() > 0.5 ? 'dhow' : 'cutter';
+      role = 'veyra'; names = NAMES.ship_veyra;
     } else {
       faction = 'admiralty'; classId = r() > 0.6 ? 'frigate' : 'brig'; role = 'patrol'; names = NAMES.ship_admiralty;
     }
@@ -939,6 +970,30 @@ export class Game {
       return { ...out, went: 'away', cost };
     }
 
+    /* Harbour dues. Paying is not a defeat — it is what the League's water
+       costs, and paying it is how you come to be known there. */
+    if (id === 'dues') {
+      const cost = duesFor(this, enc);
+      if (this.coin < cost) return { ...out, went: 'refused' };
+      this.coin -= cost;
+      this.standing.sable = Math.min(100, (this.standing.sable || 0) + 3);
+      this.breakOff(enc, 300);
+      this.closeEncounter();
+      return { ...out, went: 'away', cost };
+    }
+
+    /* A passage bought from the Covenant. You are paying for knowledge, and
+       they think better of you for valuing it. */
+    if (id === 'chart') {
+      const cost = chartFor(this, enc);
+      if (this.coin < cost) return { ...out, went: 'refused' };
+      this.coin -= cost;
+      this.standing.veyra = Math.min(100, (this.standing.veyra || 0) + 4);
+      this.breakOff(enc, 300);
+      this.closeEncounter();
+      return { ...out, went: 'away', cost };
+    }
+
     if (id === 'colours') {
       // a patrol that knows your colours has no business boarding you
       this.breakOff(enc, 300);
@@ -1065,6 +1120,26 @@ export class Game {
     for (const s of consorts) s.shot = full(s);
     this.save();
     return true;
+  }
+
+  /**
+   * Careen and refit a hull, and remember whether she needed it badly.
+   *
+   * A yard can make a ship sound again; it cannot make her new. Coming in
+   * with her side beaten in or her rigging in the water leaves a mark — new
+   * strakes that never match, a rail cap in fresh timber — and after enough
+   * of them the ship the player is sailing plainly has a past. The threshold
+   * is deliberately low-frequency: a scratch does not count, so a captain who
+   * pays for a touch-up every visit does not accumulate a patchwork.
+   */
+  repair(ship) {
+    const badly = ship.hull < ship.hullMax * 0.55 || ship.sails < ship.sailMax * 0.45;
+    ship.hull = ship.hullMax;
+    ship.sails = ship.sailMax;
+    ship.gunsPort = ship.gunsMax;
+    ship.gunsStb = ship.gunsMax;
+    if (badly && ship.recordHistory({ scar: 1 })) ship.refitMesh(this.scene);
+    return badly;
   }
 
   /** Ratio of their weight to yours, and the verdict a sailing master would give. */
@@ -1443,6 +1518,9 @@ export class Game {
     this.paused = false;
     this.target = null;
     this.stats.captured++;
+    /* The flagship wears the mark for it. A pennant per prize, three at most,
+       so a captain who has taken thirty ships still looks like a ship. */
+    if (this.player && this.player.recordHistory({ prize: 1 })) this.player.refitMesh(this.scene);
     this.markStoryTarget(prize);
     this.gainPrestige(10, prize.faction === 'pirate');
     if (prize.faction === 'pirate') { this.standing.admiralty += 4; this.progressQuest('hunt', prize); }
@@ -1468,6 +1546,12 @@ export class Game {
     prize.formSlot = this.fleet.length;
     prize.captain = officer; officer.ship = prize;
     prize.officers = [officer];
+    /* Your colours, her bones. The flag and the trim change hands; the way she
+       was built does not — so she is rebuilt as what she is: a League brig
+       under your flag, and she still looks like a League brig. */
+    prize.colors = { hull: FACTIONS[prize.builtBy] ? FACTIONS[prize.builtBy].hull : undefined,
+      trim: FACTIONS.player.trim, sail: FACTIONS.player.sail, flag: FACTIONS.player.flag };
+    prize.refitMesh(this.scene);
     prize.mesh.userData.flagMesh.material.color.setHex(FACTIONS.player.flag);
     // man her: pressed hands plus a prize crew from the flagship
     const need = Math.max(0, cls.crewMin - prize.crewTotal);
@@ -1649,8 +1733,35 @@ export class Game {
     this.save();
   }
 
-  upgradesFor(ship) {
+  /**
+   * What this yard will do to your ship.
+   *
+   * The four common refits are available anywhere with a shipyard. What each
+   * faction *adds* is the thing it is good at, so sailing somewhere is worth
+   * doing for a reason other than the scenery: the League builds heavy and
+   * controls channels, the Covenant re-rigs and shallows a draught. A captain
+   * who never leaves home water never sees either.
+   */
+  upgradesFor(ship, port = this.inPort) {
     ship.upgrades = ship.upgrades || [];
+    const local = {
+      sable: [
+        { id: 'breakwater', name: 'Breakwater Frames', cost: 1150,
+          desc: 'League framing, doubled at the bow. +18% hull.',
+          seen: 'She is framed like a harbour wall.' },
+        { id: 'rudder', name: 'Deep-Rudder Gear', cost: 880,
+          desc: 'A deeper blade and better tackle. Turns far better at slow speed.',
+          seen: 'A deeper rudder, and gear to work it.' },
+      ],
+      veyra: [
+        { id: 'reefkeel', name: 'Reef Keel', cost: 990,
+          desc: 'Cut down and re-shod. She draws a third less water.',
+          seen: 'She sits noticeably higher.' },
+        { id: 'veyrarig', name: 'Covenant Rig', cost: 1080,
+          desc: 'Re-rigged Covenant fashion. Quicker off the mark, and better by the wind.',
+          seen: 'Her whole sail plan has changed.' },
+      ],
+    }[port && port.faction] || [];
     const defs = [
       { id: 'copper', name: 'Copper Sheathing', desc: 'Clean bottom, half a knot more. +8% speed.',
         cost: 620, seen: 'Her bottom is plated to the boot-top.' },
@@ -1661,7 +1772,7 @@ export class Game {
       { id: 'lockers', name: 'Deepened Lockers', desc: 'More room for shot and stores. +20 cargo.',
         cost: 460, seen: 'A wider hatch, and stores lashed on deck.' },
     ];
-    return defs.map(d => ({ ...d, owned: ship.upgrades.includes(d.id) }));
+    return [...defs, ...local].map(d => ({ ...d, owned: ship.upgrades.includes(d.id) }));
   }
   /** Recompute a ship's numbers from her refit list. Exposed for QA. */
   applyUpgradesTo(ship) { applyUpgrades(ship); }
@@ -1973,6 +2084,12 @@ function applyUpgrades(ship) {
     if (u === 'timbers') { ship.hullMax = Math.round(cls.hull * 1.25); }
     if (u === 'ports') { ship.gunsMax += 1; ship.gunsPort = Math.min(ship.gunsMax, ship.gunsPort + 1); ship.gunsStb = Math.min(ship.gunsMax, ship.gunsStb + 1); }
     if (u === 'lockers') ship.cls.cargo = cls.cargo + 20;
+    // Greywake: heavy construction and control
+    if (u === 'breakwater') ship.hullMax = Math.round(ship.hullMax * 1.18);
+    if (u === 'rudder') ship.cls.turn = cls.turn * 1.28;
+    // Tideglass: draught and rigging
+    if (u === 'reefkeel') ship.cls.draft = cls.draft * 0.66;
+    if (u === 'veyrarig') { ship.cls.accel = cls.accel * 1.35; ship.cls.speed *= 1.03; }
   }
   ship.hull = Math.min(ship.hull, ship.hullMax);
 }

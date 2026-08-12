@@ -92,9 +92,9 @@ function harbourTab(n, port) {
   onTap(b, () => {
     if (G.coin < cost) return toast('Not enough coin.', 'bad');
     G.coin -= cost;
-    p.hull = p.hullMax; p.sails = p.sailMax;
-    p.gunsPort = p.gunsMax; p.gunsStb = p.gunsMax;
-    sfxCoin(); toast('Refitted and watertight.', 'good');
+    const marked = G.repair(p);
+    sfxCoin();
+    toast(marked ? 'Refitted — and she carries the marks of it.' : 'Refitted and watertight.', 'good');
     G.save(); refresh();
   });
   row.appendChild(b);
@@ -110,8 +110,7 @@ function harbourTab(n, port) {
     const b2 = el('button', 'btn gold', `◆ ${c2}`);
     b2.disabled = G.coin < c2;
     onTap(b2, () => {
-      G.coin -= c2; s.hull = s.hullMax; s.sails = s.sailMax;
-      s.gunsPort = s.gunsMax; s.gunsStb = s.gunsMax;
+      G.coin -= c2; G.repair(s);
       sfxCoin(); toast(`${s.name} refitted.`, 'good'); G.save(); refresh();
     });
     r2.appendChild(b2);
@@ -343,7 +342,7 @@ function yardTab(n, port) {
 
   n.appendChild(el('div', 'sec-title', 'YARD WORK'));
   const p = G.player;
-  for (const up of G.upgradesFor(p)) {
+  for (const up of G.upgradesFor(p, port)) {
     const r = el('div', 'row');
     r.appendChild(el('div', 'rmain', `<div class="rtitle">${up.name}</div><div class="rsub">${up.desc}</div>`));
     if (up.owned) r.appendChild(el('span', 'pill g', 'FITTED'));

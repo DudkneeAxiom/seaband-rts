@@ -92,6 +92,18 @@ that is written down, and everything that asks "can I fire", "can I dock",
 - **Nothing blocks the player permanently.** Contracts pay an advance so a captain
   with nothing can still take work; harbours are refuges so running for port
   always works. If a change can strand someone, it needs a way back.
+- **Progression the player can see.** A refit that changes a number changes the
+  hull too: copper is the planking's own colour below a raised boot-top, new
+  gunports are guns you can count. Faction identity works the same way — each
+  power has a `build` in `FACTIONS` that picks construction, deck fittings and
+  sail plan in `shipFactory`, so six powers are six objects and not six
+  recolours, and a prize keeps the build she was made with while her paint
+  changes hands. Colour is never the only signal; the silhouette carries it.
+- **A seed per thing, not one stream for everything.** Each port's opening books
+  and each ship's procedural details come from a seed derived from its own id or
+  name. One shared stream means adding a harbour silently reshuffles every
+  harbour after it in the list — which is how two new ports once put a ◆385/min
+  arbitrage run on the board that nobody had tuned.
 - Comments explain *why*, especially where a number was tuned or a bug was
   subtle. Match the surrounding prose style.
 

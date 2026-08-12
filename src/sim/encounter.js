@@ -141,6 +141,23 @@ export function optionsFor(game, enc) {
     out.push({ id: 'bribe', label: 'BUY THEM OFF', sub: `◆${bribeCost(game, enc)} to sheer off` });
   }
 
+  /* The Sable League do not board you, they charge you. Their ships are
+     revenue and control, not conquest — so contact in their water is a demand
+     for harbour dues or a pilot, and paying it is a perfectly good answer. */
+  if (enc.faction === 'sable') {
+    out.push({
+      id: 'dues', label: 'PAY THE HARBOUR DUES',
+      sub: `◆${duesFor(game, enc)} for the freedom of the Sound`,
+    });
+  }
+  /* The Covenant would rather sell you the way through than fight over it. */
+  if (enc.faction === 'veyra' && game.coin >= 90) {
+    out.push({
+      id: 'chart', label: 'BUY THE PASSAGE',
+      sub: `◆${chartFor(game, enc)} for what they know of this water`,
+    });
+  }
+
   /* Standing with the faction whose ship this is. A patrol that knows your
      colours has no reason to board you. */
   if (!pirates) {
@@ -169,6 +186,20 @@ export function optionsFor(game, enc) {
   }
 
   return out;
+}
+
+/** What the League ask for the run of their water. Scaled to what you sail. */
+export function duesFor(game, enc) {
+  const base = 40 + enc.mine * 0.9;
+  // standing is a discount, and a bad name is a surcharge
+  const s = (game.standing.sable || 0);
+  return Math.max(20, Math.round(base * clamp(1 - s / 120, 0.4, 1.35)));
+}
+/** What the Covenant ask for a passage through water they know. */
+export function chartFor(game, enc) {
+  void enc;
+  const s = (game.standing.veyra || 0);
+  return Math.max(30, Math.round(90 * clamp(1 - s / 100, 0.35, 1.2)));
 }
 
 export function bribeCost(game, enc) {

@@ -47,6 +47,10 @@ const floating = await G(() => {
   const terrain = g.scene.getObjectByName('terrain');
   terrain.traverse(o => {
     if (!o.isMesh || !o.geometry.attributes.position) return;
+    /* Harbour works stand in open water because that is what they are for: a
+       breakwater on dry land is a wall. They live in their own mesh so this
+       check can go on meaning "no *building* is floating". */
+    if (o.name === 'seaworks') return;
     const a = o.geometry.attributes.position.array;
     // sample the mesh and look for structure standing well above water in
     // places where there is no ground under it

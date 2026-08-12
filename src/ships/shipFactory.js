@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { mergeGeos, prep, xf, litMaterial } from '../core/geo.js';
 import { HULLS, FACTIONS } from '../data/gamedata.js';
-import { lerp, clamp01 } from '../core/util.js';
+import { lerp, clamp01, makeRNG } from '../core/util.js';
 
 const STATIONS = 11;
 
@@ -288,6 +288,213 @@ function refitGeos(cls, col, mods) {
   return out;
 }
 
+/**
+ * How a faction builds, before anyone refits anything.
+ *
+ * A League hull is fortification translated into naval architecture: heavy
+ * wales as standard, a reinforced bow, and a tall signal staff aft, because
+ * their whole business is signals and channels. A Covenant hull is the
+ * opposite argument — nothing on deck that does not earn its place, and a
+ * long pennant streaming from the masthead.
+ */
+function buildGeos(cls, col, build, rng, guns = cls.guns) {
+  const L = cls.len, B = cls.beam, FB = B * 0.30;
+  const deckY = FB * 0.75;
+  const parts = [];
+  /* One board on her topsides, lofted onto her own lines so it lies on the
+     planking rather than beside it. Everything below that wants to paint or
+     patch a strake uses this. */
+  const strake = (side, t, band, len, thick, colour, bump = 0.03) => {
+    const w = (B / 2) * widthAt(t) * 1.01;
+    return prep(xf(new THREE.BoxGeometry(0.18, thick, len), {
+      x: side * w, y: FB * sheerAt(t) * band, z: (t - 0.5) * L,
+    }), colour, bump);
+  };
+
+  if (build === 'naval') {
+    /* Standardised, and it is the standardisation that reads: a pale band
+       painted along the gun deck, broken where the ports are, the same on
+       every hull in the service. The gaps are the point — the dark squares
+       between them are her ports, so the band counts her guns for you at a
+       distance. Nothing here is decoration; this is a yard following an
+       order. */
+    const chequer = new THREE.Color(col.trim).lerp(new THREE.Color(0xffffff), 0.25).getHex();
+    const portZ = gunPorts(cls, guns).map(p => p.z);
+    for (const side of [1, -1]) {
+      for (let i = 0; i < 15; i++) {
+        const t = 0.14 + (i / 14) * 0.70;
+        const z = (t - 0.5) * L;
+        if (portZ.some(pz => Math.abs(pz - z) < L * 0.035)) continue;
+        parts.push(strake(side, t, 0.42, L * 0.055, 1.1, chequer));
+      }
+      // hammock nettings along the rail: a continuous, uniform roll
+      for (let i = 0; i < 7; i++) {
+        const t = 0.20 + (i / 6) * 0.56;
+        const w = (B / 2) * widthAt(t) * 0.95;
+        parts.push(prep(xf(new THREE.BoxGeometry(0.55, 0.5, L * 0.09),
+          { x: side * w, y: FB * sheerAt(t) + 0.95, z: (t - 0.5) * L }), 0xcfc7b2, 0.03));
+      }
+    }
+    // the ship's boat, stowed amidships on skids, exactly where regulations say
+    parts.push(prep(xf(new THREE.BoxGeometry(B * 0.30, B * 0.16, L * 0.20), { y: deckY + 0.75, z: L * 0.08 }), 0x8f7147, 0.04));
+    parts.push(prep(xf(new THREE.BoxGeometry(B * 0.36, 0.2, 0.5), { y: deckY + 0.4, z: L * 0.14 }), 0x6d5533));
+    // ensign staff, raked, at the taffrail
+    parts.push(prep(xf(new THREE.CylinderGeometry(0.13, 0.17, L * 0.30, 5),
+      { y: deckY + L * 0.14, z: -L * 0.47, rx: -0.22 }), 0xbfb7a2));
+  } else if (build === 'trader') {
+    /* A hull that exists to carry things, kept up because the counting-house
+       pays for the upkeep: deck cargo under a tarpaulin, the derrick that put
+       it there, and a boot-top she has clearly had painted this year. */
+    for (const side of [1, -1]) {
+      for (let i = 0; i < 12; i++) {
+        const t = 0.10 + (i / 11) * 0.80;
+        parts.push(strake(side, t, 0.30, L * 0.075, 0.55, col.trim));
+      }
+    }
+    // deck cargo, tarpaulined: wide, low, and obviously not part of the ship
+    parts.push(prep(xf(new THREE.BoxGeometry(B * 0.56, B * 0.20, L * 0.26), { y: deckY + 0.7, z: -L * 0.02 }), 0xa9a08a, 0.05));
+    parts.push(prep(xf(new THREE.BoxGeometry(B * 0.60, 0.16, L * 0.28), { y: deckY + 1.1, z: -L * 0.02 }), 0x8d8676, 0.04));
+    // cargo derrick over the hatch, with its block
+    const boom = new THREE.CylinderGeometry(0.16, 0.20, L * 0.34, 5);
+    xf(boom, { y: deckY + L * 0.10, z: L * 0.02, rx: 0.7 });
+    parts.push(prep(boom, 0x8b6c44));
+    parts.push(prep(xf(new THREE.BoxGeometry(0.5, 0.7, 0.5), { y: deckY + L * 0.19, z: L * 0.14 }), 0x5f4a2c, 0.04));
+    // heavy hatch coamings fore and aft of it
+    for (const z of [L * 0.22, -L * 0.20]) {
+      parts.push(prep(xf(new THREE.BoxGeometry(B * 0.42, 0.55, L * 0.12), { y: deckY + 0.25, z }), 0x6f5636, 0.03));
+    }
+  } else if (build === 'island') {
+    /* Built on a beach by people who needed a boat, out of what the island
+       had: her strakes do not match, she carries her gear on deck where she
+       can get at it, and she has leeboards because everything worth having in
+       the Shoals is behind a bar somebody's grandmother could wade. */
+    for (const side of [1, -1]) {
+      for (let i = 0; i < 5; i++) {
+        const t = 0.14 + rng() * 0.72;
+        const tone = new THREE.Color(col.hull).multiplyScalar(0.78 + rng() * 0.44).getHex();
+        parts.push(strake(side, t, 0.34 + rng() * 0.42, L * (0.07 + rng() * 0.07), 0.75, tone, 0.02));
+      }
+      // leeboard: a broad blade pivoted at the beam, the shoal-water answer
+      const lb = new THREE.BoxGeometry(0.35, B * 0.62, L * 0.16);
+      xf(lb, { x: side * (B / 2) * widthAt(0.46) * 1.04, y: -B * 0.10, z: -L * 0.02, rz: side * 0.16 });
+      parts.push(prep(lb, 0x7c5f39, 0.04));
+    }
+    // an awning forward, and drying racks aft: a working boat, lived on
+    parts.push(prep(xf(new THREE.BoxGeometry(B * 0.52, 0.12, L * 0.18), { y: deckY + 1.5, z: L * 0.24 }), 0xd8cdb2, 0.05));
+    for (const side of [1, -1]) {
+      parts.push(prep(xf(new THREE.CylinderGeometry(0.1, 0.1, 1.5, 4), { x: side * B * 0.24, y: deckY + 0.75, z: L * 0.24 }), 0x8b6c44));
+      parts.push(prep(xf(new THREE.BoxGeometry(0.12, 0.9, L * 0.16), { x: side * B * 0.20, y: deckY + 0.5, z: -L * 0.26 }), 0x8b6c44, 0.03));
+    }
+  } else if (build === 'patchwork') {
+    /* Not a design — a history. Every Tally hull was somebody else's first,
+       and what they did to her afterwards was done at sea with what was to
+       hand: mismatched planking, ports cut where they were wanted rather than
+       where the builder put them, and spare spars lashed along the rail
+       because the next repair is coming and nobody is going to sell them one. */
+    for (const side of [1, -1]) {
+      for (let i = 0; i < 7; i++) {
+        const t = 0.12 + rng() * 0.76;
+        const tone = new THREE.Color(col.hull).lerp(new THREE.Color(rng() < 0.5 ? 0x9a7a52 : 0x3f4d63), 0.25 + rng() * 0.35).getHex();
+        parts.push(strake(side, t, 0.26 + rng() * 0.56, L * (0.06 + rng() * 0.09), 0.8, tone, 0.02));
+      }
+      // extra ports, cut by hand: they do not line up with anything
+      for (let i = 0; i < 2; i++) {
+        const t = 0.22 + rng() * 0.54;
+        parts.push(strake(side, t, 0.5 + rng() * 0.2, 1.3, 1.2, 0x241f1b, 0.02));
+      }
+      // spare spars, lashed inboard of the rail
+      const w = (B / 2) * widthAt(0.5) * 0.82;
+      parts.push(prep(xf(new THREE.CylinderGeometry(0.16, 0.2, L * 0.44, 4),
+        { x: side * w, y: deckY + 0.35, z: -L * 0.04, rx: Math.PI / 2 }), 0x7d6242, 0.04));
+    }
+  } else if (build === 'heavy') {
+    parts.push(...timberGeos(cls, col));
+    // signal staff and yard, well aft, with the League's crimson on it
+    const sh = L * 0.52;
+    parts.push(prep(xf(new THREE.CylinderGeometry(0.16, 0.22, sh, 5),
+      { y: FB * 0.75 + sh / 2, z: -L * 0.44 }), 0x6a6357));
+    parts.push(prep(xf(new THREE.BoxGeometry(B * 0.5, 0.16, 0.16),
+      { y: FB * 0.75 + sh * 0.86, z: -L * 0.44 }), 0x6a6357));
+    parts.push(prep(xf(new THREE.BoxGeometry(0.2, B * 0.3, B * 0.22),
+      { x: B * 0.16, y: FB * 0.75 + sh * 0.74, z: -L * 0.44 }), 0x8e2b28, 0.04));
+    // and heavy ground tackle at the bow: they anchor for a living
+    for (const side of [1, -1]) {
+      parts.push(prep(xf(new THREE.BoxGeometry(0.5, B * 0.26, B * 0.2),
+        { x: side * B * 0.38, y: FB * 0.5, z: L * 0.36 }), 0x4a4640, 0.05));
+    }
+  } else if (build === 'light') {
+    // a long streamer at the masthead — Covenant ships are read by it
+    const streak = new THREE.PlaneGeometry(L * 0.30, 0.5, 4, 1);
+    xf(streak, { x: L * 0.15, y: L * (cls.masts === 1 ? 1.0 : 0.84) + FB, z: 0 });
+    parts.push(prep(streak, col.trim, 0.05));
+    // painted navigation marks on her topsides: a working chart, not decoration
+    for (const side of [1, -1]) {
+      for (let i = 0; i < 3; i++) {
+        const t = 0.34 + i * 0.16;
+        parts.push(prep(xf(new THREE.BoxGeometry(0.16, 0.5, 1.6),
+          { x: side * (B / 2) * widthAt(t) * 1.01, y: FB * sheerAt(t) * 0.62, z: (t - 0.5) * L }),
+        col.trim, 0.03));
+      }
+    }
+  }
+  return parts;
+}
+
+/* ===========================================================
+   What she has been through.
+
+   A ship that has been shot to pieces and put back together twice should not
+   look like one straight out of the builder's shed. This is deliberately
+   cheap and deliberately restrained: replacement strakes that do not match,
+   a rail cap in new timber, a spare spar lashed down where the last one went
+   — and, for a ship that has taken prizes, a short pennant for each, capped
+   so a successful captain does not end up sailing a bunting stall.
+
+   Only counts are carried on the ship and saved; every piece of geometry here
+   is derived from them, so history survives a reload without storing a single
+   vertex, and the same counts always draw the same ship.
+   =========================================================== */
+function historyGeos(cls, col, history, rng) {
+  if (!history) return [];
+  const scars = Math.min(3, history.scars | 0);
+  const prizes = Math.min(3, history.prizes | 0);
+  if (!scars && !prizes) return [];
+  const L = cls.len, B = cls.beam, FB = B * 0.30;
+  const deckY = FB * 0.75;
+  const parts = [];
+
+  for (let i = 0; i < scars * 2; i++) {
+    // new planking, put in wet and never painted to match
+    const side = i % 2 ? 1 : -1;
+    const t = 0.16 + rng() * 0.68;
+    const w = (B / 2) * widthAt(t) * 1.01;
+    const fresh = new THREE.Color(col.hull).lerp(new THREE.Color(0xc4a878), 0.3 + rng() * 0.3).getHex();
+    parts.push(prep(xf(new THREE.BoxGeometry(0.2, 0.7 + rng() * 0.5, L * (0.06 + rng() * 0.06)), {
+      x: side * w, y: FB * sheerAt(t) * (0.3 + rng() * 0.5), z: (t - 0.5) * L,
+    }), fresh, 0.02));
+  }
+  if (scars >= 2) {
+    // a section of rail replaced, and the old spar that came down lashed aft
+    const side = rng() < 0.5 ? 1 : -1;
+    const t = 0.3 + rng() * 0.36;
+    const w = (B / 2) * widthAt(t) * 0.95;
+    parts.push(prep(xf(new THREE.BoxGeometry(0.5, 0.3, L * 0.16),
+      { x: side * w, y: FB * sheerAt(t) + 0.85, z: (t - 0.5) * L }), 0xa98a5c, 0.03));
+    parts.push(prep(xf(new THREE.CylinderGeometry(0.15, 0.2, L * 0.3, 4),
+      { x: -side * B * 0.2, y: deckY + 0.4, z: -L * 0.18, rx: Math.PI / 2 }), 0x8b6c44, 0.04));
+  }
+  for (let i = 0; i < prizes; i++) {
+    /* One narrow pennant for each ship taken, at the main. Restrained on
+       purpose: a trophy the player earns should read as a mark on a working
+       ship, not as decoration bolted to her. */
+    const y = deckY + L * (cls.masts === 1 ? 0.86 : 0.72) - i * 1.1;
+    const pen = new THREE.PlaneGeometry(B * 0.5, 0.28, 3, 1);
+    xf(pen, { x: B * 0.3, y, z: cls.masts === 1 ? L * 0.06 : L * 0.24 });
+    parts.push(prep(pen, col.trim, 0.05));
+  }
+  return parts;
+}
+
 /* ===========================================================
    The rig is built flat and unbraced. Yards and canvas carry a
    pivot and a (u,v) parameter per vertex, and the shader swings
@@ -295,7 +502,7 @@ function refitGeos(cls, col, mods) {
    That way the sails read the wind the way the compass does, and
    there is still one draw call for the whole rig.
    =========================================================== */
-function rig(cls, col) {
+function rig(cls, col, build = 'standard', rng = Math.random, history = null) {
   const L = cls.len, B = cls.beam, FB = B * 0.30;
   const deckY = FB * 0.75;
   const spars = [];       // masts: fixed, they belong to the hull mesh
@@ -303,6 +510,18 @@ function rig(cls, col) {
   const n = cls.masts;
   const mastH = L * (n === 1 ? 1.02 : 0.86);
   const cSail = new THREE.Color(col.sail);
+
+  /* What a given piece of canvas actually looks like.
+     A Tally suit of sails is other people's sails, and canvas that has been
+     shot through and sewn up again never matches what it was sewn to — so a
+     ship's scars reach the rig as well as the hull. Everything else bends one
+     bolt of cloth and gets a suit that matches. */
+  const patched = build === 'patchwork' ? 0.16 : 0;
+  const worn = history ? Math.min(0.14, history.scars * 0.05) : 0;
+  const canvas = (shade = 1) => {
+    const v = 1 - (patched + worn) * rng();
+    return cSail.clone().multiplyScalar(shade * v).getHex();
+  };
 
   const mastZ = [];
   if (n === 1) mastZ.push(L * 0.06);
@@ -313,8 +532,23 @@ function rig(cls, col) {
     const h = mastH * (mi === 1 && n === 3 ? 1.1 : 1.0);
     spars.push(prep(xf(new THREE.CylinderGeometry(0.22, 0.36, h, 6), { y: deckY + h / 2, z: mz }), 0x8b6c44));
 
-    const yardW = B * (n === 1 ? 1.5 : 1.28);
-    const nYards = h > L * 0.9 ? 2 : (mi === n - 1 && n > 1 ? 1 : 2);
+    /* Sail plan is where the two new powers are told apart at a distance.
+       Sable square everything and carry it low and wide: a disciplined,
+       heavy-weather rig. Veyra carry less square canvas and more fore-and-aft,
+       on narrower yards — the profile of a ship built to work the wind rather
+       than run before it. Colour does none of this work: a player who cannot
+       see colour still reads two different silhouettes. */
+    const yardW = B * (n === 1 ? 1.5 : 1.28) * ({
+      heavy: 1.22, light: 0.8, naval: 1.08, trader: 0.9, island: 0.84, patchwork: 1.0,
+    }[build] ?? 1);
+    let nYards = h > L * 0.9 ? 2 : (mi === n - 1 && n > 1 ? 1 : 2);
+    if (build === 'light' && nYards > 1) nYards = 1;
+    /* A service ship carries her full plan on every mast because that is the
+       establishment; a trader carries less of it because canvas is crew and
+       crew is wages; an island boat hardly squares anything at all. */
+    if (build === 'naval') nYards = 2;
+    if ((build === 'trader' || build === 'island') && nYards > 1 && mi === n - 1) nYards = 1;
+    if (build === 'island' && n === 1) nYards = 1;
     for (let k = 0; k < nYards; k++) {
       const yy = deckY + h * (0.42 + k * 0.34);
       const pivot = [0, yy, mz];
@@ -328,16 +562,31 @@ function rig(cls, col) {
       const sg = new THREE.PlaneGeometry(w * 0.94, sh, 4, 3).toNonIndexed();
       const uv = flatSailParams(sg);
       xf(sg, { y: yy - sh / 2, z: mz });
-      parts.push(rigPart(prep(sg, cSail.getHex(), 0.05), pivot, 0, 1, 0.24 * B, uv));
+      parts.push(rigPart(prep(sg, canvas(), 0.05), pivot, 0, 1, 0.24 * B, uv));
     }
   });
+
+  /* Veyra carry a lateen on the after mast: one long raked yard, which is the
+     single most recognisable thing about their silhouette from any angle. */
+  if (build === 'light') {
+    const mz = mastZ[mastZ.length - 1];
+    const h = mastH;
+    const yy = deckY + h * 0.34;
+    const yard = prep(xf(new THREE.BoxGeometry(L * 0.66, 0.2, 0.2),
+      { y: yy + h * 0.12, z: mz - L * 0.04, rz: 0.42 }), 0x7d6242);
+    parts.push(rigPart(yard, [0, yy, mz], 0, 0, 0, null));
+    const { geo, params } = triSail(L * 0.34, h * 0.44);
+    xf(geo, { y: yy, z: mz - L * 0.05, rz: 0.2 });
+    parts.push(rigPart(prep(geo, canvas(0.99), 0.04),
+      [0, yy, mz], 0, 1, 0.2 * B, params));
+  }
 
   // headsail: fore-and-aft, sheeted to leeward
   {
     const tackZ = L * (n === 1 ? 0.30 : 0.46);
     const { geo, params } = triSail(L * 0.30, mastH * 0.5);
     xf(geo, { y: deckY + mastH * 0.30, z: tackZ });
-    parts.push(rigPart(prep(geo, cSail.clone().multiplyScalar(0.97).getHex(), 0.04),
+    parts.push(rigPart(prep(geo, canvas(0.97), 0.04),
       [0, deckY, tackZ], 1, 1, B * 0.20, params));
   }
   // spanker at the stern for multi-masted rigs
@@ -347,7 +596,7 @@ function rig(cls, col) {
     const sg = new THREE.PlaneGeometry(sw, sh, 3, 3).toNonIndexed();
     const uv = flatSailParams(sg);
     xf(sg, { y: deckY + mastH * 0.28, z: mz - L * 0.12 });
-    parts.push(rigPart(prep(sg, cSail.clone().multiplyScalar(0.95).getHex(), 0.04),
+    parts.push(rigPart(prep(sg, canvas(0.95), 0.04),
       [0, deckY, mz], 1, 1, B * 0.17, uv));
   }
   return { spars, parts, mastTop: deckY + mastH * 1.02, mastZ: mastZ[0], deckY };
@@ -503,13 +752,24 @@ export function buildShip(classId, factionId, opts = {}) {
   const col = { hull: opts.hull ?? fac.hull, trim: opts.trim ?? fac.trim, sail: opts.sail ?? fac.sail, flag: opts.flag ?? fac.flag };
   const mods = opts.upgrades || [];
   const guns = opts.guns ?? cls.guns;
+  /* How her builders build, which is not the same thing as what her owner has
+     since had done to her — a captured League brig keeps her League bones. */
+  const build = opts.build ?? fac.build ?? 'standard';
+  /* Everything that varies from hull to hull within a build — which strakes
+     do not match, where a repair went in — comes off this one stream, so a
+     ship redrawn after a refit is recognisably the same ship, and two Tally
+     luggers alongside each other are not the same lugger twice. */
+  const rng = makeRNG(opts.seed ?? 1);
+  const history = opts.history || null;
 
   const group = new THREE.Group();
-  const rigParts = rig(cls, col);
+  const rigParts = rig(cls, col, build, rng, history);
   const body = mergeGeos([
     hullGeometry(cls, col, mods),
     ...detailGeos(cls, col, guns, mods),
+    ...buildGeos(cls, col, build, rng, guns),
     ...refitGeos(cls, col, mods),
+    ...historyGeos(cls, col, history, rng),
     ...rigParts.spars,
   ]);
   const bodyMesh = new THREE.Mesh(body, litMaterial());
@@ -533,7 +793,8 @@ export function buildShip(classId, factionId, opts = {}) {
   group.userData = {
     cls, mastTop: rigParts.mastTop, deckY: rigParts.deckY,
     ports: gunPorts(cls, guns), bodyMesh, rigMesh, flagMesh,
-    upgrades: mods.slice(), guns,
+    upgrades: mods.slice(), guns, build,
+    scars: history ? history.scars | 0 : 0, prizes: history ? history.prizes | 0 : 0,
     rigUniforms: rigMat.userData.uniforms,
   };
   return group;
