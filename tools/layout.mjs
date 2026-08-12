@@ -21,22 +21,34 @@ for (const vp of Object.keys(VIEWPORTS)) {
   const { browser, page } = await launch(vp);
   await sleep(900);
   await newVoyage(page);
-  // force the busiest possible HUD: target + board + dock + fleet + hint + objective
-  await page.evaluate(() => {
-    const g = window.__game;
-    g.player.x = -190; g.player.z = 400; g.player.speed = 0;
-    const pir = g.ships.find(s => s.faction === 'pirate' && s.alive);
+  /* Force the busiest HUD there is, and check afterwards that it is actually
+     up. This staged a hostile twenty-four metres off, which is inside contact
+     range: the encounter opened, the target was cleared, the world paused,
+     and the audit spent five viewports measuring an empty screen while
+     reporting no overlaps. It is the pursuit panel and the target card that
+     collide, and neither was ever on screen to be measured. */
+  const staged = await page.evaluate(() => {
+    const g = window.__game, p = g.player;
+    p.x = -190; p.z = 400; p.speed = 0;
+    /* Close enough to be committed and closing, far enough that she does not
+       come aboard us mid-measurement and stop the world. */
+    let pir = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+    for (let i = 0; i < 20 && !pir; i++) pir = g.spawnNPC('pirate');
     if (pir) {
-      pir.x = g.player.x + 24; pir.z = g.player.z + 4; pir.speed = 0;
-      pir.sails = pir.sailMax * 0.2; pir.hostileToPlayer = true;
+      pir.x = p.x + 260; pir.z = p.z + 40; pir.speed = 6;
+      pir.sails = pir.sailMax * 0.2;
+      pir.hostileToPlayer = true; pir.target = p; pir.chaseHold = 0; pir.fleeing = false;
       g.selectTarget(pir);
     }
-    const con = g.ships.find(s => s.role === 'merchant');
-    if (con) { con.faction = 'player'; con.role = 'consort'; con.formSlot = 1; g.fleet.push(con); }
-  });
-  await ff(page, 1.5);
-  await page.evaluate(() => {
-    window.__hint && window.__hint();
+    g.encounterCooling = 900;      // no contact while we are measuring
+    let con = g.ships.find(s => s.role === 'merchant' && !g.fleet.includes(s));
+    if (!con) con = g.ships.find(s => !s.isPlayer && s.alive && !g.fleet.includes(s) && s !== pir);
+    if (con) {
+      con.faction = 'player'; con.role = 'consort'; con.formSlot = 1;
+      con.x = p.x + 40; con.z = p.z + 30;
+      g.fleet.push(con);
+    }
+    return { pir: !!pir, con: !!con };
   });
   // Two passes, because a hint and the objective chip are never lit together:
   //   A = a hint is up (the objective chip is muted, as hint() does)
@@ -110,7 +122,18 @@ for (const vp of Object.keys(VIEWPORTS)) {
     for (const p of r.problems) allProblems.push(`[${key}] ${p}`);
   }
 
-  console.log(`\n== ${vp}  ${res.W}x${res.H} ==`);
+  /* A clean sheet is only worth anything if the sheet was full. */
+  const up = await page.evaluate(() => {
+    const seen = id => {
+      const n = document.getElementById(id);
+      return !!n && !n.classList.contains('hidden') && n.getBoundingClientRect().width > 1;
+    };
+    return { pursuit: seen('pursuit'), target: seen('targetcard'), fleet: seen('fleetbar') };
+  });
+  const missing = Object.keys(up).filter(k => !up[k]);
+  if (missing.length) { bad++; console.log(`\n   !! NOTHING TO MEASURE: ${missing.join(', ')} never came up`); }
+
+  console.log(`\n== ${vp}  ${res.W}x${res.H} ==  staged ${JSON.stringify(staged)}`);
   for (const b of res.boxes) console.log(`   ${b.sel.padEnd(16)} ${String(b.x).padStart(5)},${String(b.y).padStart(4)}  ${b.w}x${b.h}`);
   const uniq = [...new Set(allProblems)];
   if (uniq.length) { bad += uniq.length; uniq.forEach(p => console.log('   !! ' + p)); }
