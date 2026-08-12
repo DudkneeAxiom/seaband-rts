@@ -155,11 +155,22 @@ const dry = await G(() => {
   t.x = p.x + 90; t.z = p.z; p.yaw = 0;
   g.update(0.05);
   p.reload.stb = 0; p.reload.port = 0;
-  const n = g.projectiles.list.length;
+  /* Both counts, before and after, and compared as a delta. This took the
+     list before and the *pending* after, so any two ships trading broadsides
+     somewhere else on the sea — which the campaign layer still allows, since
+     that world carries on without you — read as the player's empty guns
+     going off. What is being asked is whether her own locker refuses. */
+  const was = { list: g.projectiles.list.length, pending: g.projectiles.pending.length };
   g.playerFire();
-  return { fired: g.projectiles.list.length > n || g.projectiles.pending.length > 0 };
+  const now = { list: g.projectiles.list.length, pending: g.projectiles.pending.length };
+  return {
+    fired: now.list > was.list || now.pending > was.pending,
+    was, now, shot: p.shot, side: g.fireSide, live: g.ctx.combatLive,
+  };
 });
-ok('an empty shot locker refuses to fire', !dry.fired);
+ok(`an empty shot locker refuses to fire (${dry.shot} aboard, side ${dry.side || 'none'}, `
+  + `${dry.was.list}+${dry.was.pending} -> ${dry.now.list}+${dry.now.pending} in the air)`,
+!dry.fired);
 
 /* ---- reputation: shooting a fisher is infamy, sinking a pirate is prestige ---- */
 const rep = await G(() => {
