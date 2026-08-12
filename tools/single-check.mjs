@@ -113,7 +113,10 @@ const arc = await page.evaluate(async () => {
   let fired = false, hadSide = null;
   if (inBattle) {
     const e = g.battle.enemies[0];
-    g.selectTarget(e);
+    /* selectTarget toggles — marking the ship you already have marked lets her
+       go again, which is right for a thumb and wrong for a script that marked
+       the same raider out on the campaign layer a moment ago. */
+    if (g.target !== e) g.selectTarget(e);
     g.player.yaw = 0; g.player.speed = 0; g.player.dest = null;
     e.x = g.player.x + 60; e.z = g.player.z; e.speed = 0; e.dest = null;
     arm();
@@ -125,13 +128,14 @@ const arc = await page.evaluate(async () => {
     fired = shots() > before;
     g.battle.finish('fled');
   }
-  return { dockable, sheet, coldOnTheOcean, asked, inBattle, fired, side: hadSide, mode: g.mode };
+  return { dockable, sheet, coldOnTheOcean, asked, inBattle, fired, side: hadSide,
+    marked: !!g.target, mode: g.mode };
 });
 ok('the harbour opens', arc.dockable && arc.sheet);
 ok('the guns stay cold on the campaign layer', arc.coldOnTheOcean);
 ok(`contact asks before it shoots, and fighting makes a battle (asked ${arc.asked}, battle ${arc.inBattle})`,
   arc.asked && arc.inBattle);
-ok(`a broadside fires in the action (${arc.side || 'no side bore'})`, arc.fired);
+ok(`a broadside fires in the action (${arc.side || (arc.marked ? 'no side bore' : 'nothing marked')})`, arc.fired);
 
 // localStorage works from file:// (saves)
 const saved = await page.evaluate(() => {
