@@ -74,19 +74,57 @@ const arc = await page.evaluate(async () => {
   g.enterPort(g.PORTS[0]);
   const sheet = !document.getElementById('sheet').classList.contains('hidden');
   document.getElementById('sheet-close').click();
-  const t = g.ships.find(s => s.faction === 'pirate' && s.alive) || g.spawnNPC('pirate');
-  t.x = g.player.x + 100; t.z = g.player.z; t.hostileToPlayer = true;
+
+  /* Nobody opens fire on the campaign layer. This used to run a raider
+     alongside and pull the trigger, which is now the one thing the rules
+     refuse — so the check reads the whole road instead: guns cold out at
+     sea, contact makes an encounter, choosing to fight makes a battle, and
+     the broadside goes off in there. */
+  const shots = () => g.projectiles.pending.length + g.projectiles.list.length;
+  const arm = () => { g.player.shot = 99; g.player.reload.stb = 0; g.player.reload.port = 0; };
+  g.leavePort();
+  g.player.x = 120; g.player.z = 60; g.player.dest = null; g.player.speed = 0; g.player.yaw = 0;
+  g.player.hull = g.player.hullMax; g.player.sails = g.player.sailMax;
+
+  let t = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+  for (let i = 0; i < 20 && !t; i++) t = g.spawnNPC('pirate');
+  t.x = g.player.x + 110; t.z = g.player.z + 30;
+  t.hull = t.hullMax; t.sails = t.sailMax;
+  t.hostileToPlayer = true; t.target = g.player; t.aggro = 40;
+  t.chaseHold = 0; t.fleeing = false; t.captured = false;
+  t.brain = { state: 'hunt', t: 0, cooldown: 0 };
+  g.encounterCooling = 0; g.paused = false;
   g.selectTarget(t);
-  g.player.yaw = 0; g.player.shot = 99;
-  g.update(0.1);
-  g.player.reload.stb = 0; g.player.reload.port = 0;
-  const before = g.projectiles.pending.length + g.projectiles.list.length;
+
+  arm();
+  const beforeCold = shots();
   g.playerFire();
-  const fired = (g.projectiles.pending.length + g.projectiles.list.length) > before;
-  return { dockable, sheet, fired };
+  const coldOnTheOcean = shots() === beforeCold;
+
+  // let her run us down; contact stops the world and asks
+  for (let i = 0; i < 60 * 60 && g.mode === 'campaign'; i++) g.update(1 / 60);
+  const asked = g.mode === 'encounter';
+  if (asked) g.chooseEncounter('fight');
+  const inBattle = g.mode === 'battle';
+
+  let fired = false;
+  if (inBattle) {
+    g.selectTarget(g.battle.enemies[0]);
+    arm();
+    g.update(0.1);
+    arm();
+    const before = shots();
+    g.playerFire();
+    fired = shots() > before;
+    g.battle.finish('fled');
+  }
+  return { dockable, sheet, coldOnTheOcean, asked, inBattle, fired, mode: g.mode };
 });
 ok('the harbour opens', arc.dockable && arc.sheet);
-ok('a broadside fires', arc.fired);
+ok('the guns stay cold on the campaign layer', arc.coldOnTheOcean);
+ok(`contact asks before it shoots, and fighting makes a battle (asked ${arc.asked}, battle ${arc.inBattle})`,
+  arc.asked && arc.inBattle);
+ok('a broadside fires in the action', arc.fired);
 
 // localStorage works from file:// (saves)
 const saved = await page.evaluate(() => {

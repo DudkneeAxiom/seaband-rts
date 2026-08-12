@@ -11,9 +11,15 @@ npm run setup     # npm install + playwright's chromium (first time only)
 npm start         # http://localhost:8080
 npm test          # every suite, against a server it starts itself
 npm run test:fast # same, minus the two slow calibration runs
-npm run bundle    # dist-single/salt-and-tally.html — the whole game in one file
+npm run bundle    # dist-single/salt-and-tally.html — one file, then plays it
 npm run build     # dist/ + the itch.io zip
 ```
+
+`npm run bundle` runs `single-check` against the file it just wrote, because a
+bundle nobody opens is a bundle nobody knows is broken: that check sat outside
+`all.mjs`, went stale across the campaign/battle split, and was still asserting
+that a broadside fires on the campaign layer — the one thing the rules now
+refuse. Use `bundle:only` if you genuinely just want the file.
 
 Node 18+. The game itself needs nothing installed — `npm install` is only for the
 QA harnesses. Screenshots go to `shots/` (gitignored); `QA_OUT` overrides.
