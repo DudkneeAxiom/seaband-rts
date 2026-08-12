@@ -13,7 +13,7 @@ import { createSky, updateSky, SKY } from './world/sky.js';
 import { WakeField } from './fx/wake.js';
 import { FX } from './fx/particles.js';
 import { Ship, emptyCrew, crewCount } from './ships/ship.js';
-import { updateAI, isHostile, strength, willHunt, PREY_RANGE } from './ships/ai.js';
+import { updateAI, isHostile, strength } from './ships/ai.js';
 import {
   Projectiles, fireBroadside, bestSide, canBoard, Boarding, boardOdds, GUN_RANGE, BOARD_RANGE,
 } from './combat/combat.js';
@@ -637,8 +637,12 @@ export class Game {
       ? `<div class="loot">${coin ? `<span>◆ ${coin}</span>` : ''}${pres ? `<span>★ ${pres} prestige</span>` : ''}</div>`
       : '';
     const opening = next ? this.chapterText(next, 'open') : '';
+    /* Name the chapter *and* say where it sits. On its own, "A Purse of Your
+       Own" is a phrase that arrives from nowhere; with "Chapter 2 of 6" over
+       it, it is plainly the next beat of a story that has a shape and an end. */
+    const where = next ? `<span class="story-count">Chapter ${this.chapter + 1} of ${CHAPTERS.length}</span>` : '';
     const body = `${this.chapterText(ch, 'close')}${loot}`
-      + (opening ? `<div class="story-next"><span>${this.chapterText(next, 'title')}</span>${opening}</div>` : '');
+      + (opening ? `<div class="story-next">${where}<span>${this.chapterText(next, 'title')}</span>${opening}</div>` : '');
 
     if (!next) { this.endStory(body); return; }
     this.paused = true;
@@ -1527,7 +1531,13 @@ export class Game {
   refreshObjective() {
     // the story comes first — it is the thread the whole voyage hangs on
     const ch = this.currentChapter;
-    if (ch) { setObjective(this.chapterText(ch, 'obj')); return; }
+    if (ch) {
+      // the chapter's name over its task, so the objective chip reads as a
+      // place in the story rather than an instruction from nowhere
+      setObjective(this.chapterText(ch, 'obj'),
+        `Chapter ${this.chapter + 1} of ${CHAPTERS.length} · ${this.chapterText(ch, 'title')}`);
+      return;
+    }
     const q = this.quests.find(x => x.active && !x.done);
     if (q) { setObjective(this.questStatus(q)); return; }
     if (this.prizes.length) {
@@ -1851,7 +1861,7 @@ class Markers {
         transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
         side: THREE.DoubleSide,
       });
-      const mesh = new THREE.Mesh(ringBand(PREY_RANGE - 26, PREY_RANGE), m);
+      const mesh = new THREE.Mesh(ringBand(GUN_RANGE - 13, GUN_RANGE), m);
       mesh.renderOrder = 4;
       mesh.visible = false;
       scene.add(mesh);
@@ -1975,15 +1985,21 @@ class Markers {
         attr.needsUpdate = true;
       }
     }
-    /* The water the raiders are watching. Only ships that would actually come
-       after *this* player get a ring — willHunt runs the same three tests the
-       AI does, so the circle cannot promise a fight that would not happen. */
+    /* The water a ship that is coming for you can actually shoot into.
+       An 820-unit ring drawn round every raider who *might* take an interest
+       covered half the horizon and told you nothing you could steer by. This
+       is her gun range, and it only appears once she has picked you — so the
+       circle answers the one question worth asking: if I hold this course,
+       does she get a shot? Ships that would hunt you but have not committed
+       stay off the water; the fighting-weight pip over the mast is what warns
+       you about those. */
     const hunters = [];
     for (const s of game.ships) {
       if (s.isPlayer || game.fleet.includes(s)) continue;
+      if (!s.alive || s.captured) continue;
+      if (s.target !== p) continue;              // she has to be coming for you
       const d = dist(s.x, s.z, p.x, p.z);
-      if (d > PREY_RANGE + 620) continue;         // no rings for the whole ocean
-      if (!willHunt(s, p)) continue;
+      if (d > GUN_RANGE * 3.5) continue;         // and near enough to matter
       hunters.push({ s, d });
     }
     hunters.sort((a, b) => a.d - b.d);
@@ -1993,9 +2009,9 @@ class Markers {
       const { s, d } = hunter;
       h.mesh.visible = true;
       h.mesh.position.set(s.x, 0, s.z);
-      // brighter as you close on the edge of it, and brightest once inside
-      const inside = d < PREY_RANGE;
-      h.mat.uniforms.uK.value = inside ? 0.30 + 0.10 * Math.sin(game.time * 4) : 0.16;
+      // inside her guns it pulses; outside it is a quiet line you can stay off
+      const inside = d < GUN_RANGE;
+      h.mat.uniforms.uK.value = inside ? 0.34 + 0.12 * Math.sin(game.time * 4) : 0.20;
       h.mat.uniforms.uCol.value.setHex(inside ? 0xff7d55 : 0xd8734f);
       const attr = h.mesh.geometry.attributes.position, a = attr.array;
       for (let k = 0; k < a.length; k += 3) {

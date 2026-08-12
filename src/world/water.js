@@ -163,11 +163,20 @@ void main(){
   col = mix(uShallow, col, smoothstep(3.0, 11.0, d));
   col = mix(uSandy, col, smoothstep(0.5, 3.6, d));
 
-  // reef / seabed mottling seen through clear water (shallows only)
-  if (d < 16.0) {
+  /* The seabed, seen through the water. It used to stop at 16 units, which put
+     a hard end to the ground and left everything past it a flat sheet of one
+     colour with no sense of how far down it went. Now it carries out to 52 in
+     two grains — a fine sandy ripple that only survives the shallows, and a
+     coarse one that lingers into deeper water as the ground falls away. It is
+     what makes a drop-off read as a drop-off rather than a change of paint. */
+  if (d < 52.0) {
     float bed = fbm2(vWorld.xz*0.035);
-    float bedVis = 1.0 - smoothstep(2.0, 15.0, d);
-    col = mix(col, col * (0.72 + bed*0.62), bedVis*0.85);
+    float coarse = fbm2(vWorld.xz*0.0095);
+    float fine = 1.0 - smoothstep(1.5, 18.0, d);
+    float far = 1.0 - smoothstep(12.0, 50.0, d);
+    vec3 bedCol = col * (0.74 + bed*0.58);
+    bedCol = mix(bedCol, bedCol * (0.88 + coarse*0.34), 0.65);
+    col = mix(col, bedCol, clamp(fine*0.85 + far*0.30, 0.0, 0.92));
   }
 
   // ---- fresnel sky ----
@@ -207,8 +216,12 @@ void main(){
   gl_FragColor = vec4(col, 1.0);
 }`;
 
+/* Open water was reading near-black navy in the foreground, which fought the
+   painted look everywhere else — the deep tone was a blue with very little
+   green in it, and past 42 units of depth every wave is that one colour. It is
+   a teal now, and lighter, so the sea stays luminous out to the horizon. */
 export const WATER_COLORS = {
-  deep: 0x14608a, mid: 0x2492b0, shallow: 0x3ec2b6, sandy: 0x8ee0c6, foam: 0xf0fbf8,
+  deep: 0x1c7d95, mid: 0x33a5b6, shallow: 0x55cfc0, sandy: 0x9ce7cd, foam: 0xf0fbf8,
 };
 
 let nearMesh, farMesh, matNear, matFar;

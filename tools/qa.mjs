@@ -48,6 +48,16 @@ export async function launch(vp = 'phone') {
   page.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text()); });
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')));
   await page.goto(URL, { waitUntil: 'networkidle' });
+  /* Kill entrance animations for the duration of a QA run. Under software GL
+     the document timeline does not advance — every animation sits at its first
+     frame, playState "running", currentTime 0 — so anything that fades in from
+     opacity 0 (the modal card, the sheet) stays invisible forever. Screenshots
+     of a story scene were coming back as an empty dimmed screen. Without the
+     animations the elements render in their settled state, which is the state
+     worth looking at anyway. */
+  await page.addStyleTag({
+    content: '*, *::before, *::after { animation: none !important; }',
+  });
   return { browser, page, errors };
 }
 

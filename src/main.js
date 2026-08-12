@@ -164,7 +164,16 @@ function frame(now) {
     // 2× runs the simulation twice at the normal step rather than one
     // double-length step, so physics and collision behave identically
     if (keys) applyHeld(keys.held, { game, rig, isBusy: () => isModalOpen() || isSheetOpen() || isOriginOpen() || game.gameOver }, dt);
-    const steps = game.paused ? 0 : (game.player ? game.speed : 1);
+    /* Reading a screen is not sailing: the sea waits while a panel is open and
+       picks up again the moment it closes. Derived from what is actually on
+       screen rather than a flag set beside it, so a panel that closes by some
+       path nobody thought of cannot leave the world frozen — and because the
+       player's own choice of speed is never touched, closing the sheet resumes
+       at 2x if that is where they left it, or stays paused if they paused it.
+       The questionnaire is deliberately not in here: no voyage has begun, and
+       the traffic drifting past behind it is the attract screen. */
+    const inMenu = isModalOpen() || isSheetOpen();
+    const steps = (game.paused || inMenu) ? 0 : (game.player ? game.speed : 1);
     for (let i = 0; i < steps; i++) game.update(dt);
     if (steps === 0) game.update(0);      // keep UI-facing state fresh while paused
     const p = game.player;

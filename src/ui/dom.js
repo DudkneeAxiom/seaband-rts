@@ -82,9 +82,11 @@ export function closeModal() {
 }
 
 /* ---------------- objective chip ---------------- */
-export function setObjective(text) {
+export function setObjective(text, kicker = '') {
   const o = $('objective');
   if (!text) { o.classList.add('hidden'); return; }
   o.classList.remove('hidden');
-  $('obj-text').innerHTML = text;
+  $('obj-text').innerHTML = kicker
+    ? `<span class="obj-kicker">${kicker}</span>${text}`
+    : text;
 }

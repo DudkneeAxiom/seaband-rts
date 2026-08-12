@@ -128,23 +128,10 @@ function nearestPort(ship, factionOK) {
   return best;
 }
 
-/** How far a raider looks for prey. The ring drawn on the water is this. */
-export const PREY_RANGE = 820;
+/** How far a raider looks for prey. */
+const PREY_RANGE = 820;
 /** The Tally are bold, not suicidal: they want the odds on their side. */
-export const PREY_ODDS = 0.95;
-
-/**
- * Would this ship come after that one, if she were there?
- * The same three tests findPrey makes, so the ring on the water cannot
- * promise something the AI would not actually do.
- */
-export function willHunt(ship, prey) {
-  if (!ship || !prey || !ship.alive || ship.captured || !prey.alive) return false;
-  if (ship.role !== 'pirate') return false;
-  if (!isHostile(ship, prey) && prey.faction === 'pirate') return false;
-  if (portGuarding(prey.x, prey.z)) return false;          // under the shore batteries
-  return strength(ship) / (strength(prey) + 1) >= PREY_ODDS;
-}
+const PREY_ODDS = 0.95;
 
 function findPrey(ship, ships) {
   let best = null, bs = -1;

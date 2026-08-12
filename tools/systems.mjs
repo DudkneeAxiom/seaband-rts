@@ -1,6 +1,6 @@
 /* Systems test: contracts, discoveries, shoal water, supplies, reputation,
    crew progression, and the awkward states players actually hit. */
-import { launch, sleep, ff, shot, newVoyage } from './qa.mjs';
+import { launch, sleep, ff, shot, newVoyage, waitFor } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -235,6 +235,49 @@ const objm = await G(() => {
   return m ? { label: m.label, hasPos: Number.isFinite(m.x) && Number.isFinite(m.z) } : null;
 });
 ok(`the objective marker resolves (${objm && objm.label})`, !!objm && objm.hasPos);
+
+/* ---- a menu holds the world ----
+   Waiting cannot prove the clock stopped, so count real animation frames and
+   check the world did not move across them. If the loop is running and the
+   clock is not, the sea is genuinely held. */
+await G(() => {
+  window.__frames = 0;
+  const tick = () => { window.__frames++; requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  window.__game.speed = 1;
+  const g = window.__game;
+  g.commandMove(g.player.x + 400, g.player.z + 260);   // under way, so stopping shows
+});
+const framesSince = n => waitFor(page, start => window.__frames - start >= 6, 9000, n);
+
+await waitFor(page, () => window.__game.player.speed > 1, 6000);
+await page.click('#btn-menu');
+await waitFor(page, () => !document.getElementById('sheet').classList.contains('hidden'), 4000);
+const held = await G(() => ({ t: window.__game.time, f: window.__frames, x: window.__game.player.x }));
+await framesSince(held.f);
+const stillHeld = await G(() => ({ t: window.__game.time, f: window.__frames, x: window.__game.player.x }));
+ok(`opening a menu holds the world (${stillHeld.f - held.f} frames drawn, clock moved ${(stillHeld.t - held.t).toFixed(3)}s)`,
+  stillHeld.f - held.f >= 6 && Math.abs(stillHeld.t - held.t) < 0.001 && Math.abs(stillHeld.x - held.x) < 0.001);
+
+await page.click('#sheet-close');         // the way a thumb closes it
+await waitFor(page, () => document.getElementById('sheet').classList.contains('hidden'), 4000);
+const ran = await waitFor(page, () => window.__game.time > 0, 1000) &&
+  await waitFor(page, t => window.__game.time > t, 6000, stillHeld.t);
+ok('and leaving it lets her sail on', ran);
+
+/* the player's own choice of speed survives the round trip */
+await page.click('.spd[data-s="2"]');
+await waitFor(page, () => window.__game.speed === 2, 4000);
+await page.click('#btn-menu');
+await waitFor(page, () => !document.getElementById('sheet').classList.contains('hidden'), 4000);
+const speedInMenu = await G(() => window.__game.speed);
+await sleep(500);                         // the close button debounces
+await page.click('#sheet-close');
+await waitFor(page, () => document.getElementById('sheet').classList.contains('hidden'), 4000);
+const speedAfter = await G(() => window.__game.speed);
+ok(`a menu does not spend your speed setting (2x in, ${speedAfter}x out)`,
+  speedInMenu === 2 && speedAfter === 2);
+await page.click('.spd[data-s="1"]');
 
 /* ---- corrupt save recovery ---- */
 const corrupt = await page.evaluate(() => {

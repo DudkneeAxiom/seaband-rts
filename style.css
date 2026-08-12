@@ -18,7 +18,12 @@
   --ok:#79c281;
   --panel: rgba(14,34,44,.93);
   --panel-hi: rgba(24,52,64,.96);
-  --stroke: rgba(230,178,94,.34);
+  /* Hemp, not gold. The hairline underneath the rope is the shadow the rope
+     casts, so it wants to be dark and quiet rather than a bright edge of its own. */
+  --stroke: rgba(120,92,56,.55);
+  --rope-lit:#d7b483;
+  --rope-mid:#a87c47;
+  --rope-dark:#6f5029;
   --shadow: 0 10px 30px rgba(0,0,0,.45);
   --r: 14px;
   --tap: 48px;
@@ -430,6 +435,56 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 }
 .obj-glyph{color:var(--brass); font-size:11px; margin-top:1px;}
 #objective b{color:var(--parch);}
+/* where you are in the story, over what it wants of you */
+.obj-kicker{
+  display:block; font-size:9.5px; letter-spacing:.9px; text-transform:uppercase;
+  color:var(--brass-dim); margin-bottom:2px; font-weight:700;
+}
+
+/* ---------- Rope ----------
+   A laid rope is three strands running up at an angle, each one lit on top and
+   dark in the groove between — which is a repeating gradient at 45°, near
+   enough. It goes on a masked ring rather than a border-image, because
+   border-image squares off every corner it touches and these panels are
+   rounded. The mask cuts the middle out of the pseudo-element, leaving only
+   the band, and `border-radius:inherit` keeps it following the corner it wraps.
+
+   Two strand pitches: a fine one for chips and buttons, a heavier lay for the
+   big panels, so a modal does not look like a bracelet. */
+/* Only the ones that are not positioned already. #targetcard, #objective,
+   #speedctl, #fleetbar, .toast and #sheet-body are all absolute, and a blanket
+   `position:relative` here drops them back into normal flow — which is a
+   full-width block at the wrong offset, not a panel where it was put. */
+.rope, .rope-fine, #modal-card, .icon-btn, .stat-chip{position:relative;}
+.rope::after, .rope-fine::after,
+#modal-card::after, #sheet-body::after,
+.icon-btn::after, .stat-chip::after, #speedctl::after,
+#targetcard::after, #objective::after, .toast::after, #fleetbar::after{
+  content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor; mask-composite:exclude;
+  /* the twist, then a soft top light across the whole band so it reads round */
+  background-image:
+    linear-gradient(180deg, rgba(255,240,214,.30), rgba(0,0,0,.34)),
+    repeating-linear-gradient(48deg,
+      var(--rope-lit) 0 2px, var(--rope-mid) 2px 4.5px,
+      var(--rope-dark) 4.5px 6px, var(--rope-mid) 6px 7.5px);
+  background-blend-mode:overlay, normal;
+  opacity:.85;
+}
+.rope::after, #modal-card::after, #sheet-body::after{padding:4px;}
+.rope-fine::after,
+.icon-btn::after, .stat-chip::after, #speedctl::after,
+#targetcard::after, #objective::after, .toast::after, #fleetbar::after{
+  padding:2.5px;
+  background-image:
+    linear-gradient(180deg, rgba(255,240,214,.26), rgba(0,0,0,.30)),
+    repeating-linear-gradient(48deg,
+      var(--rope-lit) 0 1.4px, var(--rope-mid) 1.4px 3px,
+      var(--rope-dark) 3px 4px, var(--rope-mid) 4px 5px);
+  opacity:.78;
+}
 
 /* ---------- Bottom sheet (ports & menus) ---------- */
 #sheet{position:absolute; inset:0; z-index:20;}
@@ -563,12 +618,17 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 /* ---------- Modal ---------- */
 #modal{position:absolute; inset:0; z-index:30; display:grid; place-items:center; background:rgba(4,12,18,.6); padding:20px;}
 #modal-card{
-  width:min(92vw,430px); max-height:82vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  /* The card is a frame that does not move; the prose inside it scrolls. That
+     keeps the title and the buttons where the thumb left them on a long scene,
+     and it keeps the rope wrapped round the card instead of scrolling off it. */
+  width:min(92vw,430px); max-height:82vh; overflow:hidden;
+  display:flex; flex-direction:column;
   background:linear-gradient(180deg, rgba(22,48,60,.99), rgba(11,28,36,.99));
   border:1px solid var(--stroke); border-radius:18px; padding:20px 18px 16px;
   box-shadow:0 20px 60px rgba(0,0,0,.6); animation:modalIn .28s cubic-bezier(.2,.9,.3,1);
   touch-action:pan-y;
 }
+#modal-text{overflow-y:auto; -webkit-overflow-scrolling:touch; min-height:0;}
 @keyframes modalIn{from{opacity:0;transform:translateY(16px) scale(.96);}}
 #modal-title{font-family:var(--font-disp); font-size:22px; color:var(--brass); margin-bottom:9px; line-height:1.2;}
 #modal-text{font-size:14.5px; line-height:1.55; color:var(--parch-dim); margin-bottom:16px;}
@@ -872,6 +932,10 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 #modal-text .story-next span{
   display:block; font-family:var(--font-disp); font-size:16px; color:var(--brass);
   margin-bottom:5px;
+}
+#modal-text .story-count{
+  font-family:var(--font-ui); font-size:10px; letter-spacing:1.1px;
+  text-transform:uppercase; color:var(--brass-dim); margin-bottom:2px;
 }
 #modal-text hr{border:0; border-top:1px solid rgba(230,178,94,.2); margin:14px 0;}
 
