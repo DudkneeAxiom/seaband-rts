@@ -241,7 +241,11 @@ export const CHAPTERS = [
     id: 'blood',
     title: 'First Blood',
     open: () => 'Carrying pays slowly and the Tally are not slow. There is one working the water off Ilo Vantu right now — black topsides, red trim, and a captain who has never once been made to answer for it.',
-    obj: () => 'Find a <b>Tally</b> raider and put her down. Black hull, red trim.',
+    /* Says how, not just what. Nothing on the campaign layer opens fire —
+       you close with her and the world stops and asks — and a captain told
+       only to "put her down" will sail alongside pulling a trigger that is
+       not there. */
+    obj: () => 'Find a <b>Tally</b> raider — black hull, red trim — and <b>sail right up to her</b>. Close alongside and she has to answer for it.',
     done: g => g.stats.sunk + g.stats.captured >= 1,
     close: () => 'One Tally hull fewer. The islands notice that sort of thing faster than they notice anything good you do.',
     coin: 180, prestige: 8,

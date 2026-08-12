@@ -93,6 +93,58 @@ ok(`and the gap is closing (${closing.was}m -> ${closing.d}m, reported ${closing
 await shot(page, `cm-pursuit-${vp}`);
 
 /* ---------------------------------------------------------------
+   1b · and the player can start one
+
+   Every other scenario here stages a raider who is already hunting, which is
+   how the one road nobody was testing stayed broken for a fortnight: contact
+   asked only whether *she* meant it, so a Tally busy with somebody else —
+   not hunting you, not flagged hostile to you — could be sailed clean
+   through, and the chapter that says to go and put one down could not be
+   finished. She is deliberately uninterested here: far weaker than you, so
+   her own prey-picking rejects you and she cannot drift into hostility and
+   pass this for the wrong reason.
+   --------------------------------------------------------------- */
+const quarry = await G(() => {
+  const g = window.__game, p = g.player;
+  p.x = 120; p.z = 60; p.dest = null; p.speed = 0; p.throttle = 0;
+  p.hull = p.hullMax; p.sails = p.sailMax; p.alive = true; p.shot = 200;
+  p.crew.marine += 14; p.crew.veteran += 10;        // plainly not worth her trouble
+  for (const s of g.ships) {
+    if (s.isPlayer || g.fleet.includes(s)) continue;
+    s.x = 9e4; s.z = 9e4; s.target = null; s.hostileToPlayer = false; s.chaseHold = 0;
+  }
+  let t = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+  for (let i = 0; i < 20 && !t; i++) t = g.spawnNPC('pirate');
+  t.x = p.x + 190; t.z = p.z;
+  t.hull = t.hullMax; t.sails = t.sailMax;
+  t.hostileToPlayer = false; t.target = null; t.aggro = 0;
+  t.chaseHold = 0; t.fleeing = false;
+  t.brain = { state: 'idle', t: 0, cooldown: 0 };
+  for (const k of ['marine', 'veteran', 'gunner']) t.crew[k] = 0;
+  g.encounterCooling = 0; g.paused = false;
+  p.setHeading(Math.atan2(t.x - p.x, t.z - p.z));
+  p.throttle = 1;
+  return { name: t.name };
+});
+const brought = await untilContact(90);
+const how = await G(() => {
+  const g = window.__game;
+  if (g.mode !== 'encounter' || !g.encounter) return null;
+  const l = g.encounter.lead;
+  return { flagged: !!l.hostileToPlayer, hunting: l.target === g.player };
+});
+ok(`a raider who never came for you can still be brought to action (${quarry.name}`
+  + `${how ? `, hunting you: ${how.hunting}, flagged hostile: ${how.flagged}` : ', no encounter'})`,
+brought && !!how && !how.hunting && !how.flagged);
+await G(() => {
+  const g = window.__game;
+  if (g.mode === 'encounter') g.closeEncounter();
+  g.paused = false;
+  g.player.crew.marine = Math.max(0, g.player.crew.marine - 14);
+  g.player.crew.veteran = Math.max(0, g.player.crew.veteran - 10);
+});
+
+/* ---------------------------------------------------------------
    2 · nobody opens fire on the campaign layer
    --------------------------------------------------------------- */
 const noGuns = await G(() => {

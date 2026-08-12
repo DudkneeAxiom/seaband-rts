@@ -913,7 +913,19 @@ export class Game {
     for (const s of this.ships) {
       if (s.isPlayer || this.fleet.includes(s) || !s.alive || s.captured) continue;
       if (s.chaseHold > 0 || s.fleeing) continue;
-      if (s.target !== p && !s.hostileToPlayer) continue;
+      /* Either side can mean it.
+         She is coming for you; or you have marked her and sailed into her; or
+         you are simply at odds and have run out of sea between you. The first
+         of those used to be the only one, which meant the player could not
+         start a fight at all: a raider busy with a merchant is not hunting
+         you and is not flagged hostile to you, so a captain sent to hunt one
+         could sail clean through her and nothing would happen. Marking her is
+         the gesture the game already teaches — the chapter says to tap her —
+         so it is what "I mean this one" is spelled with. */
+      const sheMeansIt = s.target === p || s.hostileToPlayer;
+      const youMeanIt = this.target === s;
+      const atOdds = isHostile(p, s) || isHostile(s, p);
+      if (!sheMeansIt && !youMeanIt && !atOdds) continue;
       if (dist(s.x, s.z, p.x, p.z) > CONTACT_R) continue;
       this.startEncounter(s);
       return;
