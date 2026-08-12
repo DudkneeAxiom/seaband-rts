@@ -173,11 +173,15 @@ const food = await G(() => {
   // rather than a stopwatch on a random process, so the number is stable.
   const crewDry = p.crewTotal;
   for (let i = 0; i < 600; i++) { g.update(1); quiet(); }
+  const crewAfterTen = p.crewTotal;
+  // and then starve her long past any reasonable window, to see the floor hold
+  let lowest = p.crewTotal;
+  for (let i = 0; i < 5400; i++) { g.update(1); quiet(); lowest = Math.min(lowest, p.crewTotal); }
   return {
     start, minutesOfFood: +(ranDry / 60).toFixed(1), crew0,
-    crewAfter: p.crewTotal, hungry: +p.hungry.toFixed(2),
-    lostInTenMin: crewDry - p.crewTotal, crewDry,
-    skillWhenStarving: +p.crewSkill('sail').toFixed(2),
+    hungry: +p.hungry.toFixed(2), skillWhenStarving: +p.crewSkill('sail').toFixed(2),
+    crewDry, crewAfterTen, lostInTenMin: crewDry - crewAfterTen,
+    lowest, crewMin: p.cls.crewMin, aliveAfter: p.alive,
   };
 });
 await G(() => {                       // victualled again for what follows
@@ -188,8 +192,17 @@ ok(`a full victualling lasts a passage (${food.start} provisions = ${food.minute
   food.minutesOfFood > 12);
 ok(`empty barrels wear the crew down before they kill anyone (hunger ${food.hungry}, skill x${(1 - 0.35 * food.hungry).toFixed(2)})`,
   food.hungry > 0.8);
+/* Deaths are a coin toss every second (0.8%/s above 0.85 hunger), so ten
+   minutes is a random variable with a mean near 5, not a fixed number: an
+   assertion pinned to the mean fails on an unlucky roll. 12 is four standard
+   deviations out and still far short of "the whole company", which is what
+   this is really guarding. The floor below is the deterministic half — the
+   game refuses to take the last hands, so a starving ship can always be
+   sailed home, however the dice fall. */
 ok(`ten minutes of empty barrels costs ${food.lostInTenMin} of ${food.crewDry} hands, not the whole company`,
-  food.lostInTenMin <= 8 && food.crewAfter > food.crewDry / 2);
+  food.lostInTenMin <= 12);
+ok(`and ninety more never strip her below a working watch (${food.lowest} hands at the worst, minimum ${food.crewMin})`,
+  food.lowest >= food.crewMin && food.aliveAfter);
 
 /* ---------- a harbour is a refuge ---------- */
 const refuge = await G(() => {
