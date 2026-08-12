@@ -300,7 +300,7 @@ const worldBefore = await G(() => ({ ships: window.__game.ships.length }));
 await G(() => { const g = window.__game; if (g.mode === 'encounter') g.chooseEncounter('fight'); });
 await waitFor(page, () => window.__game.mode === 'battle', 6000);
 let ended = false;
-for (let i = 0; i < 130 && !ended; i++) {
+for (let i = 0; i < 200 && !ended; i++) {
   await ff(page, 1.2);
   ended = await G(() => {
     const g = window.__game;
@@ -320,12 +320,16 @@ for (let i = 0; i < 130 && !ended; i++) {
 }
 const won = await G(() => ({
   mode: window.__game.mode,
+  enemy: window.__game.battle && window.__game.battle.enemies[0]
+    ? (e => `${e.name} hull ${Math.round(e.hullFrac * 100)}% ${e.fleeing ? 'fleeing' : 'fighting'} `
+      + `${Math.round(Math.hypot(e.x - window.__game.player.x, e.z - window.__game.player.z))}m off`)(window.__game.battle.enemies[0])
+    : 'none left',
   ships: window.__game.ships.length,
   sunk: window.__game.battleLastSunk || 0,
   title: document.getElementById('enc-title').textContent,
   alive: window.__game.player.alive,
 }));
-ok(`fighting her out ends the action (${ended ? 'ended' : 'still running after 156s'}, ${won.mode}, "${won.title}")`,
+ok(`fighting her out ends the action (${ended ? 'ended' : 'still running'}, ${won.mode}, ${won.enemy})`,
   ended && won.mode === 'campaign' && won.alive);
 ok(`and the campaign world is whole again (${worldBefore.ships} sail before, ${won.ships} after, ${won.sunk} sunk)`,
   won.ships === worldBefore.ships - won.sunk);
@@ -490,7 +494,11 @@ const quarry = await G(() => {
   let t = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
   for (let i = 0; i < 20 && !t; i++) t = g.spawnNPC('pirate');
   t.x = p.x + 190; t.z = p.z;
-  t.hull = t.hullMax; t.sails = t.sailMax;
+  t.hull = t.hullMax;
+  /* Loitering, not running: two cutters at the same speed never close, so a
+     pursuit test against full canvas measures nothing but the fact that
+     equals cannot catch each other. */
+  t.sails = t.sailMax * 0.3;
   t.hostileToPlayer = false; t.target = null; t.aggro = 0;
   t.chaseHold = 0; t.fleeing = false;
   t.brain = { state: 'idle', t: 0, cooldown: 0 };
@@ -498,25 +506,24 @@ const quarry = await G(() => {
   g.encounterCooling = 0; g.paused = false;
   return { name: t.name };
 });
-/* Steered the way a tap steers — setDestination is what the canvas calls —
-   and re-pointed as she moves, because she is under sail and not waiting. */
-let brought = false;
-for (let i = 0; i < 90 && !brought; i++) {
-  await G(() => {
-    const g = window.__game, p = g.player;
-    const t = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s)
-      && Math.hypot(s.x - p.x, s.z - p.z) < 1400);
-    if (t) p.setDestination(t.x, t.z);
-  });
-  await ff(page, 1);
-  brought = await G(() => window.__game.mode !== 'campaign');
-}
+/* Marked once, and nothing else. The helm is supposed to do the chasing from
+   there — that is the whole of the gesture, and re-pointing her by hand every
+   second would test the harness rather than the game. */
+const gap0 = await G(() => {
+  const g = window.__game, p = g.player;
+  const t = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s)
+    && Math.hypot(s.x - p.x, s.z - p.z) < 1400);
+  if (t) g.selectTarget(t);
+  return t ? Math.round(Math.hypot(t.x - p.x, t.z - p.z)) : -1;
+});
+const brought = await untilContact(90);
 const how = await G(() => {
   const g = window.__game;
   if (g.mode !== 'encounter' || !g.encounter) return null;
   const l = g.encounter.lead;
   return { flagged: !!l.hostileToPlayer, hunting: l.target === g.player };
 });
+ok(`marking her sets the helm after her (${gap0}m off when she was marked)`, gap0 > 120);
 ok(`a raider who never came for you can still be brought to action (${quarry.name}`
   + `${how ? `, hunting you: ${how.hunting}, flagged hostile: ${how.flagged}` : ', no encounter'})`,
 brought && !!how && !how.hunting && !how.flagged);

@@ -105,6 +105,8 @@ export class Game {
     this.encounter = null;
     this.battle = null;
     this.pursuit = null;             // who is coming for you, for the HUD
+    this.chasing = null;             // who you are running down, if anyone
+    this._chaseAim = null; this._chaseT = 0;
     this.encounterCooling = 0;       // grace after one resolves
     this.target = null;
     this.dockablePort = null;
@@ -191,6 +193,8 @@ export class Game {
     this.encounter = null;
     this.battle = null;
     this.pursuit = null;             // who is coming for you, for the HUD
+    this.chasing = null;             // who you are running down, if anyone
+    this._chaseAim = null; this._chaseT = 0;
     this.encounterCooling = 0;       // grace after one resolves
     this.target = null;
     this.chapter = 0;
@@ -432,7 +436,7 @@ export class Game {
       this.equipCaptain();
       this.seedTraffic();
       this.mode = 'campaign';
-      this.encounter = null; this.battle = null; this.pursuit = null;
+      this.encounter = null; this.battle = null; this.pursuit = null; this.chasing = null;
       this.ctx.combatLive = false;
       setObjective(null);
       this.refreshObjective();
@@ -655,7 +659,7 @@ export class Game {
     // ---- the campaign layer ----
     this.encounterCooling = Math.max(0, this.encounterCooling - dt);
     if (this.mode === 'battle' && this.battle) this.battle.update(dt);
-    else { this.updatePursuit(dt); this.checkContact(); }
+    else { this.updateChase(dt); this.updatePursuit(dt); this.checkContact(); }
 
     // ---- contextual state ----
     this.updateContext(dt);
@@ -1233,6 +1237,8 @@ export class Game {
     /* Steer round the islands rather than into them. findRoute returns null
        when the rhumb line is already clear, which is most taps — a course
        across open water is still a straight run at the point you touched. */
+    // a course of your own is the helm taken back: stop running her down
+    this.chasing = null;
     const route = findRoute(p.x, p.z, x, z, this.limit);
     if (route) p.setRoute(route);
     else p.setDestination(x, z);
@@ -1245,14 +1251,54 @@ export class Game {
     // tapping the ship you already have marked lets her go again
     if (s === this.target) { this.clearTarget(); return; }
     this.target = s;
+    /* And the helm goes after her. Marking a ship is a statement of intent —
+       there is nothing else you can do with a mark — so making the player
+       then separately steer at a moving ship is asking them to do the
+       chasing by hand. Tap her, run her down, and contact does the rest. */
+    this.chasing = s;
+    this._chaseAim = null;
+    this._chaseT = 0;
+    if (!this.hintState.chasing) {
+      this.hintState.chasing = 1;
+      hint('Running her down. Tap the water to take the helm back.', 3400);
+    }
     sfxClick(560);
     this.mark('targeted');
+  }
+
+  /**
+   * Run her down.
+   *
+   * Re-plotted only when she has drawn away from the point we were steering
+   * for, because the course round the islands is an A* search and re-running
+   * it every frame to move the mark a couple of metres is work for nothing.
+   */
+  updateChase(dt) {
+    const p = this.player;
+    const t = this.chasing;
+    if (!t) return;
+    if (this.mode !== 'campaign' || !p || !p.alive || p.boarding || p.lockTo
+      || this.inPort || t !== this.target || !t.alive || t.captured) {
+      this.chasing = null;
+      return;
+    }
+    this._chaseT -= dt;
+    const aim = this._chaseAim;
+    const drifted = !aim || dist(aim.x, aim.z, t.x, t.z) > 60;
+    if (!drifted && this._chaseT > 0) return;
+    this._chaseT = 1.2;
+    this._chaseAim = { x: t.x, z: t.z };
+    const route = findRoute(p.x, p.z, t.x, t.z, this.limit);
+    if (route) p.setRoute(route);
+    else p.setDestination(t.x, t.z);
+    p.throttle = 1;
   }
   /** Stop tracking whoever is marked. Never refuses — a mistaken tap
       should not commit you to anything. */
   clearTarget() {
     if (!this.target) return;
     this.target = null;
+    this.chasing = null;
     this.fireSide = null;
     this.boardable = false;
     sfxClick(380);
