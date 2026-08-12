@@ -198,6 +198,21 @@ export function updateAudio(dt, st) {
  * the mixer, which is the only way to catch a sound nobody happens to be
  * listening for.
  */
+/**
+ * Hold the sea and the score quiet, for measurement only.
+ *
+ * The ambience beds run continuously and their level wanders over a wider
+ * range than a single effect contributes, so any attempt to measure one sound
+ * against the mix ends up measuring the swell instead. With these down, what
+ * the analyser sees is the effect and nothing else.
+ */
+export function audioSolo(on) {
+  if (!started) return;
+  const t = ctx.currentTime;
+  ambBus.gain.setTargetAtTime(on ? 0.0001 : 0.55, t, 0.05);
+  musBus.gain.setTargetAtTime(on ? 0.0001 : 0.30, t, 0.05);
+}
+
 export function audioStats() {
   if (!started || !probe) return null;
   const buf = new Float32Array(probe.fftSize);

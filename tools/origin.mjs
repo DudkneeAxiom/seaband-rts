@@ -18,15 +18,66 @@ const until = async (fn, ms = 8000) => {
 const modalUp = () => until(() => !document.getElementById('modal').classList.contains('hidden'));
 /* A chapter closes when the guns are quiet, which may be a few seconds after
    the deed — so run the world on rather than assuming an instant scene. */
+/** Why the last wait gave up, for a failure that explains itself. */
+let lastStall = null;
 const ffUntilModal = async (max = 45) => {
+  /* If one is still up, this returns instantly on the stale scene and every
+     chapter after it reads the wrong card — which is exactly how this suite
+     failed under load, reporting chapter one's title six chapters later.
+     A scene has to be closed before we can wait for the next one. */
+  const stale = await page.evaluate(() => !document.getElementById('modal').classList.contains('hidden'));
+  if (stale) await dismiss();
+  /* And give it the quiet it insists on. A scene never interrupts a fight, and
+     "a fight" includes any hostile within 420 — so one raider loitering nearby
+     holds the whole story indefinitely and this waits forty-five seconds for a
+     card that was never going to come. The suite is testing whether the deed
+     closes the chapter, not whether the game is polite about timing. */
+  const quiet = () => page.evaluate(() => {
+    const g = window.__game;
+    for (const s of g.ships) {
+      if (s.isPlayer || g.fleet.includes(s)) continue;
+      if (s.nemesisId || s.isSant) continue;          // the story's own quarry stays
+      s.x = 9e4; s.z = 9e4; s.hostileToPlayer = false; s.target = null;
+    }
+    g.combatHeat = 0;
+  });
   for (let t = 0; t < max; t += 3) {
+    // held for the whole wait, not set once: the world keeps its traffic topped
+    // up, and a freshly spawned raider closing inside 420 puts the story back
+    // on hold — forty-five seconds is plenty of time for that to happen
+    await quiet();
     await ff(page, 3);
     if (await page.evaluate(() => !document.getElementById('modal').classList.contains('hidden'))) return true;
   }
+  /* Say why. A scene that never came leaves the previous card's text in the
+     DOM, so every assertion downstream reports the wrong title and none of
+     them says what actually went wrong. */
+  lastStall = await page.evaluate(() => {
+    const g = window.__game, ch = g.currentChapter;
+    return {
+      chapter: g.chapter, id: ch && ch.id, done: ch ? !!ch.done(g) : null,
+      sheet: !document.getElementById('sheet').classList.contains('hidden'),
+      boardings: g.boardings.length, engaged: g.engaged, gameOver: g.gameOver,
+    };
+  });
   return false;
 };
-/* dismiss it the way a player does */
-const dismiss = async () => { await page.click('#modal-actions .btn'); await sleep(300); };
+/* Dismiss it the way a player does, and make sure it went. The story will not
+   advance while a scene is open, so a dismiss that quietly failed stalls
+   everything after it — a fixed sleep here was not proof of anything. */
+const dismiss = async () => {
+  /* Wait for a scene with a button on it before reaching for the button. A
+     single isVisible() at the wrong instant reports nothing there, and then
+     this returns without clicking and leaves the scene standing — which the
+     next wait reads as its own card. */
+  const ready = await until(() => {
+    const m = document.getElementById('modal');
+    return !m.classList.contains('hidden') && !!document.querySelector('#modal-actions .btn');
+  }, 4000);
+  if (!ready) return false;
+  await page.click('#modal-actions .btn');
+  return until(() => document.getElementById('modal').classList.contains('hidden'), 6000);
+};
 
 await sleep(1000);
 await page.click('#btn-new');
@@ -207,7 +258,8 @@ const ch1 = await page.evaluate(() => ({
   open: !document.getElementById('modal').classList.contains('hidden'),
   paused: window.__game.paused,
 }));
-ok(`making port closes chapter one ("${ch1.title}")`, ch1.open && ch1.chapter === 1 && ch1.title === 'Ship’s Stores');
+ok(`making port closes chapter one ("${ch1.title}", chapter ${ch1.chapter}, open ${ch1.open}${lastStall ? ', stalled ' + JSON.stringify(lastStall) : ''})`,
+  ch1.open && ch1.chapter === 1 && ch1.title === 'Ship’s Stores');
 ok('and the scene previews what comes next', /purse|harbourmaster/i.test(ch1.text));
 ok('the world holds still while you read', ch1.paused);
 await shot(page, 'origin-chapter');

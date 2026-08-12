@@ -11,7 +11,7 @@ import { $, onTap, isModalOpen, hint, hideHint, setObjective } from './ui/dom.js
 import { openOrigin, isOriginOpen } from './ui/origin.js';
 import { bindKeys, applyHeld } from './core/keys.js';
 import {
-  initAudio, resumeAudio, updateAudio, audioStats,
+  initAudio, resumeAudio, updateAudio, audioStats, audioSolo,
   sfxCannon, sfxWood, sfxSplash, sfxClash, sfxClick, sfxBell, sfxHorn, sfxCoin,
 } from './core/audio.js';
 import { clamp } from './core/util.js';
@@ -116,6 +116,7 @@ function boot() {
      tests drive it directly and listen to what comes out. */
   window.__audio = {
     stats: audioStats,
+    solo: audioSolo,
     update: updateAudio,
     cannon: sfxCannon, wood: sfxWood, splash: sfxSplash, clash: sfxClash,
     click: sfxClick, bell: sfxBell, horn: sfxHorn, coin: sfxCoin,

@@ -51,17 +51,36 @@ export async function launch(vp = 'phone') {
   const errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text()); });
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')));
-  await page.goto(URL, { waitUntil: 'networkidle' });
   /* Kill entrance animations for the duration of a QA run. Under software GL
      the document timeline does not advance — every animation sits at its first
      frame, playState "running", currentTime 0 — so anything that fades in from
      opacity 0 (the modal card, the sheet) stays invisible forever. Screenshots
      of a story scene were coming back as an empty dimmed screen. Without the
      animations the elements render in their settled state, which is the state
-     worth looking at anyway. */
-  await page.addStyleTag({
-    content: '*, *::before, *::after { animation: none !important; }',
+     worth looking at anyway.
+
+     As an init script rather than a style tag, because several suites reload
+     the page to test the save, and a style tag does not survive navigation —
+     which would have quietly put the animations back for the rest of the run. */
+  await page.addInitScript(() => {
+    const kill = () => {
+      const st = document.createElement('style');
+      st.textContent = '*, *::before, *::after { animation: none !important; }';
+      (document.head || document.documentElement).appendChild(st);
+    };
+    if (document.head) kill();
+    else document.addEventListener('DOMContentLoaded', kill, { once: true });
   });
+  /* QA_SLOW=6 runs the browser at a sixth speed.
+     Three separate flakes have now passed on this machine and failed on a
+     hosted runner, every one of them a fixed sleep that was long enough here
+     and not there. This makes that difference reproducible instead of
+     something you find out about from CI twenty minutes later. */
+  if (process.env.QA_SLOW) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: +process.env.QA_SLOW });
+  }
+  await page.goto(URL, { waitUntil: 'networkidle' });
   return { browser, page, errors };
 }
 

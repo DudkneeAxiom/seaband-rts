@@ -31,7 +31,7 @@ await shot(page, `p1-approach-${vp}`);
 /* ---------- 2. dock, use every service ---------- */
 await dismissModal(page);
 await page.click('.act-btn.dock');
-await sleep(900);
+await waitFor(page, () => !document.getElementById('sheet').classList.contains('hidden'), 8000);
 ok('port sheet opened', await G(() => !document.getElementById('sheet').classList.contains('hidden')));
 await shot(page, `p2-harbour-${vp}`);
 
@@ -42,7 +42,7 @@ await page.evaluate(() => {
   const r = rows.find(x => x.textContent.includes('Provisions'));
   r && r.querySelector('button').click();
 });
-await sleep(400);
+await waitFor(page, b => window.__game.player.provisions > b.prov, 5000, before);
 const after = await G(() => ({ coin: window.__game.coin, prov: window.__game.player.provisions }));
 ok('buying provisions costs coin and adds stores', after.prov > before.prov && after.coin < before.coin);
 
@@ -58,7 +58,7 @@ await page.evaluate(() => {
   const r = rows.find(x => x.textContent.includes('Careen'));
   r && r.querySelector('button').click();
 });
-await sleep(400);
+await waitFor(page, () => window.__game.player.hull === window.__game.player.hullMax, 5000);
 ok('refit restores the hull', await G(() => window.__game.player.hull === window.__game.player.hullMax));
 
 // market
@@ -70,7 +70,7 @@ await page.evaluate(() => {
   const r = rows.find(x => x.textContent.includes('Salt Fish'));
   r && [...r.querySelectorAll('button')].find(b => b.textContent === 'BUY').click();
 });
-await sleep(400);
+await waitFor(page, () => window.__game.player.cargoUsed > 0, 5000);
 ok('bought cargo at market', await G(() => window.__game.player.cargoUsed > 0));
 
 // crew
@@ -85,7 +85,7 @@ await page.evaluate(() => {
     r && r.querySelector('button') && r.querySelector('button').click();
   }
 });
-await sleep(400);
+await waitFor(page, n => window.__game.player.crewTotal > n, 5000, crewBefore);
 ok('recruited crew', await G(() => window.__game.player.crewTotal) > crewBefore);
 
 // tavern — hire an officer who can command
@@ -102,7 +102,7 @@ await page.evaluate(() => {
     if (b && b.textContent.startsWith('◆') && !b.disabled) { b.click(); break; }
   }
 });
-await sleep(500);
+await waitFor(page, () => window.__game.officers.length > 0, 5000);
 ok('hired an officer', await G(() => window.__game.officers.length > 0));
 
 // shipyard upgrade
@@ -114,12 +114,12 @@ await page.evaluate(() => {
   const r = rows.find(x => x.textContent.includes('Doubled Timbers'));
   r && r.querySelector('button') && r.querySelector('button').click();
 });
-await sleep(400);
+await waitFor(page, () => !!window.__game.player.upgrades && window.__game.player.upgrades.length > 0, 5000);
 ok('bought a yard upgrade', await G(() => window.__game.player.upgrades && window.__game.player.upgrades.length > 0));
 
 /* ---------- 3. back to sea ---------- */
 await page.click('#sheet-close');
-await sleep(600);
+await waitFor(page, () => document.getElementById('sheet').classList.contains('hidden'), 6000);
 ok('port closed, back at sea', await G(() => document.getElementById('sheet').classList.contains('hidden')));
 await sleep(500);
 await dismissModal(page);      // making port closes a chapter, and it pauses to be read
@@ -138,7 +138,11 @@ await G(() => {
   pir.hostileToPlayer = true;
   g.selectTarget(pir);
 });
-await sleep(500);
+/* The HUD paints on its own tick, a frame or two behind the game under
+   software GL, and half a second is not reliably a frame or two on a hosted
+   runner. Wait for the card rather than guessing at how long it takes. */
+await waitFor(page, () => !!window.__game.target
+  && !document.getElementById('targetcard').classList.contains('hidden'), 6000);
 ok('target selected, target card visible',
   await G(() => !document.getElementById('targetcard').classList.contains('hidden')));
 
@@ -270,7 +274,21 @@ if (fleet.n > 1) {
   await page.evaluate(() => [...document.querySelectorAll('.fleet-btn')].find(b => b.textContent.includes('ENGAGE')).click());
   await sleep(400);
   ok('fleet order set to ENGAGE', await G(() => window.__game.fleetOrder === 'engage'));
-  await G(() => { window.__game.setFleetOrder('follow'); window.__game.player.setDestination(window.__game.player.x + 400, window.__game.player.z + 200); });
+  /* Station-keeping, measured in peace. She has just been taken and her hull
+     shows it, and leaving her in the middle of the action meant she was
+     sometimes at the bottom before the thirty seconds were up — which failed
+     this check for a reason that has nothing to do with whether she follows.
+     Sea room and a sound hull; whether she keeps station is still her AI. */
+  await G(() => {
+    const g = window.__game, c = g.fleet.find(s => !s.isPlayer);
+    for (const s of g.ships) {
+      if (s.isPlayer || g.fleet.includes(s)) continue;
+      s.x = 9e4; s.z = 9e4; s.target = null; s.hostileToPlayer = false;
+    }
+    if (c) { c.hull = c.hullMax; c.sails = c.sailMax; }
+    g.setFleetOrder('follow');
+    g.player.setDestination(g.player.x + 400, g.player.z + 200);
+  });
   await ff(page, 30);
   const gap = await G(() => {
     const g = window.__game, c = g.fleet.find(s => !s.isPlayer);
@@ -284,11 +302,14 @@ if (fleet.n > 1) {
 await G(() => window.__game.save());
 const pre = await G(() => ({ coin: Math.round(window.__game.coin), fleet: window.__game.fleet.length, cap: window.__game.stats.captured }));
 await page.reload({ waitUntil: 'networkidle' });
-await sleep(1400);
+// the title screen decides whether there is a voyage to continue once the
+// save has been read; wait for that rather than for a number of milliseconds
+await waitFor(page, () => !document.getElementById('btn-continue').classList.contains('hidden'), 9000);
 const hasContinue = await page.evaluate(() => !document.getElementById('btn-continue').classList.contains('hidden'));
 ok('CONTINUE VOYAGE offered after a reload', hasContinue);
 await page.click('#btn-continue');
-await sleep(2500);
+await waitFor(page, () => !!window.__game && !!window.__game.player
+  && document.getElementById('title').classList.contains('hidden'), 9000);
 const post = await G(() => ({ coin: Math.round(window.__game.coin), fleet: window.__game.fleet.length, cap: window.__game.stats.captured }));
 ok(`save round-trips (${JSON.stringify(pre)} -> ${JSON.stringify(post)})`,
   post.coin === pre.coin && post.fleet === pre.fleet && post.cap === pre.cap);

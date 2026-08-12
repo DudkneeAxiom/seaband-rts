@@ -65,31 +65,46 @@ ok(`a fleet action does not clip (peak ${loud.peak})`, loud.peak <= 1.0);
 ok(`and stays finite through it (${loud.bad} bad samples)`, loud.bad === 0);
 ok(`the voice cap holds (${loud.voices} live, cap 24)`, loud.voices <= 24);
 
-/* ---- the jump scare: a melee on the far side of the world ---- */
-const far = await G(async () => {
-  const a = window.__audio;
-  await new Promise(r => setTimeout(r, 900));          // let the deck clear
-  const before = a.stats().peak;
-  // every boarding in the world used to arrive at full volume, four times a
-  // second, wherever it was happening
-  for (let i = 0; i < 30; i++) a.clash(4000);
-  await new Promise(r => setTimeout(r, 260));
-  const after = a.stats().peak;
-  return { before: +before.toFixed(4), after: +after.toFixed(4) };
-});
-ok(`a boarding across the map is not in your ears (peak ${far.before} -> ${far.after})`,
-  far.after <= far.before + 0.05);
+/* Sampling the analyser once after a fixed wait reads whatever the buffer
+   happens to hold at that instant, and on a loaded machine that is as likely
+   to be the tail of the sound as the front of it. Watch a window and keep the
+   loudest thing in it. */
+const listen = `async (a, ms) => {
+  let p = 0;
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const s = a.stats();
+    if (s && s.peak > p) p = s.peak;
+    await new Promise(r => setTimeout(r, 15));
+  }
+  return p;
+}`;
 
-/* ---- and one alongside still is ---- */
-const near = await G(async () => {
-  const a = window.__audio;
+/* ---- the jump scare: a melee on the far side of the world ----
+   Measured with the sea and the score held quiet. The beds run continuously
+   and their level wanders further than a single effect contributes, so any
+   before/after against the full mix reads the swell rather than the sound —
+   which is exactly how the first version of this check flaked. */
+const clash = await G(`(async () => {
+  const a = window.__audio, listen = ${listen};
+  a.solo(true);
+  // long enough for the beds to actually be down, not still on their way:
+  // measuring during the fade gave a "silence" baseline louder than the sound
+  // under test, and the check then passed for entirely the wrong reason
+  await new Promise(r => setTimeout(r, 2000));
+  const quiet = await listen(a, 500);
+  // thirty boardings, all of them somebody else's business
+  for (let i = 0; i < 30; i++) a.clash(4000);
+  const far = await listen(a, 600);
   await new Promise(r => setTimeout(r, 700));
-  const before = a.stats().peak;
-  for (let i = 0; i < 6; i++) a.clash(20);
-  await new Promise(r => setTimeout(r, 220));
-  return { before: +before.toFixed(4), after: +a.stats().peak.toFixed(4) };
-});
-ok(`a boarding alongside is (peak ${near.before} -> ${near.after})`, near.after > near.before);
+  for (let i = 0; i < 8; i++) a.clash(20);
+  const near = await listen(a, 600);
+  a.solo(false);
+  return { quiet: +quiet.toFixed(4), far: +far.toFixed(4), near: +near.toFixed(4) };
+})()`);
+ok(`thirty boardings across the map add nothing (quiet ${clash.quiet}, with them ${clash.far})`,
+  clash.far <= clash.quiet + 0.02);
+ok(`eight alongside are plainly heard (${clash.near})`, clash.near > clash.far + 0.05);
 
 /* ---- a long session leaks nothing that keeps making noise ---- */
 const settled = await G(async () => {
