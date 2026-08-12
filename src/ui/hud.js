@@ -18,8 +18,30 @@ export class HUD {
     this.slowT = 0;
     this.fleetKey = '';
     this.lastTargetId = null;
+    this.northOnScreen = 0;
+    this.spin = 1;                 // which way round the card runs; measured
+    this.buildCompassTicks();
     this.bindSpeed();
     onTap($('tc-close'), () => this.g.clearTarget(), 380);
+  }
+
+  /** Engraved ticks on the card: long at the cardinals, short every 15°. */
+  buildCompassTicks() {
+    const box = document.querySelector('#cmp-rose .cmp-ticks');
+    if (!box) return;
+    const ns = 'http://www.w3.org/2000/svg';
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      const major = i % 6 === 0, mid = i % 3 === 0;
+      const r1 = 39.5, r2 = r1 - (major ? 7 : mid ? 5 : 3);
+      const ln = document.createElementNS(ns, 'line');
+      ln.setAttribute('x1', (50 + Math.sin(a) * r1).toFixed(2));
+      ln.setAttribute('y1', (50 - Math.cos(a) * r1).toFixed(2));
+      ln.setAttribute('x2', (50 + Math.sin(a) * r2).toFixed(2));
+      ln.setAttribute('y2', (50 - Math.cos(a) * r2).toFixed(2));
+      ln.setAttribute('class', major ? 'tk major' : mid ? 'tk mid' : 'tk');
+      box.appendChild(ln);
+    }
   }
 
   /** Pause / 1× / 2×. Sailing a long leg should not mean waiting a long time. */
@@ -39,6 +61,14 @@ export class HUD {
     $('paused-badge').classList.toggle('hidden', n !== 0);
   }
 
+  /** The ammo strip after a key has changed the shot type. */
+  refreshAmmo() {
+    const g = this.g;
+    for (const b of document.querySelectorAll('.ammo-btn')) {
+      b.classList.toggle('on', b.dataset.ammo === g.player.ammo);
+    }
+  }
+
   show() { $('hud').classList.remove('hidden'); }
   hide() { $('hud').classList.add('hidden'); }
 
@@ -56,16 +86,7 @@ export class HUD {
       inf.classList.toggle('hidden', g.infamy < 1);
       $('val-infamy').textContent = Math.round(g.infamy);
 
-      // wind rose: arrow points the way the wind blows
-      const deg = (normAng(g.windAng) * 180 / Math.PI);
-      $('wind-arrow').style.transform = `rotate(${180 - deg}deg)`;
-      const from = COMPASS_PTS[Math.round(normAng(g.windAng + Math.PI) / (TAU / 8)) % 8];
-      const wl = $('wind-label');
-      if (p && p.alive) {
-        const f = p.windFactor(g.windAng);
-        wl.textContent = `${from} · ${Math.round(f * 100)}%`;
-        wl.className = f > 0.82 ? 'good' : f < 0.55 ? 'bad' : '';
-      } else { wl.textContent = from; wl.className = ''; }
+      this.updateCompass(p);
 
       if (p) {
         $('flag-name').textContent = p.name;
@@ -143,6 +164,88 @@ export class HUD {
     }
   }
 
+  /* ---------------- compass ----------------
+     The card is worked out from the camera, not assumed: north is wherever
+     north actually projects on screen, so swinging the view turns the rose
+     with it. On top of that sit three needles you can read at a glance —
+     where the wind blows, where your bow points, and where you have set
+     your course. A rose with N welded to the top of the screen tells a
+     player nothing once they have dragged the view round. */
+  screenBearing(bearing) {
+    // measured rather than derived, so a change in the rig cannot silently
+    // put the whole card a quadrant out
+    return normAng(this.northOnScreen + this.spin * bearing) * 180 / Math.PI;
+  }
+  /** Where north lies on screen, and which way round bearings run from it.
+      Both are read off the projection: whether the plane comes out mirrored
+      depends on the camera, and guessing it puts east where west is. */
+  measureNorth() {
+    const g = this.g, rect = { width: window.innerWidth, height: window.innerHeight };
+    const f = g.rig.focus, cam = g.rig.cam;
+    // a short baseline: the card is a rigid rose, so it should match the
+    // projection where the eye is looking, not average over the whole scene
+    const R = 24;
+    const o = worldToScreen(cam, f.x, 0, f.z, rect);
+    const n = worldToScreen(cam, f.x, 0, f.z + R, rect);
+    const e = worldToScreen(cam, f.x + R, 0, f.z, rect);
+    if (!o || !n || !e) return;
+    if (Math.hypot(n.x - o.x, n.y - o.y) < 0.5) return;   // straight down the axis
+    const nAng = Math.atan2(n.x - o.x, -(n.y - o.y));     // clockwise from screen up
+    const eAng = Math.atan2(e.x - o.x, -(e.y - o.y));
+    // east should sit a quarter turn clockwise of north; if it comes out the
+    // other side the projection is mirrored and the whole card runs backwards
+    this.spin = normAng(eAng - nAng) < Math.PI ? 1 : -1;
+    // A camera tilted toward the horizon squashes the ground plane, so north
+    // and east do not come out a right angle apart on screen and no rigid
+    // rose can match both. Split the difference — the best rigid fit — rather
+    // than pinning the card to one axis and letting the other drift twice as far.
+    const eAsNorth = eAng - this.spin * Math.PI / 2;
+    const d = normAng(eAsNorth - nAng);
+    this.northOnScreen = nAng + (d > Math.PI ? d - Math.PI * 2 : d) / 2;
+  }
+  updateCompass(p) {
+    const g = this.g;
+    this.measureNorth();
+    const rot = (id, bearing) => {
+      const el = $(id);
+      if (el) el.setAttribute('transform', `rotate(${this.screenBearing(bearing).toFixed(1)} 50 50)`);
+    };
+    rot('cmp-rose', 0);
+    // the cardinals travel round the card but never turn over: a compass you
+    // have to tilt your head to read is an ornament, not an instrument
+    for (const t of document.querySelectorAll('#cmp-letters text')) {
+      const b = (+t.dataset.b) * Math.PI / 180;
+      const a = normAng(this.northOnScreen + this.spin * b);
+      t.setAttribute('x', (50 + Math.sin(a) * 30.5).toFixed(2));
+      t.setAttribute('y', (50 - Math.cos(a) * 30.5).toFixed(2));
+    }
+    // the wind arrow flies with the wind, so it points where it is going
+    rot('cmp-wind', g.windAng);
+    if (p && p.alive) rot('cmp-bow', p.yaw);
+    $('cmp-bow').classList.toggle('hidden', !(p && p.alive));
+
+    // the course marker: your destination if you set one, else the objective
+    let course = null;
+    if (p && p.alive) {
+      const t = p.dest || g.objectiveMarker();
+      if (t) {
+        const d = Math.hypot(t.x - p.x, t.z - p.z);
+        if (d > 6) course = Math.atan2(t.x - p.x, t.z - p.z);
+      }
+    }
+    $('cmp-course').classList.toggle('hidden', course === null);
+    if (course !== null) rot('cmp-course', course);
+
+    const from = COMPASS_PTS[Math.round(normAng(g.windAng + Math.PI) / (TAU / 8)) % 8];
+    const wl = $('wind-label');
+    if (p && p.alive) {
+      const f = p.windFactor(g.windAng);
+      const hdg = Math.round(normAng(p.yaw) * 180 / Math.PI);
+      wl.innerHTML = `<b>${String(hdg).padStart(3, '0')}°</b> · ${from} ${Math.round(f * 100)}%`;
+      wl.className = f > 0.82 ? 'good' : f < 0.55 ? 'bad' : '';
+    } else { wl.textContent = from; wl.className = ''; }
+  }
+
   /* ---------------- contextual actions ---------------- */
   updateActions() {
     const g = this.g, p = g.player;
@@ -183,6 +286,7 @@ export class HUD {
         const a = AMMO[id];
         const b = el('button', 'ammo-btn' + (g.player.ammo === id ? ' on' : ''),
           `<span class="ic">${a.icon}</span>${SHORT[id]}`);
+        b.dataset.ammo = id;
         onTap(b, () => {
           g.player.ammo = id;
           toast(`${a.name} — ${a.tip}`, '', 1800);

@@ -34,6 +34,9 @@ export class Input {
       el.addEventListener(n, e => e.preventDefault(), opts));
   }
   _down(e) {
+    // a right button is always an orbit, never an order — desk players expect
+    // to be able to swing the view without their ship taking it as a course
+    this.rightDrag = e.button === 2;
     this.el.setPointerCapture && this.el.setPointerCapture(e.pointerId);
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
     if (this.pointers.size === 1) { this.moved = 0; this.startT = performance.now(); this.dragging = false; }
@@ -47,7 +50,7 @@ export class Input {
     p.x = e.clientX; p.y = e.clientY;
     if (this.pointers.size === 1) {
       this.moved += Math.abs(dx) + Math.abs(dy);
-      if (this.moved > TAP_MOVE) {
+      if (this.rightDrag || this.moved > TAP_MOVE) {
         this.dragging = true;
         this.onDrag && this.onDrag(dx, dy);
       }
@@ -67,7 +70,8 @@ export class Input {
     if (!p) return;
     this.pointers.delete(e.pointerId);
     const dt = performance.now() - this.startT;
-    if (!this.dragging && this.pointers.size === 0 && this.moved <= TAP_MOVE && dt < TAP_TIME) {
+    if (this.rightDrag) this.rightDrag = false;
+    else if (!this.dragging && this.pointers.size === 0 && this.moved <= TAP_MOVE && dt < TAP_TIME) {
       this.onTap && this.onTap(p.x, p.y);
     }
     if (this.pointers.size < 2) this.pinchDist = 0;

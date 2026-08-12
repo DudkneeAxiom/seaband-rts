@@ -6,6 +6,7 @@ import { GOODS, RANKS, RANK_ORDER, OFFICER_ROLES, HULLS, FACTIONS } from '../dat
 import { repairCost, recruitCost, PROVISION_PRICE, SHOT_PRICE } from '../sim/economy.js';
 import { drawPortrait, officerLabel, officerEffect } from '../sim/officers.js';
 import { AMBITIONS, CHAPTERS } from '../data/origins.js';
+import { KEYMAP } from '../core/keys.js';
 import { fmtCoin, clamp } from '../core/util.js';
 import { sfxCoin, toggleMute, audio } from '../core/audio.js';
 
@@ -191,12 +192,17 @@ function marketTab(n, port) {
     const sell = G.market.sellPrice(port.id, gid);
     const stock = Math.floor(G.market.stock(port.id, gid));
     const have = p.cargo[gid] || 0;
-    const base = good.base;
-    const cheap = buy < base * 0.92, dear = sell > base * 1.08;
+    // measured against the other quays, not against a book price: a harbour's
+    // cut made almost everything look "cheap", which told a trader nothing
+    const mods = G.PORTS.map(x => x.prices[gid] ?? 1);
+    const here = port.prices[gid] ?? 1;
+    const cheap = here <= Math.min(...mods) + 0.001 && here < 0.95;
+    const dear = here >= Math.max(...mods) - 0.001 && here > 1.05;
 
     const r = el('div', 'row');
     r.appendChild(el('div', 'rmain',
-      `<div class="rtitle">${good.icon} ${good.name} ${cheap ? '<span class="pill g">CHEAP</span>' : dear ? '<span class="pill r">DEAR</span>' : ''}</div>
+      `<div class="rtitle">${good.icon} ${good.name} ${cheap
+        ? '<span class="pill g">SOLD HERE</span>' : dear ? '<span class="pill r">WANTED HERE</span>' : ''}</div>
        <div class="rsub">Buy ◆${buy} · Sell ◆${sell} · ${stock} in store${have ? ` · <b style="color:var(--parch)">${have} aboard</b>` : ''}</div>`));
     const q = el('div', 'qty');
     const nb = Math.min(qtyMult, stock, p.cargoFree, Math.floor(G.coin / buy));
@@ -543,6 +549,30 @@ function storySection(n) {
 const SKILL_LABEL = { sail: 'Seamanship', gun: 'Gunnery', fight: 'Boarding', trade: 'Haggling' };
 
 function helpTab(n) {
+  // keys first for anyone at a desk, and rendered from the bindings themselves
+  if (matchMedia('(pointer: fine)').matches) {
+    n.appendChild(el('div', 'sec-title', 'AT A DESK'));
+    n.appendChild(el('div', 'note',
+      '<em>Left-click</em> the water to set a course, a ship to mark her. '
+      + '<em>Right-drag</em> or <em>left-drag</em> swings the view; the <em>wheel</em> zooms.'));
+    let group = null;
+    const grid = el('div', 'keygrid');
+    for (const k of KEYMAP) {
+      if (k.group !== group) {
+        group = k.group;
+        grid.appendChild(el('div', 'keygroup', group));
+      }
+      const row = el('div', 'keyrow');
+      const keys = el('div', 'keycaps');
+      for (const cap of k.keys) keys.appendChild(el('kbd', '', cap));
+      if (k.also) keys.appendChild(el('span', 'keyalso', k.also));
+      row.appendChild(keys);
+      row.appendChild(el('span', 'keywhat', k.what));
+      grid.appendChild(row);
+    }
+    n.appendChild(grid);
+  }
+
   n.appendChild(el('div', 'sec-title', 'SAILING'));
   n.appendChild(el('div', 'note',
     `<em>Tap the water</em> to set a course. Your ship carries her way — she will not stop dead, and she will not turn on the spot.<br><br>

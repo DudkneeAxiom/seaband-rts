@@ -32,6 +32,28 @@
 
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
 
+/* ===========================================================
+   Surfaces.
+   Every panel used to be the same flat rounded rectangle, which
+   is what makes an interface read as generated rather than made.
+   These three layers give them a grain, a lit top edge and a
+   shadowed bottom one, so they sit in light instead of floating
+   in front of it. The grain is one inline SVG turbulence, reused
+   by reference, so it costs a single decode.
+   =========================================================== */
+:root{
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+  --edge-lit: inset 0 1px 0 rgba(255,232,190,.13);
+  --edge-dark: inset 0 -1px 0 rgba(0,0,0,.45);
+}
+.surf{position:relative; isolation:isolate;}
+.surf::before{
+  content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background-image:var(--grain); background-size:140px 140px;
+  opacity:.055; mix-blend-mode:overlay; z-index:0;
+}
+.surf > *{position:relative; z-index:1;}
+
 /* keyboard users get a visible focus ring; pointer users never see it */
 :focus{outline:none;}
 :focus-visible{
@@ -63,6 +85,14 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 
 /* ---------- HUD frame ---------- */
 #hud{position:absolute; inset:0; pointer-events:none; z-index:5;}
+/* the sea used to run flat to the edge of the glass; a little fall-off at the
+   corners settles the frame and stops the UI floating on top of nothing */
+#vignette{
+  position:absolute; inset:0; pointer-events:none; z-index:4;
+  background:
+    radial-gradient(120% 90% at 50% 42%, transparent 52%, rgba(3,12,18,.34) 100%),
+    linear-gradient(180deg, rgba(5,16,23,.22), transparent 18%, transparent 74%, rgba(3,11,17,.30));
+}
 #hud > *{pointer-events:auto;}
 .safe-top{top:calc(8px + var(--st));}
 .safe-bottom{bottom:calc(10px + var(--sb));}
@@ -70,22 +100,26 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 /* ---------- Top bar ---------- */
 #topbar{
   position:absolute; left:calc(8px + var(--sl)); right:calc(8px + var(--sr));
-  display:flex; align-items:flex-start; gap:7px;
+  display:flex; align-items:flex-start; gap:7px; height:var(--tap);
 }
 #topbar .spacer{flex:1;}
 .icon-btn{
   width:var(--tap); height:var(--tap); min-width:var(--tap);
   display:grid; place-items:center;
-  background:var(--panel); border:1px solid var(--stroke); border-radius:12px;
-  box-shadow:var(--shadow); backdrop-filter:blur(6px);
+  background:linear-gradient(180deg, rgba(26,56,70,.95), rgba(11,29,38,.95));
+  border:1px solid var(--stroke); border-radius:12px;
+  box-shadow:var(--shadow), var(--edge-lit), var(--edge-dark);
+  backdrop-filter:blur(6px);
 }
 .icon-btn svg{width:24px;height:24px;fill:none;stroke:var(--brass);stroke-width:2;stroke-linecap:round;}
 .icon-btn:active{background:var(--panel-hi); transform:scale(.95);}
 
 .stat-chip{
-  height:36px; padding:0 12px; display:flex; align-items:center; gap:6px;
-  background:var(--panel); border:1px solid var(--stroke); border-radius:11px;
-  font-size:15px; font-weight:700; letter-spacing:.2px; box-shadow:var(--shadow);
+  height:36px; padding:0 12px 0 11px; display:flex; align-items:center; gap:6px;
+  background:linear-gradient(180deg, rgba(26,56,70,.95), rgba(11,29,38,.95));
+  border:1px solid var(--stroke); border-radius:11px;
+  font-size:15px; font-weight:700; letter-spacing:.2px;
+  box-shadow:var(--shadow), var(--edge-lit), var(--edge-dark);
   font-variant-numeric:tabular-nums; margin-top:6px; backdrop-filter:blur(6px);
 }
 .stat-chip .glyph{color:var(--brass); font-size:13px;}
@@ -93,21 +127,51 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 #chip-infamy .glyph{color:#c98}
 
 #compass{
-  width:76px; height:76px; position:relative; margin-top:2px;
-  background:radial-gradient(circle at 50% 45%, rgba(20,46,58,.95), rgba(10,26,34,.86));
-  border:1px solid var(--stroke); border-radius:50%; box-shadow:var(--shadow);
+  /* out of the bar's flow: a taller instrument should not push the bar's box
+     down over the notices that live under it */
+  width:92px; height:92px; position:absolute; right:0; top:0;
+  border-radius:50%;
+  background:
+    radial-gradient(circle at 38% 30%, rgba(255,236,196,.10), transparent 46%),
+    radial-gradient(circle at 50% 52%, rgba(22,50,62,.97), rgba(8,22,30,.95) 72%);
+  border:1px solid var(--brass-dim);
+  box-shadow:
+    0 0 0 3px rgba(120,88,40,.28),          /* brass bezel */
+    0 0 0 4px rgba(0,0,0,.35),
+    inset 0 2px 5px rgba(0,0,0,.7),
+    inset 0 -1px 0 rgba(255,225,170,.10),
+    var(--shadow);
 }
-#compass svg{width:100%;height:100%;}
-.cmp-ring{fill:none;stroke:rgba(230,178,94,.22);stroke-width:1.5;}
-.cmp-n{stroke:rgba(230,178,94,.5);stroke-width:2;}
-.cmp-lbl{fill:rgba(244,231,205,.55);font-size:11px;text-anchor:middle;font-family:var(--font-disp);}
-.cmp-arrow{fill:none;stroke:var(--brass);stroke-width:4;stroke-linecap:round;stroke-linejoin:round;}
-#wind-arrow{transform-origin:32px 32px; transition:transform .5s ease-out;}
+#compass svg{width:100%;height:100%; display:block;}
+.cmp-face{fill:none;}
+.cmp-ring{fill:none;stroke:rgba(230,178,94,.20);stroke-width:0.8;}
+.cmp-ticks .tk{stroke:rgba(230,178,94,.34);stroke-width:1;stroke-linecap:round;}
+.cmp-ticks .tk.mid{stroke:rgba(230,178,94,.46);stroke-width:1.3;}
+.cmp-ticks .tk.major{stroke:rgba(244,231,205,.72);stroke-width:1.9;}
+.cmp-lbl{
+  fill:rgba(244,231,205,.55); font-size:10.5px; text-anchor:middle;
+  font-family:var(--font-disp); dominant-baseline:central;
+}
+.cmp-lbl.cmp-n{fill:var(--brass); font-size:12.5px; font-weight:700;}
+#cmp-letters text{transition:x .22s linear, y .22s linear;}
+/* the wind rides the rim so it never fights the needle for the middle */
+.cmp-windhead{fill:#bfe0ef; stroke:rgba(10,32,44,.6); stroke-width:.5;}
+.cmp-windtail{stroke:rgba(191,224,239,.75); stroke-width:2; stroke-linecap:round;}
+/* your bow: a proper needle, long point forward and a short dark tail */
+.cmp-bow{fill:var(--brass); stroke:rgba(50,30,6,.5); stroke-width:.5;}
+
+.cmp-bowtail{fill:#6d5433;}
+/* your course: a gold chevron cut into the rim */
+.cmp-course{fill:#ffe6b0; stroke:rgba(60,38,10,.55); stroke-width:.6;}
+.cmp-hub{fill:#2b4756; stroke:var(--brass-dim); stroke-width:1;}
+#cmp-rose, #cmp-wind, #cmp-bow, #cmp-course{transition:transform .22s linear;}
 #wind-label{
-  position:absolute; bottom:-2px; left:-18px; right:-18px; text-align:center;
-  font-size:9.5px; letter-spacing:.9px; color:var(--parch-dim);
-  text-shadow:0 1px 3px #000, 0 0 6px rgba(0,0,0,.7); white-space:nowrap;
+  position:absolute; bottom:-13px; left:-22px; right:-22px; text-align:center;
+  font-size:10px; letter-spacing:.7px; color:var(--parch-dim);
+  text-shadow:0 1px 3px #000, 0 0 6px rgba(0,0,0,.8); white-space:nowrap;
+  font-variant-numeric:tabular-nums;
 }
+#wind-label b{color:var(--parch); font-weight:700;}
 #wind-label.good{color:#9fe0a6;} #wind-label.bad{color:#e39a86;}
 
 /* ---------- Bottom-left stack: time controls + ship status ---------- */
@@ -117,8 +181,9 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 }
 #speedctl{
   display:flex; gap:4px; padding:4px;
-  background:var(--panel); border:1px solid var(--stroke); border-radius:13px;
-  box-shadow:var(--shadow); backdrop-filter:blur(6px);
+  background:linear-gradient(180deg, rgba(24,52,66,.94), rgba(10,27,36,.94));
+  border:1px solid var(--stroke); border-radius:13px;
+  box-shadow:var(--shadow), var(--edge-lit), var(--edge-dark); backdrop-filter:blur(6px);
 }
 .spd{
   min-width:48px; height:44px; border-radius:10px;
@@ -132,7 +197,7 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 
 #paused-badge{
   position:absolute; left:50%; transform:translateX(-50%);
-  top:calc(96px + var(--st));
+  top:calc(104px + var(--st));
   padding:7px 18px; border-radius:11px;
   background:rgba(10,26,34,.9); border:1px solid var(--brass);
   font-size:12px; font-weight:800; letter-spacing:4px; color:var(--brass);
@@ -143,9 +208,23 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 
 /* ---------- Ship status ---------- */
 #shipstatus{
-  width:min(46vw, 224px);
-  background:var(--panel); border:1px solid var(--stroke); border-radius:var(--r);
-  padding:9px 11px 8px; box-shadow:var(--shadow); backdrop-filter:blur(6px);
+  width:min(46vw, 232px); position:relative; overflow:hidden;
+  background:linear-gradient(180deg, rgba(24,52,66,.95), rgba(10,27,36,.95));
+  border:1px solid var(--stroke); border-radius:var(--r);
+  padding:9px 11px 8px;
+  box-shadow:var(--shadow), var(--edge-lit), var(--edge-dark);
+  backdrop-filter:blur(6px);
+}
+/* grain, and a brass hairline under the ship's name */
+#shipstatus::before{
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background-image:var(--grain); background-size:140px 140px;
+  opacity:.06; mix-blend-mode:overlay;
+}
+#shipstatus > *{position:relative;}
+.ship-name::after{
+  content:''; display:block; height:1px; margin-top:5px;
+  background:linear-gradient(90deg, rgba(230,178,94,.55), rgba(230,178,94,.06) 70%, transparent);
 }
 .ship-name{
   font-family:var(--font-disp); font-size:15px; color:var(--brass);
@@ -153,10 +232,25 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 }
 .bar-row{display:flex; align-items:center; gap:6px; margin:4px 0;}
 .bar-lbl{font-size:9.5px; letter-spacing:1.1px; color:var(--parch-dim); width:30px;}
-.bar{flex:1; height:8px; background:rgba(0,0,0,.42); border-radius:4px; overflow:hidden; box-shadow:inset 0 1px 2px rgba(0,0,0,.5);}
-.bar > i{display:block; height:100%; width:100%; background:var(--hull-c); border-radius:4px; transition:width .28s ease-out;}
-.bar > i.sail{background:var(--sail-c);} .bar > i.crew{background:var(--crew-c);}
-.bar > i.low{background:var(--danger) !important;}
+.bar{
+  flex:1; height:9px; border-radius:4px; overflow:hidden; position:relative;
+  background:linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.35));
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.65), 0 1px 0 rgba(255,255,255,.05);
+}
+/* notches, so it reads as a gauge and not a progress bar */
+.bar::after{
+  content:''; position:absolute; inset:0; pointer-events:none; z-index:2;
+  background:repeating-linear-gradient(90deg, transparent 0 11px, rgba(0,0,0,.34) 11px 12px);
+}
+.bar > i{
+  display:block; height:100%; width:100%; border-radius:3px;
+  background:linear-gradient(180deg, color-mix(in srgb, var(--hull-c) 78%, white), var(--hull-c));
+  box-shadow:inset 0 -1px 0 rgba(0,0,0,.28);
+  transition:width .28s ease-out;
+}
+.bar > i.sail{background:linear-gradient(180deg, #f3ecdc, var(--sail-c));}
+.bar > i.crew{background:linear-gradient(180deg, #a9cfe6, var(--crew-c));}
+.bar > i.low{background:linear-gradient(180deg,#e8735c,var(--danger)) !important;}
 .bar-val{font-size:10px; color:var(--parch-dim); width:26px; text-align:right; font-variant-numeric:tabular-nums;}
 .mini-row{display:flex; gap:10px; margin-top:7px; padding-top:6px; border-top:1px solid rgba(230,178,94,.16);}
 .mini{font-size:11.5px; color:var(--parch-dim);} .mini b{color:var(--parch); font-weight:700;}
@@ -221,9 +315,13 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 
 /* ---------- Target card ---------- */
 #targetcard{
-  position:absolute; top:calc(96px + var(--st)); right:calc(10px + var(--sr));
-  width:170px; background:var(--panel); border:1px solid var(--stroke);
-  border-radius:12px; padding:8px 10px; box-shadow:var(--shadow); backdrop-filter:blur(6px);
+  position:absolute; top:calc(122px + var(--st)); right:calc(10px + var(--sr));
+  width:174px;
+  background:linear-gradient(180deg, rgba(26,56,70,.95), rgba(11,29,38,.95));
+  border:1px solid var(--stroke);
+  border-radius:12px; padding:8px 10px;
+  box-shadow:var(--shadow), var(--edge-lit), var(--edge-dark);
+  backdrop-filter:blur(6px);
 }
 .tc-head{display:flex; justify-content:space-between; align-items:baseline; gap:6px;}
 #tc-name{
@@ -296,7 +394,7 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   /* no transition on `top`: the stack must always be at one of its two exact
      positions, never sliding through the target card on the way */
 }
-#notices.low{top:calc(182px + var(--st));}
+#notices.low{top:calc(206px + var(--st));}
 #hint{
   width:100%;
   background:rgba(10,26,34,.9); border:1px solid var(--stroke); border-left:3px solid var(--brass);
@@ -339,18 +437,31 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 @keyframes fade{from{opacity:0;}}
 #sheet-body{
   position:absolute; left:0; right:0; bottom:0; max-height:86%;
-  display:flex; flex-direction:column;
+  display:flex; flex-direction:column; overflow:hidden;
   background:linear-gradient(180deg, rgba(19,44,56,.985), rgba(10,26,34,.99));
-  border-top:1px solid var(--stroke); border-radius:20px 20px 0 0;
-  box-shadow:0 -14px 40px rgba(0,0,0,.5);
+  border-top:1px solid var(--brass-dim); border-radius:20px 20px 0 0;
+  box-shadow:0 -14px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,232,190,.16);
   padding-bottom:var(--sb); animation:sheetIn .32s cubic-bezier(.22,.8,.3,1);
 }
+/* grain over the whole sheet, and a compass-rose decal behind the heading —
+   the room needs something on its walls or it reads as a form */
+#sheet-body::before{
+  content:''; position:absolute; inset:0; pointer-events:none; z-index:0;
+  background-image:var(--grain); background-size:140px 140px;
+  opacity:.05; mix-blend-mode:overlay;
+}
+#sheet-body::after{
+  content:''; position:absolute; top:-40px; right:-46px; width:230px; height:230px;
+  pointer-events:none; z-index:0; opacity:.10;
+  background:no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='%23e6b25e' stroke-width='1'%3E%3Ccircle cx='50' cy='50' r='46'/%3E%3Ccircle cx='50' cy='50' r='36'/%3E%3Ccircle cx='50' cy='50' r='9'/%3E%3C/g%3E%3Cg fill='%23e6b25e'%3E%3Cpath d='M50 4 L56 44 L50 50 L44 44 Z'/%3E%3Cpath d='M50 96 L44 56 L50 50 L56 56 Z' opacity='.55'/%3E%3Cpath d='M96 50 L56 56 L50 50 L56 44 Z' opacity='.4'/%3E%3Cpath d='M4 50 L44 44 L50 50 L44 56 Z' opacity='.4'/%3E%3C/g%3E%3C/svg%3E");
+}
+#sheet-head, #sheet-tabs, #sheet-content{position:relative; z-index:1;}
 @keyframes sheetIn{from{transform:translateY(100%);}}
 #sheet-head{
   display:flex; align-items:center; gap:10px; padding:10px 12px 6px;
   padding-left:calc(16px + var(--sl)); padding-right:calc(10px + var(--sr));
 }
-#sheet-title{flex:1; font-family:var(--font-disp); font-size:20px; color:var(--brass); letter-spacing:.4px;}
+#sheet-title{flex:1; font-family:var(--font-disp); font-size:21px; color:var(--brass); letter-spacing:.4px;}
 #sheet-title small{display:block; font-family:var(--font-ui); font-size:11px; letter-spacing:1.3px; color:var(--parch-dim); margin-top:2px;}
 #sheet-tabs{
   display:flex; gap:6px; padding:2px calc(12px + var(--sr)) 8px calc(12px + var(--sl));
@@ -359,7 +470,9 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 #sheet-tabs::-webkit-scrollbar{display:none;}
 .tab{
   flex:0 0 auto; height:42px; padding:0 15px; border-radius:11px;
-  background:rgba(255,255,255,.05); border:1px solid rgba(230,178,94,.18);
+  background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
+  border:1px solid rgba(230,178,94,.18);
+  box-shadow:inset 0 1px 0 rgba(255,232,190,.08);
   font-size:12.5px; font-weight:700; letter-spacing:.9px; color:var(--parch-dim);
   display:flex; align-items:center; gap:6px;
 }
@@ -378,8 +491,16 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 
 /* generic sheet widgets */
 .row{
-  display:flex; align-items:center; gap:11px; padding:11px 12px; margin-bottom:8px;
-  background:rgba(255,255,255,.045); border:1px solid rgba(230,178,94,.14); border-radius:13px;
+  display:flex; align-items:center; gap:11px; padding:11px 13px; margin-bottom:8px;
+  position:relative; overflow:hidden;
+  background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.022));
+  border:1px solid rgba(230,178,94,.14); border-radius:13px;
+  box-shadow:inset 0 1px 0 rgba(255,232,190,.07), 0 1px 2px rgba(0,0,0,.25);
+}
+/* a brass edge down the left: rows stop being identical grey slabs */
+.row::before{
+  content:''; position:absolute; left:0; top:8px; bottom:8px; width:2px; border-radius:2px;
+  background:linear-gradient(180deg, rgba(230,178,94,.55), rgba(230,178,94,.10));
 }
 .row .rmain{flex:1; min-width:0;}
 .row .rtitle{font-size:15px; font-weight:700; color:var(--parch); display:flex; align-items:center; gap:6px;}
@@ -387,12 +508,19 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .row .rprice{font-size:14px; font-weight:800; color:var(--brass); white-space:nowrap; font-variant-numeric:tabular-nums;}
 .btn{
   min-height:44px; min-width:64px; padding:0 16px; border-radius:11px;
-  background:linear-gradient(180deg,#3d6a80,#1d4356); border:1px solid var(--stroke);
+  background:linear-gradient(180deg,#43738a,#1b3f51); border:1px solid var(--stroke);
   font-size:13.5px; font-weight:800; letter-spacing:.8px; color:var(--parch);
   display:inline-flex; align-items:center; justify-content:center; gap:5px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14), inset 0 -2px 0 rgba(0,0,0,.32), 0 2px 4px rgba(0,0,0,.35);
+  text-shadow:0 1px 1px rgba(0,0,0,.45);
 }
+.btn:active{box-shadow:inset 0 2px 5px rgba(0,0,0,.5);}
 .btn:active{transform:scale(.96); filter:brightness(1.2);}
-.btn.gold{background:linear-gradient(180deg,#d3a049,#8e6320); color:#231704; border-color:#f0c674;}
+.btn.gold{
+  background:linear-gradient(180deg,#f0c072,#9a6d24); color:#241804; border-color:#f6d493;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.5), inset 0 -2px 0 rgba(80,50,8,.4), 0 2px 5px rgba(0,0,0,.4);
+  text-shadow:0 1px 0 rgba(255,230,180,.45);
+}
 .btn.dim{background:rgba(255,255,255,.05); color:var(--parch-dim);}
 .btn.danger{background:linear-gradient(180deg,#b7442f,#7a2a1d); border-color:#e88a63; color:#ffe6dd;}
 .btn[disabled]{opacity:.38; filter:grayscale(.6); pointer-events:none;}
@@ -401,7 +529,14 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .qty .btn{min-width:46px; padding:0; font-size:18px;}
 .sec-title{
   font-size:10.5px; letter-spacing:2px; color:var(--brass-dim);
-  margin:16px 0 8px; padding-bottom:5px; border-bottom:1px solid rgba(230,178,94,.16);
+  margin:18px 0 9px; padding-bottom:6px;
+  display:flex; align-items:center; gap:8px;
+  border-bottom:1px solid rgba(230,178,94,.16);
+  box-shadow:0 1px 0 rgba(255,232,190,.05);
+}
+/* a small lozenge on the rule: the difference between a heading and a divider */
+.sec-title::after{
+  content:'◆'; font-size:7px; color:rgba(230,178,94,.5); margin-left:-2px;
 }
 .sec-title:first-child{margin-top:6px;}
 .note{font-size:12px; color:var(--parch-dim); line-height:1.5; margin:6px 2px 10px;}
@@ -680,22 +815,29 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   #actions{gap:8px;}
   #notices{width:min(74vw,330px); top:calc(180px + var(--st));}
   /* the target card is tall once it carries the weight comparison */
-  #notices.low{top:calc(252px + var(--st));}
+  #notices.low{top:calc(276px + var(--st));}
 }
 
 /* ---------- Landscape / short screens ---------- */
 @media (max-height:460px){
+  /* a landscape phone has no vertical room to spare: the instrument shrinks so
+     its readout still clears the target card underneath it */
+  #compass{width:66px; height:66px;}
+  .cmp-lbl{font-size:13px;} .cmp-lbl.cmp-n{font-size:15px;}
+  #wind-label{bottom:-11px; font-size:9px; left:-28px; right:-28px;}
+  #notices.low{top:calc(178px + var(--st));}
+  #paused-badge{top:calc(84px + var(--st));}
   #shipstatus{width:min(38vw,200px); padding:7px 9px 6px;}
   .ship-name{font-size:13px; margin-bottom:4px;}
   .bar-row{margin:3px 0;}
   /* short landscape: the right-hand column has to hold the target card and
      up to four controls, so both ends give a little */
-  #targetcard{top:calc(76px + var(--st)); padding:7px 9px;}
+  #targetcard{top:calc(92px + var(--st)); padding:7px 9px;}
   #tc-power{margin-top:5px; padding-top:5px;}
   .pw-nums{display:none;}
   .pw-scale{height:8px; margin:4px 0 0;}
   .tc-bars{margin:5px 0 3px;}
-  #objective{top:calc(76px + var(--st)); font-size:11.5px; max-width:min(40vw,220px);}
+  #objective{top:calc(72px + var(--st)); font-size:11.5px; max-width:min(40vw,220px);}
   /* fixed heights, not min-heights: on a 375px-tall screen the right-hand
      column has an exact budget and content must not push past it */
   .act-btn{height:45px; min-height:0; min-width:104px; font-size:14.5px; padding:4px 14px; line-height:1.05;}
@@ -729,3 +871,25 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   margin-bottom:5px;
 }
 #modal-text hr{border:0; border-top:1px solid rgba(230,178,94,.2); margin:14px 0;}
+
+/* ---------- key bindings on the helm page ---------- */
+.keygrid{display:flex; flex-direction:column; gap:2px; margin:4px 0 8px;}
+.keygroup{
+  font-size:9.5px; letter-spacing:1.8px; color:var(--brass-dim);
+  margin:10px 2px 3px;
+}
+.keygroup:first-child{margin-top:2px;}
+.keyrow{
+  display:flex; align-items:center; gap:10px; padding:5px 8px; border-radius:9px;
+  background:rgba(255,255,255,.03);
+}
+.keycaps{display:flex; align-items:center; gap:4px; flex:0 0 128px;}
+.keyrow kbd{
+  min-width:24px; padding:2px 6px; border-radius:6px; text-align:center;
+  font-family:var(--font-ui); font-size:11px; font-weight:700; color:var(--parch);
+  background:linear-gradient(180deg,#2c4c5c,#16323f);
+  border:1px solid rgba(230,178,94,.3);
+  box-shadow:0 1px 0 rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.10);
+}
+.keyalso{font-size:10px; color:var(--brass-dim); letter-spacing:.4px;}
+.keywhat{font-size:12.5px; color:var(--parch-dim); flex:1 1 auto;}

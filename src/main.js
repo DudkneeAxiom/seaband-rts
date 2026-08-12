@@ -4,11 +4,12 @@
 import * as THREE from 'three';
 import { Game } from './game.js';
 import { SeaCamera } from './core/camera.js';
-import { Input, screenToSea, pickShip } from './core/input.js';
+import { Input, screenToSea, pickShip, worldToScreen } from './core/input.js';
 import { HUD } from './ui/hud.js';
 import { initSheet, openMenu, isSheetOpen, closeSheet } from './ui/sheet.js';
 import { $, onTap, isModalOpen, hint, hideHint, setObjective } from './ui/dom.js';
 import { openOrigin, isOriginOpen } from './ui/origin.js';
+import { bindKeys, applyHeld } from './core/keys.js';
 import { initAudio, resumeAudio, updateAudio } from './core/audio.js';
 import { clamp } from './core/util.js';
 import { heightAt, depthAt, PORT_SHORE } from './world/terrain.js';
@@ -25,6 +26,7 @@ const scene = new THREE.Scene();
 const rig = new SeaCamera(window.innerWidth / Math.max(1, window.innerHeight));
 let game = null;
 let hud = null;
+let keys = null;
 
 function sizeRenderer() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -108,8 +110,19 @@ function boot() {
   window.__game = game;       // handy for QA
   window.__renderer = renderer;
   window.__ui = { hint, hideHint, setObjective };
+
+  // desk play: a keyboard is a better tiller than a tap, and a mouse should
+  // not have to drag to turn a ship
+  keys = bindKeys({
+    game, rig, hud,
+    isBusy: () => isModalOpen() || isSheetOpen() || isOriginOpen() || game.gameOver,
+    isSheetOpen, closeSheet, openMenu,
+  });
   window.__terrain = { heightAt, depthAt };   // for the QA harnesses
   window.__shore = PORT_SHORE;
+  window.__hud = hud;
+  window.__worldToScreen = worldToScreen;
+  window.__keys = keys;
 }
 
 /** New voyages go through the questionnaire first; a saved one resumes. */
@@ -150,6 +163,7 @@ function frame(now) {
   if (game) {
     // 2× runs the simulation twice at the normal step rather than one
     // double-length step, so physics and collision behave identically
+    if (keys) applyHeld(keys.held, { game, rig, isBusy: () => isModalOpen() || isSheetOpen() || isOriginOpen() || game.gameOver }, dt);
     const steps = game.paused ? 0 : (game.player ? game.speed : 1);
     for (let i = 0; i < steps; i++) game.update(dt);
     if (steps === 0) game.update(0);      // keep UI-facing state fresh while paused

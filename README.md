@@ -62,6 +62,22 @@ Designed for thumbs. Mouse mirrors touch for desk testing.
 | Log, help, settings | ☰ top left | same |
 | Your story so far | ☰ → **VOYAGE** | same |
 
+At a desk there is a full keyboard layer, listed on the **HELM** page in game and
+generated from the bindings themselves so the two cannot drift apart:
+
+| | |
+|---|---|
+| ← → *or* A D | Put the helm over |
+| ↑ ↓ *or* W S | Make or take in sail |
+| H | Heave to |
+| Q E · Z X · C | Swing the view · zoom · square the view on your heading |
+| Space · 1 2 3 | Fire the battery that bears · round, chain, grape |
+| Tab · Esc · B | Mark the next sail · let her go · board |
+| F · M · P · [ ] | Dock · ship's log · pause · slower and faster |
+
+Right-drag orbits without ordering a course, so a mouse can swing the view without
+your ship taking it as a destination.
+
 Buttons only exist while they mean something, so the ocean keeps the screen.
 
 ---
@@ -128,6 +144,15 @@ waits for a quiet moment, which is where it reads best anyway.
 ---
 
 ## Core systems
+
+**The compass.** A working instrument, not an ornament. The card is turned by reading
+the camera — north is measured where north actually projects on screen, so swinging the
+view turns the rose with it — and three marks sit on top of it: a brass needle for your
+own bow, a pale mark on the rim for the wind, and a gold chevron for the course you have
+set (or, if you have set none, for wherever the voyage is pointing). Under it, your
+heading in degrees. A tilted camera squashes the ground plane, so a rigid rose cannot
+align with every direction at once; the card takes the best rigid fit, which leaves at
+most a needle's width of skew at the most oblique angle instead of twice that.
 
 **Finding things.** The current objective is spelled out in one line, and when its
 target is off screen a chevron pins to the edge of the view with the bearing and the
@@ -299,6 +324,8 @@ All suites drive the real game in Chromium via Playwright.
 node tools/origin.mjs             # 46 checks: the questionnaire, its effects, the story
 node tools/trade.mjs              # 29 checks: the merchant road, upkeep and the way back
 node tools/shore.mjs              # 15 checks: harbours built on land, credit for shared kills
+node tools/helm.mjs               # 30 checks: the compass against the projection, and every key
+node tools/sweep.mjs desktop      # every screen, at a size, for eyes rather than assertions
 node tools/playthrough.mjs phone   # 23 checks: the whole arc, with real UI clicks
 node tools/touch.mjs               # 9 checks: synthesised taps, drags, pinch, rotation
 node tools/systems.mjs             # 14 checks: contracts, discoveries, shoals, supplies…
@@ -453,6 +480,15 @@ A few decisions worth recording:
   still reach a quay, take a contract, and be paid enough up front to load it. A sandbox
   that can strand you in a state you cannot trade out of is asking you to start again,
   and starting again is not a mechanic.
+- **The card is measured, not derived.** North's place on screen comes from projecting a
+  point and looking at where it lands, and which way round the card runs is decided the
+  same way. A compass worked out from the camera's own numbers is one refactor away from
+  being a quadrant out with nothing to notice it.
+- **Surfaces, not rectangles.** Every panel was the same flat rounded box, which is what
+  makes an interface read as generated rather than made. They now carry a grain, a lit
+  top edge and a shadowed bottom one, the gauges are notched, the section rules are
+  engraved with a lozenge, and the sheet has a compass-rose decal behind its heading.
+  None of it is information; all of it is the difference between a form and a room.
 - **Ask the terrain, do not tell it.** Two of the three settlements were laid out from a
   hand-written compass bearing that pointed out to sea, so their piers, quays and names
   were built in open water and nothing in the geometry noticed. The waterfront is now

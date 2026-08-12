@@ -18,6 +18,7 @@
 <body>
 <div id="app">
   <canvas id="scene"></canvas>
+  <div id="vignette"></div>
 
   <!-- ============ HUD ============ -->
   <div id="hud" class="hidden">
@@ -30,14 +31,32 @@
       <div class="stat-chip" id="chip-prestige"><span class="glyph">★</span><span id="val-prestige">0</span></div>
       <div class="stat-chip subtle" id="chip-infamy"><span class="glyph">✖</span><span id="val-infamy">0</span></div>
       <div class="spacer"></div>
-      <div id="compass" aria-label="Wind">
-        <svg viewBox="0 0 64 64">
-          <circle cx="32" cy="32" r="27" class="cmp-ring"/>
-          <path d="M32 8 L32 -2" class="cmp-n"/>
-          <text x="32" y="16" class="cmp-lbl">N</text>
-          <g id="wind-arrow">
-            <path d="M32 50 L32 18 M32 18 L26 26 M32 18 L38 26" class="cmp-arrow"/>
+      <div id="compass" aria-label="Compass: heading, course and wind">
+        <svg viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="46" class="cmp-face"/>
+          <circle cx="50" cy="50" r="39.5" class="cmp-ring"/>
+          <!-- the card turns with the view, so N is where north really is -->
+          <g id="cmp-rose"><g class="cmp-ticks"></g></g>
+          <!-- cardinals ride the card but stay the right way up to read -->
+          <g id="cmp-letters">
+            <text class="cmp-lbl cmp-n" data-b="0">N</text>
+            <text class="cmp-lbl" data-b="90">E</text>
+            <text class="cmp-lbl" data-b="180">S</text>
+            <text class="cmp-lbl" data-b="270">W</text>
           </g>
+          <!-- the wind: a feathered mark just inside the rim -->
+          <g id="cmp-wind">
+            <path d="M50 12 L54 19.5 L46 19.5 Z" class="cmp-windhead"/>
+            <path d="M50 20.5 L50 27" class="cmp-windtail"/>
+          </g>
+          <!-- the course you have set: a chevron on the rim itself -->
+          <g id="cmp-course" class="hidden"><path d="M50 3.6 L55.4 12.4 L44.6 12.4 Z" class="cmp-course"/></g>
+          <!-- your own bow: a needle across the hub, long point forward -->
+          <g id="cmp-bow">
+            <path d="M50 21 L53.4 47 L50 50 L46.6 47 Z" class="cmp-bow"/>
+            <path d="M50 50 L52.4 52.5 L50 62 L47.6 52.5 Z" class="cmp-bowtail"/>
+          </g>
+          <circle cx="50" cy="50" r="2.8" class="cmp-hub"/>
         </svg>
         <div id="wind-label">—</div>
       </div>
