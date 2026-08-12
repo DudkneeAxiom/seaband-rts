@@ -7,8 +7,10 @@ import { SeaCamera } from './core/camera.js';
 import { Input, screenToSea, pickShip, worldToScreen } from './core/input.js';
 import { HUD } from './ui/hud.js';
 import { initSheet, openMenu, isSheetOpen, closeSheet } from './ui/sheet.js';
-import { $, onTap, isModalOpen, hint, hideHint, setObjective } from './ui/dom.js';
+import { $, el, clear, onTap, isModalOpen, hint, hideHint, setObjective } from './ui/dom.js';
 import { openOrigin, isOriginOpen } from './ui/origin.js';
+import { initEncounter, openEncounter, closeEncounter, isEncounterOpen, showBattleResult } from './ui/encounter.js';
+import { fleeChance, talkChance, buildEncounter, CONTACT_R } from './sim/encounter.js';
 import { bindKeys, applyHeld } from './core/keys.js';
 import {
   initAudio, resumeAudio, updateAudio, audioStats, audioSolo,
@@ -50,7 +52,7 @@ window.addEventListener('resize', () => { rect = canvas.getBoundingClientRect();
 
 new Input(canvas, {
   onTap: (x, y) => {
-    if (!game || isModalOpen() || isSheetOpen() || isOriginOpen() || game.gameOver) return;
+    if (!game || isModalOpen() || isSheetOpen() || isOriginOpen() || isEncounterOpen() || game.gameOver) return;
     resumeAudio();
     rect = canvas.getBoundingClientRect();
     const s = pickShip(rig.cam, game.ships, x, y, rect, isMobile ? 64 : 48);
@@ -66,15 +68,68 @@ new Input(canvas, {
   onPinch: (f) => { rig.zoom(f); },
 });
 
-/* ---------------- boarding overlay ---------------- */
+/* ---------------- boarding overlay ----------------
+   The most dramatic thing that happens in this game used to resolve entirely
+   on its own while the player watched a bar move. It still resolves on the
+   same numbers — but the composition of both decks is on screen, the dead are
+   counted as they fall, and the captain has something to say about how it is
+   fought. */
 const brd = $('boarding');
 let activeBoarding = null;
+
+const CREW_ROWS = [
+  ['marine', 'Marines', 'the best of them over the rail'],
+  ['veteran', 'Old salts', 'steady, and hard to shift'],
+  ['gunner', 'Gunners', 'wasted in a melee'],
+  ['rigger', 'Riggers', 'first across, quick on the lines'],
+  ['sailor', 'Sailors', 'the body of the crew'],
+  ['deckhand', 'Hands', 'willing, and not much else'],
+];
+
+function crewBox(node, ship, lost) {
+  clear(node);
+  const head = el('div', 'bc-head', `${ship.name}<b>${ship.crewTotal}</b>`);
+  node.appendChild(head);
+  for (const [k, label] of CREW_ROWS) {
+    const n = ship.crew[k] | 0;
+    if (!n) continue;
+    node.appendChild(el('div', 'bc-row', `<span>${label}</span><b>${n}</b>`));
+  }
+  const off = (ship.officers || []).filter(o => o);
+  if (off.length) node.appendChild(el('div', 'bc-off', off.map(o => o.name).join(', ')));
+  if (lost > 0) node.appendChild(el('div', 'bc-lost', `−${lost} this rush`));
+}
+
+const STANCES = [
+  { id: 'press', label: 'PRESS THE ATTACK', sub: 'Ground fast, and pay for it' },
+  { id: 'steady', label: 'STEADY', sub: 'Hold the rail and grind' },
+  { id: 'marines', label: 'SEND THE MARINES', sub: 'The best fighters aboard, once' },
+  { id: 'fallback', label: 'FALL BACK', sub: 'Cut the grapples and get off her' },
+];
+
+function renderStances(b) {
+  const box = $('brd-acts');
+  clear(box);
+  // only a boarding you are actually in is yours to command
+  if (b.a !== window.__game.player) return;
+  for (const st of STANCES) {
+    if (st.id === 'marines' && (b.a.crew.marine | 0) < 1) continue;
+    const btn = el('button', 'brd-act' + (b.stance === st.id ? ' on' : ''), `${st.label}<small>${st.sub}</small>`);
+    btn.dataset.stance = st.id;
+    onTap(btn, () => { b.stance = st.id; renderStances(b); }, 260);
+    box.appendChild(btn);
+  }
+}
+
 function boardStart(b) {
   activeBoarding = b;
   brd.classList.remove('hidden');
-  $('brd-us').textContent = b.a.isPlayer ? b.a.name : b.a.name;
+  $('brd-us').textContent = b.a.name;
   $('brd-them').textContent = b.d.name;
   $('brd-log').textContent = b.a.isPlayer ? 'Grapples away — over the rail!' : 'They are coming aboard!';
+  crewBox($('brd-crew-us'), b.a, 0);
+  crewBox($('brd-crew-them'), b.d, 0);
+  renderStances(b);
 }
 function boardUI(b) {
   if (b !== activeBoarding) return;
@@ -82,6 +137,8 @@ function boardUI(b) {
   $('brd-fill').style.width = pct;
   $('brd-cus').textContent = `${b.a.name}: ${b.a.crewTotal}`;
   $('brd-cthem').textContent = `${b.d.crewTotal} :${b.d.name}`;
+  crewBox($('brd-crew-us'), b.a, b.lastKa);
+  crewBox($('brd-crew-them'), b.d, b.lastKd);
   const lines = b.progress > 0.7 ? ['They are giving ground.', 'The quarterdeck is ours.', 'Cut them off from the hatches!']
     : b.progress < 0.3 ? ['We are being pushed back!', 'They fight like devils.', 'Hold the rail!']
       : ['Cutlasses on the waist.', 'Neither side will give.', 'Pistols and pike.'];
@@ -90,7 +147,9 @@ function boardUI(b) {
 function boardEnd(b, winner) {
   if (b !== activeBoarding) return;
   activeBoarding = null;
-  $('brd-log').textContent = winner === 'attacker' ? 'Her colours are down.' : 'Beaten back!';
+  clear($('brd-acts'));
+  $('brd-log').textContent = winner === 'attacker' ? 'Her colours are down.'
+    : winner === 'broken' ? 'The grapples are cut — we are clear of her.' : 'Beaten back!';
   setTimeout(() => brd.classList.add('hidden'), 900);
 }
 
@@ -103,6 +162,32 @@ function boot() {
   hud = new HUD(game);
   game.onRestart = restart;
   initSheet(game);
+  initEncounter(game);
+
+  /* The three layers hand off to each other here, and nowhere else. The Game
+     decides *that* a state changed; these decide what the player sees. */
+  game.onEncounter = enc => openEncounter(enc);
+  game.onEncounterEnd = () => closeEncounter();
+  game.onBattleStart = b => {
+    closeEncounter();
+    // tighten in on the action, so entering a battle is felt rather than read
+    rig.setZoom(Math.min(rig.distance, isMobile ? 150 : 172));
+    hint(`${b.kind.name}. Clear for action.`, 3200);
+  };
+  game.onBattleEnd = res => {
+    game.paused = true;
+    /* One decision at a time. Taking a prize on the last boarding of an action
+       opens the prize dialog, and the reckoning would land on top of it — two
+       cards stacked, the one underneath still waiting to be answered. The
+       result waits its turn. */
+    const show = () => showBattleResult(res, () => { game.paused = false; });
+    if (!isModalOpen()) { show(); return; }
+    const wait = setInterval(() => {
+      if (isModalOpen()) return;
+      clearInterval(wait);
+      show();
+    }, 220);
+  };
   onTap($('btn-menu'), () => { if (isSheetOpen()) closeSheet(); else openMenu(); }, 500);
   sizeRenderer();
   game.startAttract();
@@ -121,6 +206,9 @@ function boot() {
     cannon: sfxCannon, wood: sfxWood, splash: sfxSplash, clash: sfxClash,
     click: sfxClick, bell: sfxBell, horn: sfxHorn, coin: sfxCoin,
   };
+  // the encounter rules, so the campaign suite can read the odds it is about
+  // to gamble on rather than inferring them from outcomes
+  window.__enc = { fleeChance, talkChance, buildEncounter, CONTACT_R };
   window.__renderer = renderer;
   window.__ui = { hint, hideHint, setObjective };
 
@@ -128,7 +216,7 @@ function boot() {
   // not have to drag to turn a ship
   keys = bindKeys({
     game, rig, hud,
-    isBusy: () => isModalOpen() || isSheetOpen() || isOriginOpen() || game.gameOver,
+    isBusy: () => isModalOpen() || isSheetOpen() || isOriginOpen() || isEncounterOpen() || game.gameOver,
     isSheetOpen, closeSheet, openMenu,
   });
   window.__terrain = { heightAt, depthAt };   // for the QA harnesses
@@ -176,7 +264,7 @@ function frame(now) {
   if (game) {
     // 2× runs the simulation twice at the normal step rather than one
     // double-length step, so physics and collision behave identically
-    if (keys) applyHeld(keys.held, { game, rig, isBusy: () => isModalOpen() || isSheetOpen() || isOriginOpen() || game.gameOver }, dt);
+    if (keys) applyHeld(keys.held, { game, rig, isBusy: () => isModalOpen() || isSheetOpen() || isOriginOpen() || isEncounterOpen() || game.gameOver }, dt);
     /* Reading a screen is not sailing: the sea waits while a panel is open and
        picks up again the moment it closes. Derived from what is actually on
        screen rather than a flag set beside it, so a panel that closes by some
@@ -185,7 +273,7 @@ function frame(now) {
        at 2x if that is where they left it, or stays paused if they paused it.
        The questionnaire is deliberately not in here: no voyage has begun, and
        the traffic drifting past behind it is the attract screen. */
-    const inMenu = isModalOpen() || isSheetOpen();
+    const inMenu = isModalOpen() || isSheetOpen() || isEncounterOpen();
     const steps = (game.paused || inMenu) ? 0 : (game.player ? game.speed : 1);
     for (let i = 0; i < steps; i++) game.update(dt);
     if (steps === 0) game.update(0);      // keep UI-facing state fresh while paused

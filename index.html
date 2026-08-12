@@ -115,6 +115,23 @@
       <div id="toasts"></div>
     </div>
     <div id="objective" class="hidden"><span class="obj-glyph">➤</span><span id="obj-text"></span></div>
+
+    <!-- who is coming for you, on the campaign layer -->
+    <div id="pursuit" class="hidden">
+      <div class="pur-head"><span id="pur-name">—</span><span id="pur-verdict" class="pur-pip">—</span></div>
+      <div class="pur-row">
+        <span id="pur-state">—</span>
+        <span class="pur-dist"><b id="pur-dist">—</b>m</span>
+      </div>
+      <div class="pur-bar"><i id="pur-fill"></i></div>
+    </div>
+
+    <!-- and where you are while a fleet action is running -->
+    <div id="battlebar" class="hidden">
+      <span class="bb-kicker" id="bb-kind">ACTION</span>
+      <span id="bb-state">—</span>
+      <span class="bb-run" id="bb-run"></span>
+    </div>
   </div>
 
   <!-- ============ OVERLAYS ============ -->
@@ -141,13 +158,32 @@
   </div>
 
   <!-- boarding overlay -->
+  <!-- ============ ENCOUNTER ============ -->
+  <div id="encounter" class="hidden">
+    <div id="enc-card">
+      <div id="enc-kicker">CONTACT</div>
+      <div id="enc-title">—</div>
+      <div id="enc-sub">—</div>
+      <div id="enc-sides"></div>
+      <div id="enc-note"></div>
+      <div id="enc-options"></div>
+      <div id="enc-outcome" class="hidden"></div>
+    </div>
+  </div>
+
   <div id="boarding" class="hidden">
     <div class="brd-card">
       <div class="brd-title">BOARDING ACTION</div>
       <div class="brd-names"><span id="brd-us">—</span><span class="brd-vs">✕</span><span id="brd-them">—</span></div>
       <div class="brd-track"><i id="brd-fill"></i><span id="brd-marker"></span></div>
       <div class="brd-counts"><span id="brd-cus">—</span><span id="brd-cthem">—</span></div>
+      <!-- who is actually on those decks, and who is falling -->
+      <div class="brd-crews">
+        <div class="brd-crew" id="brd-crew-us"></div>
+        <div class="brd-crew them" id="brd-crew-them"></div>
+      </div>
       <div class="brd-log" id="brd-log"></div>
+      <div class="brd-acts" id="brd-acts"></div>
     </div>
   </div>
 

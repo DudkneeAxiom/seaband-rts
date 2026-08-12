@@ -13,7 +13,7 @@ import { createSky, updateSky, SKY } from './world/sky.js';
 import { WakeField } from './fx/wake.js';
 import { FX } from './fx/particles.js';
 import { Ship, emptyCrew, crewCount } from './ships/ship.js';
-import { updateAI, isHostile, strength } from './ships/ai.js';
+import { updateAI, isHostile, strength, portGuarding } from './ships/ai.js';
 import {
   Projectiles, fireBroadside, bestSide, canBoard, Boarding, boardOdds, GUN_RANGE, BOARD_RANGE,
 } from './combat/combat.js';
@@ -23,6 +23,10 @@ import {
   CHAPTERS, NEMESES, ENDINGS, AMBITIONS, sumOrigin, rollOrigin, rollCaptainName, findOption,
 } from './data/origins.js';
 import { toast, hint, hideHint, modal, isModalOpen, setObjective } from './ui/dom.js';
+import {
+  CONTACT_R, PURSUIT_R, buildEncounter, enemyBand, resolveFlee, talkChance, bribeCost,
+} from './sim/encounter.js';
+import { Battle } from './sim/battle.js';
 import { openPort, closeSheet, isSheetOpen } from './ui/sheet.js';
 import {
   sfxCannon, sfxWood, sfxSplash, sfxClash, sfxBell, sfxHorn, sfxCoin, sfxClick, updateAudio,
@@ -71,6 +75,15 @@ export class Game {
     this.contractEpoch = {};       // bumped per port so the board turns over
     this.market = new Market();
     this.fleetOrder = 'follow';
+    /* Which layer the game is on. The ocean is the campaign; contact between
+       hostile fleets makes an encounter; an encounter can make a battle. Only
+       one of these owns the world at a time, and everything that asks "can I
+       fire", "can I dock", "what do the buttons say" asks this first. */
+    this.mode = 'campaign';          // 'campaign' | 'encounter' | 'battle'
+    this.encounter = null;
+    this.battle = null;
+    this.pursuit = null;             // who is coming for you, for the HUD
+    this.encounterCooling = 0;       // grace after one resolves
     this.target = null;
     this.dockablePort = null;
     this.boardable = false;
@@ -96,6 +109,8 @@ export class Game {
     /** ship id -> when we last said she was dry, so it is news and not nagging */
     this.dryWarned = new Map();
     this.ctx = {
+      // guns are live in a battle instance and nowhere else
+      combatLive: false,
       fx: this.fx,
       projectiles: this.projectiles,
       onHit: (p, s, res) => this.onHit(p, s, res),
@@ -146,6 +161,15 @@ export class Game {
     this.paused = false;
     this.hintState = {};
     this.fleetOrder = 'follow';
+    /* Which layer the game is on. The ocean is the campaign; contact between
+       hostile fleets makes an encounter; an encounter can make a battle. Only
+       one of these owns the world at a time, and everything that asks "can I
+       fire", "can I dock", "what do the buttons say" asks this first. */
+    this.mode = 'campaign';          // 'campaign' | 'encounter' | 'battle'
+    this.encounter = null;
+    this.battle = null;
+    this.pursuit = null;             // who is coming for you, for the HUD
+    this.encounterCooling = 0;       // grace after one resolves
     this.target = null;
     this.chapter = 0;
     this.nemesisDown = false; this.santDown = false; this.storyOver = false;
@@ -267,6 +291,8 @@ export class Game {
 
   /* ---------- persistence ---------- */
   save() {
+    // belt and braces: the one state where the ship list is not the world
+    if (this.mode === 'battle') return;
     if (this.gameOver) return;
     try {
       const data = {
@@ -374,6 +400,9 @@ export class Game {
       this.gameOver = false;
       this.equipCaptain();
       this.seedTraffic();
+      this.mode = 'campaign';
+      this.encounter = null; this.battle = null; this.pursuit = null;
+      this.ctx.combatLive = false;
       setObjective(null);
       this.refreshObjective();
       return true;
@@ -514,9 +543,13 @@ export class Game {
       if (b.done) this.boardings.splice(i, 1);
     }
 
-    // ---- population ----
-    this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0) {
+    /* ---- population ----
+       Not during a fleet action. The world keeps its traffic topped up, and
+       left running it would sail fresh merchants straight into the middle of
+       a battle that had deliberately benched everyone else — the ship count
+       went up while the action was on. The sea outside waits. */
+    this.spawnTimer -= this.mode === 'battle' ? 0 : dt;
+    if (this.spawnTimer <= 0 && this.mode !== 'battle') {
       this.spawnTimer = 6;
       this.cullDistant();
       const counts = { merchant: 0, fisher: 0, pirate: 0, patrol: 0 };
@@ -526,7 +559,7 @@ export class Game {
       }
     }
 
-    this.market.tick(dt);
+    if (this.mode !== 'battle') this.market.tick(dt);
 
     // ---- world visuals: these run even with no flagship, so the title
     // screen shows a real, moving ocean rather than a still frame ----
@@ -573,6 +606,11 @@ export class Game {
     this.crewXP += dt * 0.35 * (this.combatHeat > 0 ? 3 : 1);
     this.stats.distance += p.speed * dt;
 
+    // ---- the campaign layer ----
+    this.encounterCooling = Math.max(0, this.encounterCooling - dt);
+    if (this.mode === 'battle' && this.battle) this.battle.update(dt);
+    else { this.updatePursuit(dt); this.checkContact(); }
+
     // ---- contextual state ----
     this.updateContext(dt);
     this.updateQuests(dt);
@@ -589,8 +627,14 @@ export class Game {
       combat: this.combatHeat > 0 ? 1 : 0,
     });
 
-    this.saveTimer -= dt;
-    if (this.saveTimer <= 0) { this.saveTimer = 25; this.save(); }
+    /* Never mid-action. save() writes this.ships, and during a battle that
+       array holds only the fighters — everyone else is benched. An autosave
+       landing here would write a world with eleven ships missing from it and
+       reload into that. The battle saves itself when it ends. */
+    if (this.mode === 'campaign') {
+      this.saveTimer -= dt;
+      if (this.saveTimer <= 0) { this.saveTimer = 25; this.save(); }
+    }
   }
 
   updateQuests(dt) {
@@ -634,6 +678,8 @@ export class Game {
   updateStory() {
     const ch = this.currentChapter;
     if (!ch || this.gameOver) return;
+    // a chapter scene does not open in the middle of a fleet action
+    if (this.mode !== 'campaign') return;
     // never interrupt a harbour, a boarding, another dialog — or a fight.
     // The scene keeps until the guns are quiet; it reads better there anyway.
     if (isSheetOpen() || isModalOpen() || this.boardings.length || this.engaged) return;
@@ -745,8 +791,14 @@ export class Game {
     if (this.target && (!this.target.alive || this.target.captured || dist(p.x, p.z, this.target.x, this.target.z) > 1200)) {
       this.target = null;
     }
-    this.fireSide = this.target ? bestSide(p, this.target, 70) : null;
-    this.boardable = this.target ? canBoard(p, this.target) && (this.target.hullFrac < 0.98 || this.target.crewTotal < p.crewTotal) : false;
+    /* Guns and grapples belong to the battle instance. On the campaign layer
+       a marked ship is something you are looking at, not something you are
+       shooting at — which is the whole point of the encounter sitting between
+       the two. */
+    const live = this.mode === 'battle';
+    this.fireSide = live && this.target ? bestSide(p, this.target, 70) : null;
+    this.boardable = live && this.target
+      ? canBoard(p, this.target) && (this.target.hullFrac < 0.98 || this.target.crewTotal < p.crewTotal) : false;
     this.boardOdds = this.target ? boardOdds(p, this.target) : 0;
 
     // POI discovery
@@ -755,6 +807,222 @@ export class Game {
       if (dist(p.x, p.z, poi.x, poi.z) < poi.r) this.discoverPOI(poi);
     }
     void dt;
+  }
+
+  /* =========================================================
+     the campaign layer: pursuit, contact, encounters
+     ========================================================= */
+
+  /**
+   * Who is actually coming for you, and how the chase is going.
+   *
+   * The HUD needs more than "an enemy is near": it needs to say whether she
+   * is gaining, because that is the only fact a captain can act on. Closing
+   * speed is measured off the change in range rather than off her heading —
+   * a ship pointed at you but losing ground is not a threat, and a ship
+   * quartering across your bow may be.
+   */
+  updatePursuit(dt) {
+    const p = this.player;
+    if (this.mode !== 'campaign' || !p || !p.alive) { this.pursuit = null; return; }
+    let lead = null, bd = PURSUIT_R;
+    for (const s of this.ships) {
+      if (s.isPlayer || this.fleet.includes(s) || !s.alive || s.captured) continue;
+      if (s.target !== p && !s.hostileToPlayer) continue;
+      if (s.chaseHold > 0 || s.fleeing) continue;
+      const d = dist(s.x, s.z, p.x, p.z);
+      if (d < bd) { bd = d; lead = s; }
+    }
+    if (!lead) { this.pursuit = null; this._pursuitLast = null; return; }
+
+    const last = this._pursuitLast;
+    const rate = last && last.s === lead ? (last.d - bd) / Math.max(1e-3, dt) : 0;
+    this._pursuitLast = { s: lead, d: bd };
+    // smoothed, or it flickers between gaining and losing on every swell
+    this._closing = last && last.s === lead ? this._closing * 0.9 + rate * 0.1 : rate;
+
+    const w = this.weighUp(lead);
+    this.pursuit = {
+      ship: lead,
+      dist: Math.round(bd),
+      closing: this._closing,
+      gaining: this._closing > 0.35,
+      losing: this._closing < -0.35,
+      // at this rate, how long until she is aboard you
+      eta: this._closing > 0.35 ? Math.round((bd - CONTACT_R) / this._closing) : null,
+      faction: lead.faction,
+      verdict: w.verdict,
+      tier: w.tier,
+      band: enemyBand(this, lead).length,
+    };
+  }
+
+  /** Physical contact. This is the only thing that starts a fight. */
+  checkContact() {
+    if (this.mode !== 'campaign' || this.encounterCooling > 0) return;
+    const p = this.player;
+    if (!p || !p.alive || this.inPort || isSheetOpen() || isModalOpen()) return;
+    // a harbour is a refuge and stays one
+    if (portGuarding(p.x, p.z)) return;
+    for (const s of this.ships) {
+      if (s.isPlayer || this.fleet.includes(s) || !s.alive || s.captured) continue;
+      if (s.chaseHold > 0 || s.fleeing) continue;
+      if (s.target !== p && !s.hostileToPlayer) continue;
+      if (dist(s.x, s.z, p.x, p.z) > CONTACT_R) continue;
+      this.startEncounter(s);
+      return;
+    }
+  }
+
+  /** The world stops and asks. */
+  startEncounter(lead) {
+    if (this.mode !== 'campaign') return null;
+    this.encounter = buildEncounter(this, lead);
+    this.mode = 'encounter';
+    this.paused = true;
+    this.clearTarget();
+    sfxHorn();
+    if (this.onEncounter) this.onEncounter(this.encounter);
+    return this.encounter;
+  }
+
+  /**
+   * Answer it. Every branch either ends the encounter and hands the world
+   * back, or opens a battle — nothing is left half-resolved.
+   */
+  chooseEncounter(id) {
+    const enc = this.encounter;
+    if (!enc || this.mode !== 'encounter') return null;
+    const p = this.player;
+    let out = { id };
+
+    if (id === 'fight') {
+      this.enterBattle(enc);
+      return { id, went: 'battle' };
+    }
+
+    if (id === 'flee') {
+      const r = resolveFlee(this, enc);
+      out = { ...out, ...r };
+      if (r.escaped) {
+        this.breakOff(enc, 340);
+        out.went = 'away';
+        this.closeEncounter();
+      } else {
+        enc.fledAndFailed = true;
+        out.went = 'battle';
+        this.enterBattle(enc);
+      }
+      return out;
+    }
+
+    if (id === 'cargo') {
+      // she came for the hold; she gets the hold
+      const taken = { ...p.cargo };
+      for (const k in p.cargo) p.cargo[k] = 0;
+      this.infamy = Math.max(0, this.infamy - 2);
+      this.breakOff(enc, 300);
+      this.closeEncounter();
+      return { ...out, went: 'away', taken };
+    }
+
+    if (id === 'bribe') {
+      const cost = bribeCost(this, enc);
+      if (this.coin < cost) return { ...out, went: 'refused' };
+      this.coin -= cost;
+      this.breakOff(enc, 300);
+      this.closeEncounter();
+      return { ...out, went: 'away', cost };
+    }
+
+    if (id === 'colours') {
+      // a patrol that knows your colours has no business boarding you
+      this.breakOff(enc, 300);
+      this.closeEncounter();
+      return { ...out, went: 'away' };
+    }
+
+    if (id === 'parley' || id === 'demand') {
+      const chance = talkChance(this, enc, id);
+      const roll = Math.random();
+      out.chance = chance; out.roll = roll;
+      if (roll < chance) {
+        if (id === 'demand') {
+          // she strikes: her cargo and her powder, and no one killed for it
+          const coin = this.gainCoin(Math.round(40 + enc.theirs * 1.6));
+          this.gainPrestige(4, enc.faction === 'pirate');
+          out.coin = coin;
+        }
+        this.breakOff(enc, 320);
+        this.closeEncounter();
+        return { ...out, went: 'away' };
+      }
+      // she was not impressed, and now she is closer than she was
+      out.went = 'battle';
+      enc.fledAndFailed = false;
+      this.enterBattle(enc);
+      return out;
+    }
+
+    return out;
+  }
+
+  /** Put some water between the two fleets and give her something else to do. */
+  breakOff(enc, sep) {
+    const p = this.player;
+    for (const s of enc.enemies) {
+      const away = Math.atan2(s.x - p.x, s.z - p.z);
+      s.x = p.x + Math.sin(away) * sep;
+      s.z = p.z + Math.cos(away) * sep;
+      s.target = null;
+      s.hostileToPlayer = false;
+      s.aggro = 0;
+      s.chaseHold = 60;
+    }
+  }
+
+  closeEncounter() {
+    this.encounter = null;
+    this.mode = 'campaign';
+    this.paused = false;
+    this.encounterCooling = 8;
+    this.pursuit = null;
+    this._pursuitLast = null;
+    if (this.onEncounterEnd) this.onEncounterEnd();
+  }
+
+  /* =========================================================
+     the battle instance
+     ========================================================= */
+
+  enterBattle(enc) {
+    this.encounter = null;
+    this.mode = 'battle';
+    this.paused = false;
+    this.ctx.combatLive = true;
+    this.battle = new Battle(this, enc);
+    this.battle.begin();
+    this.speed = 1;                       // no fast-forwarding a fleet action
+    if (this.onBattleStart) this.onBattleStart(this.battle);
+    return this.battle;
+  }
+
+  endBattle(battle) {
+    this.ctx.combatLive = false;
+    this.mode = 'campaign';
+    this.battle = null;
+    this.encounterCooling = 12;
+    this.pursuit = null;
+    this._pursuitLast = null;
+    this.target = null;
+    this.fireSide = null;
+    this.boardable = false;
+    /** What the last action cost the other side, for the record and the tests. */
+    this.battleLastSunk = battle.result.sunk;
+    if (this.onBattleEnd) this.onBattleEnd(battle.result);
+    // a lost flagship is still a lost flagship
+    if (battle.result.outcome === 'lost') this.checkGameOver();
+    else this.save();
   }
 
   /* =========================================================
@@ -900,10 +1168,16 @@ export class Game {
     if (!canBoard(p, this.target)) { toast('Get alongside and take way off her first.', '', 2000); return; }
     this.startBoarding(p, this.target);
   }
-  setFleetOrder(o) {
+  setFleetOrder(o, silent = false) {
     this.fleetOrder = o;
     for (const s of this.fleet) if (!s.isPlayer) s.fleetOrder = o;
-    toast({ follow: 'Consorts: form on the flagship.', engage: 'Consorts: engage!', hold: 'Consorts: hold station.' }[o], '', 1700);
+    if (silent) return;
+    toast({
+      follow: 'Consorts: form on the flagship.',
+      engage: 'Consorts: engage!',
+      hold: 'Consorts: hold station.',
+      withdraw: 'Consorts: break off and get clear.',
+    }[o], '', 1700);
   }
 
   /* =========================================================
@@ -1053,6 +1327,13 @@ export class Game {
     this.markers.clearGrapple();
     if (this.onBoardEndUI) this.onBoardEndUI(bd, winner);
     const p = this.player;
+    /* Grapples cut. Nobody has taken anything and both ships are under way
+       again — the one outcome of a boarding that leaves the action still to
+       be decided, and the reason FALL BACK is worth having on the card. */
+    if (winner === 'broken') {
+      if (bd.a === p || bd.d === p) toast('The grapples are cut. She sheers off.', '', 2200);
+      return;
+    }
     const playerAttacked = bd.a === p;
     const playerDefended = bd.d === p;
     if (!playerAttacked && !playerDefended) {

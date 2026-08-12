@@ -1,6 +1,6 @@
 /* The compass, and playing at a desk. Both are read off the running game
    rather than assumed: a card that lies about north is worse than no card. */
-import { launch, sleep, shot, newVoyage, waitFor, dismissModal } from './qa.mjs';
+import { launch, sleep, shot, newVoyage, waitFor, dismissModal, intoBattle } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -218,12 +218,22 @@ const ammoUi = await G(() => ({
 ok(`1 loads round shot, and the strip shows it (${ammoUi.strip} buttons, lit: ${ammoUi.lit.join() || 'none'})`,
   ammoUi.ammo === 'round' && ammoUi.lit.length === 1 && ammoUi.lit[0] === 'round');
 
+/* Guns are live inside a battle instance and nowhere else, so the keyboard
+   test has to be in one: sail into contact, take the encounter, clear for
+   action, and then try the key. */
+const foe = await intoBattle(page);
+await G(() => {
+  const g = window.__game, p = g.player, t = g.target;
+  if (t) { t.x = p.x + 90; t.z = p.z; t.speed = 0; p.yaw = 0; p.speed = 0; }
+  p.reload.stb = 0; p.reload.port = 0;
+  g.update(0.05);
+});
+await waitFor(page, () => !!window.__game.fireSide, 5000);
 const beforeShot = await G(() => window.__game.player.shot);
-await G(() => { const g = window.__game; g.update(0.05); });
 await page.keyboard.press(' ');
 await sleep(400);
 const afterShot = await G(() => ({ shot: window.__game.player.shot, side: window.__game.fireSide }));
-ok(`Space fires the battery that bears (${beforeShot} -> ${afterShot.shot} shot, ${afterShot.side})`,
+ok(`Space fires the battery that bears in action (${foe && foe.name}: ${beforeShot} -> ${afterShot.shot} shot, ${afterShot.side})`,
   afterShot.shot < beforeShot);
 
 await page.keyboard.press('Escape');

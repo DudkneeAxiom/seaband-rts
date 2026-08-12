@@ -12,6 +12,7 @@ const fast = process.argv.includes('--fast');
    two marked slow are calibration runs that print tables rather than verdicts. */
 const SUITES = [
   ['origin', 'the questionnaire, its effects and the story spine'],
+  ['campaign', 'the campaign / encounter / battle spine and every road between'],
   ['systems', 'rules: contracts, discoveries, shoals, weight, time'],
   ['trade', 'the merchant road, upkeep and the way back from nothing'],
   ['shore', 'harbours built on land, and credit for shared kills'],

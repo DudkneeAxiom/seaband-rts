@@ -1,7 +1,7 @@
 /* Full-arc functional test: new game → sail → dock → trade/recruit/hire
    → sea → combat → board → capture → two-ship fleet → save/load.
    Uses real UI clicks wherever a player would. */
-import { launch, shot, sleep, ff, newVoyage, dismissModal, waitFor } from './qa.mjs';
+import { launch, shot, sleep, ff, newVoyage, dismissModal, waitFor, intoBattle } from './qa.mjs';
 
 const vp = process.argv[2] || 'phone';
 const { browser, page, errors } = await launch(vp);
@@ -124,27 +124,17 @@ ok('port closed, back at sea', await G(() => document.getElementById('sheet').cl
 await sleep(500);
 await dismissModal(page);      // making port closes a chapter, and it pauses to be read
 
-/* ---------- 4. combat ---------- */
-await G(() => {
-  const g = window.__game;
-  g.player.shot = 90;
-  // open water, well clear of any harbour — a raider under a fort's guns
-  // sheers off rather than fights, which is not what this is measuring
-  g.player.x = 120; g.player.z = 60; g.player.dest = null;
-  // give the officer to the flagship crew and set up a fair fight
-  const pir = g.ships.find(s => s.faction === 'pirate' && s.alive && !s.isSant)
-    || g.spawnNPC('pirate');
-  pir.x = g.player.x + 130; pir.z = g.player.z + 60;
-  pir.hostileToPlayer = true;
-  g.selectTarget(pir);
-});
-/* The HUD paints on its own tick, a frame or two behind the game under
-   software GL, and half a second is not reliably a frame or two on a hosted
-   runner. Wait for the card rather than guessing at how long it takes. */
+/* ---------- 4. contact, encounter, and a fleet action ----------
+   The guns only come out in a battle instance now, so this goes the way a
+   player goes: a raider closes on the open sea, contact stops the world, and
+   FIGHT opens the action. */
+const foe = await intoBattle(page);
+ok(`a raider runs you down and the action opens (${foe && foe.name})`, !!foe);
 await waitFor(page, () => !!window.__game.target
   && !document.getElementById('targetcard').classList.contains('hidden'), 6000);
 ok('target selected, target card visible',
   await G(() => !document.getElementById('targetcard').classList.contains('hidden')));
+await shot(page, `p6b-encounter-${vp}`);
 
 // manoeuvre + fire until her rigging is gone
 let fired = 0;
@@ -152,6 +142,7 @@ for (let i = 0; i < 60; i++) {
   await ff(page, 1.2);
   const st = await G(() => {
     const g = window.__game, t = g.target;
+    if (g.mode !== 'battle') return { over: true };
     if (!t) return { done: true };
     // steer to keep her on the beam like a player would
     const bearing = Math.atan2(t.x - g.player.x, t.z - g.player.z);
@@ -167,6 +158,7 @@ for (let i = 0; i < 60; i++) {
       alive: t.alive, pHull: g.player.hullFrac };
   });
   if (st.done) break;
+  if (st.over) break;                 // she struck or ran and the action closed
   if (await G(() => window.__game.paused)) await dismissModal(page);
   fired += st.f || 0;
   if (st.board) break;          // grapples will reach: stop shooting and close

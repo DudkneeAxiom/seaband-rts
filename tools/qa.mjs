@@ -138,6 +138,47 @@ export async function dismissModal(page) {
   return true;
 }
 
+/**
+ * Get into a live fleet action, the way the game gets you into one.
+ *
+ * Guns only fire inside a battle instance now, so any suite that wants to
+ * test gunnery has to arrive there through the campaign: a hostile closes,
+ * contact raises an encounter, and FIGHT opens the action. Staged rather than
+ * flagged — `mode` is never written by hand.
+ *
+ * Returns the enemy that came for you, or null if she never arrived.
+ */
+export async function intoBattle(page, opts = {}) {
+  await page.evaluate(o => {
+    const g = window.__game, p = g.player;
+    // clear of any harbour: a raider sheers off under the shore guns
+    p.x = o.x ?? 120; p.z = o.z ?? 60; p.dest = null; p.speed = 0; p.throttle = 0;
+    p.hull = p.hullMax; p.sails = p.sailMax; p.shot = Math.max(p.shot, 90); p.alive = true;
+    let h = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+    for (let i = 0; i < 20 && !h; i++) h = g.spawnNPC('pirate');
+    h.x = p.x + 110; h.z = p.z + 30;
+    h.hull = h.hullMax * (o.enemyHull ?? 1); h.sails = h.sailMax;
+    h.hostileToPlayer = true; h.target = p; h.aggro = 40;
+    h.chaseHold = 0; h.fleeing = false; h.captured = false;
+    h.brain = { state: 'hunt', t: 0, cooldown: 0 };
+    g.encounterCooling = 0; g.paused = false;
+  }, opts);
+  for (let i = 0; i < 60; i++) {
+    await ff(page, 1);
+    if (await page.evaluate(() => window.__game.mode !== 'campaign')) break;
+  }
+  await page.evaluate(() => {
+    const g = window.__game;
+    if (g.mode === 'encounter') g.chooseEncounter('fight');
+  });
+  const inIt = await waitFor(page, () => window.__game.mode === 'battle', 8000);
+  if (!inIt) return null;
+  return page.evaluate(() => {
+    const g = window.__game, e = g.battle.enemies[0];
+    return e ? { name: e.name, cls: e.cls.name } : null;
+  });
+}
+
 /** Poll for a condition in the page. Fixed sleeps lie on a software renderer.
     `arg` is passed through to the page, since the predicate is serialised and
     cannot close over anything out here. */

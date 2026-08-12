@@ -75,6 +75,11 @@ function combatSteer(ship, target, dt, range = 120) {
 
 function tryFire(ship, target, ctx, arc = 62) {
   if (!target || !target.alive || target.captured) return;
+  /* The campaign layer is not a gunfight. A raider who has run you down does
+     not open fire on the open sea — she makes contact, the world stops, and
+     the encounter decides whether there is a battle at all. Ships still shoot
+     at each other out there, because that world carries on without you. */
+  if (!ctx.combatLive && (target.isPlayer || target.faction === 'player')) return;
   const d = dist(ship.x, ship.z, target.x, target.z);
   if (d > GUN_RANGE) return;
   const side = bestSide(ship, target, arc);
@@ -167,6 +172,30 @@ export function updateAI(ship, dt, world, ctx) {
   const b = ship.brain;
   b.t += dt;
   if (b.cooldown > 0) b.cooldown -= dt;
+  /* Beaten off, or shaken off. She keeps her distance for a while rather than
+     wearing round and handing you the same encounter ten seconds later. */
+  if (ship.chaseHold > 0) {
+    ship.chaseHold -= dt;
+    ship.target = null;
+    const p = world.player;
+    if (p) {
+      const away = Math.atan2(ship.x - p.x, ship.z - p.z);
+      if (dist(ship.x, ship.z, p.x, p.z) < 620) {
+        ship.headingCmd = avoidLandPublic(ship, away);
+        ship.throttle = 1;
+        return;
+      }
+    }
+  }
+  /* Broken off inside a battle: get to the edge of the action and out. */
+  if (ship.fleeing) {
+    const p = world.player;
+    const away = p ? Math.atan2(ship.x - p.x, ship.z - p.z) : world.windAng;
+    ship.headingCmd = avoidLandPublic(ship, away);
+    ship.throttle = 1;
+    ship.target = null;
+    return;
+  }
 
   const hurt = ship.hullFrac < 0.34 || (ship.crewTotal <= ship.cls.crewMin * 0.55);
   const crippled = ship.sailFrac < 0.22;
@@ -314,8 +343,13 @@ function pirateAI(ship, dt, world, ctx, hurt, crippled) {
     const d = dist(ship.x, ship.z, t.x, t.z);
     if (d > 900) { ship.target = null; return; }
     b.state = 'hunt';
-    // close hard until in gun range, then work the beam
-    if (d > GUN_RANGE * 1.1) steerTo(ship, t.x, t.z, dt);
+    /* Standing off at gun range is a gunnery station, and on the campaign
+       layer there are no guns to station for — she would sit at a hundred
+       yards for ever and the chase would never resolve. Against the player
+       out there she closes to touching distance, which is what makes contact
+       an event. Inside a battle she works the beam as before. */
+    const runDown = !ctx.combatLive && (t.isPlayer || t.faction === 'player');
+    if (runDown || d > GUN_RANGE * 1.1) steerTo(ship, t.x, t.z, dt);
     else combatSteer(ship, t, dt, 105);
     tryFire(ship, t, ctx, 62);
     // board weak prize
@@ -348,7 +382,8 @@ function patrolAI(ship, dt, world, ctx, hurt) {
   if (t) {
     const d = dist(ship.x, ship.z, t.x, t.z);
     if (d > 1100) { ship.target = null; return; }
-    if (d > GUN_RANGE) steerTo(ship, t.x, t.z, dt);
+    // same as the raider: an interception on the campaign layer is physical
+    if (d > GUN_RANGE || (!ctx.combatLive && (t.isPlayer || t.faction === 'player'))) steerTo(ship, t.x, t.z, dt);
     else combatSteer(ship, t, dt, 115);
     tryFire(ship, t, ctx, 62);
     if (canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.6 && ctx.startBoarding) ctx.startBoarding(ship, t);

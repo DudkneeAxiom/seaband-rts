@@ -457,9 +457,10 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
    full-width block at the wrong offset, not a panel where it was put. */
 .rope, .rope-fine, #modal-card, .icon-btn, .stat-chip{position:relative;}
 .rope::after, .rope-fine::after,
-#modal-card::after, #sheet-body::after,
+#modal-card::after, #sheet-body::after, #enc-card::after,
 .icon-btn::after, .stat-chip::after, #speedctl::after,
-#targetcard::after, #objective::after, .toast::after, #fleetbar::after{
+#targetcard::after, #objective::after, .toast::after, #fleetbar::after,
+#pursuit::after, #battlebar::after{
   content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
   -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -473,10 +474,11 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   background-blend-mode:overlay, normal;
   opacity:.85;
 }
-.rope::after, #modal-card::after, #sheet-body::after{padding:4px;}
+.rope::after, #modal-card::after, #sheet-body::after, #enc-card::after{padding:4px;}
 .rope-fine::after,
 .icon-btn::after, .stat-chip::after, #speedctl::after,
-#targetcard::after, #objective::after, .toast::after, #fleetbar::after{
+#targetcard::after, #objective::after, .toast::after, #fleetbar::after,
+#pursuit::after, #battlebar::after{
   padding:2.5px;
   background-image:
     linear-gradient(180deg, rgba(255,240,214,.26), rgba(0,0,0,.30)),
@@ -960,3 +962,166 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 }
 .keyalso{font-size:10px; color:var(--brass-dim); letter-spacing:.4px;}
 .keywhat{font-size:12.5px; color:var(--parch-dim); flex:1 1 auto;}
+
+/* ===========================================================
+   THE CAMPAIGN LAYER: pursuit, encounter, battle
+   Three states the player must never be in doubt about. Each has its own
+   fixed place on screen and its own colour, so the answer to "what is
+   happening to me" is available at a glance rather than by reading.
+   =========================================================== */
+
+/* ---------- being hunted ---------- */
+#pursuit{
+  position:absolute; right:calc(10px + var(--sr)); top:calc(122px + var(--st));
+  width:186px; padding:8px 10px 9px; border-radius:12px;
+  background:linear-gradient(180deg, rgba(58,26,22,.94), rgba(26,12,12,.95));
+  border:1px solid rgba(120,64,44,.6); box-shadow:var(--shadow);
+  font-size:12px; color:var(--parch-dim); backdrop-filter:blur(6px);
+  animation:purIn .25s ease-out;
+}
+@keyframes purIn{from{opacity:0; transform:translateX(10px);}}
+.pur-head{display:flex; justify-content:space-between; align-items:baseline; gap:6px; margin-bottom:3px;}
+#pur-name{font-family:var(--font-disp); font-size:13.5px; color:#ffcdb4; letter-spacing:.2px;}
+.pur-pip{font-size:9.5px; letter-spacing:.7px; text-transform:uppercase; color:var(--brass-dim); white-space:nowrap;}
+.pur-row{display:flex; justify-content:space-between; align-items:baseline; font-size:11px;}
+#pur-state{text-transform:uppercase; letter-spacing:.8px; font-weight:700; font-size:10px;}
+#pur-state.gaining{color:#ff8a63;}
+#pur-state.losing{color:#8fd39a;}
+.pur-dist{font-variant-numeric:tabular-nums; color:var(--parch);}
+.pur-dist b{font-size:13px;}
+/* how much of the gap is gone: full bar means she is alongside */
+.pur-bar{height:3px; margin-top:6px; border-radius:2px; background:rgba(0,0,0,.45); overflow:hidden;}
+.pur-bar i{display:block; height:100%; width:0; background:linear-gradient(90deg,#a8552f,#ff8a63); transition:width .2s linear;}
+
+/* ---------- a fleet action is running ---------- */
+#battlebar{
+  position:absolute; left:50%; transform:translateX(-50%); top:calc(8px + var(--st));
+  display:flex; align-items:center; gap:9px; padding:6px 13px; border-radius:11px;
+  background:linear-gradient(180deg, rgba(24,52,64,.95), rgba(10,26,34,.96));
+  border:1px solid var(--stroke); box-shadow:var(--shadow);
+  font-size:11.5px; color:var(--parch-dim); white-space:nowrap; backdrop-filter:blur(6px);
+}
+.bb-kicker{font-size:9.5px; letter-spacing:1.1px; text-transform:uppercase; color:var(--brass);}
+#bb-state{color:var(--parch);}
+.bb-run{font-size:10px; color:var(--brass-dim);}
+.bb-run.armed{color:#8fd39a;}
+
+/* ---------- the encounter ---------- */
+#encounter{
+  position:absolute; inset:0; z-index:34; display:grid; place-items:center;
+  padding:18px; background:rgba(3,10,15,.72); backdrop-filter:blur(3px);
+}
+#enc-card{
+  position:relative; width:min(94vw,440px); max-height:88vh; overflow:hidden;
+  display:flex; flex-direction:column;
+  background:linear-gradient(180deg, rgba(24,50,62,.99), rgba(10,26,34,.99));
+  border:1px solid var(--stroke); border-radius:18px; padding:18px 16px 14px;
+  box-shadow:0 22px 66px rgba(0,0,0,.66);
+}
+#enc-kicker{
+  font-size:10px; letter-spacing:1.6px; text-transform:uppercase;
+  color:#ff9d76; margin-bottom:4px; font-weight:700;
+}
+#enc-title{font-family:var(--font-disp); font-size:21px; color:var(--brass); line-height:1.15;}
+#enc-sub{font-size:12px; color:var(--parch-dim); margin-top:3px;}
+
+/* the two sides, weighed against each other */
+#enc-sides{display:flex; gap:9px; margin:13px 0 4px;}
+.enc-side{
+  flex:1; padding:9px 10px; border-radius:11px; min-width:0;
+  background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.07);
+}
+.enc-side.them{background:rgba(120,48,36,.2); border-color:rgba(150,74,54,.32);}
+.enc-side h4{
+  font-size:9.5px; letter-spacing:1px; text-transform:uppercase;
+  color:var(--brass-dim); margin-bottom:5px; font-weight:700;
+}
+.enc-ship{font-size:12.5px; color:var(--parch); margin-bottom:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.enc-ship small{color:var(--parch-dim);}
+.enc-tot{margin-top:6px; font-size:11px; color:var(--parch-dim); font-variant-numeric:tabular-nums;}
+.enc-tot b{color:var(--parch);}
+#enc-note{
+  margin:10px 0 12px; padding:8px 10px; border-radius:10px; font-size:12px; line-height:1.42;
+  background:rgba(0,0,0,.24); border-left:3px solid var(--brass-dim); color:var(--parch-dim);
+}
+#enc-note b{color:var(--parch);}
+#enc-note .gauge{color:#9fd6ff;}
+
+/* the choices */
+#enc-options{display:flex; flex-direction:column; gap:7px; overflow-y:auto; min-height:0;}
+.enc-opt{
+  display:flex; flex-direction:column; align-items:flex-start; gap:1px;
+  min-height:var(--tap); padding:8px 13px; border-radius:12px; text-align:left; width:100%;
+  background:linear-gradient(180deg,#43738a,#1b3f51); border:1px solid var(--stroke);
+  color:var(--parch); box-shadow:var(--shadow), var(--edge-lit), var(--edge-dark);
+}
+.enc-opt:active{transform:scale(.985); filter:brightness(1.1);}
+.enc-opt b{font-size:13.5px; letter-spacing:.7px;}
+.enc-opt small{font-size:11px; color:rgba(244,231,205,.68); font-weight:400;}
+.enc-opt.fight{background:linear-gradient(180deg,#a5512f,#5f2c17); border-color:rgba(230,140,94,.4);}
+.enc-opt.fight b{color:#ffe0cd;}
+.enc-opt.talk{background:linear-gradient(180deg,#3c6a54,#1a3a2c); border-color:rgba(120,200,150,.28);}
+
+/* the odds, stated rather than hidden */
+.enc-odds{display:flex; align-items:center; gap:7px; margin-top:5px; width:100%;}
+.enc-odds .bar{flex:1; height:4px; border-radius:2px; background:rgba(0,0,0,.4); overflow:hidden;}
+.enc-odds .bar i{display:block; height:100%; background:linear-gradient(90deg,#c9803f,#8fd39a);}
+.enc-odds span{font-size:10px; color:var(--parch-dim); font-variant-numeric:tabular-nums;}
+
+/* what happened */
+#enc-outcome{
+  margin-top:11px; padding-top:11px; border-top:1px solid rgba(230,178,94,.18);
+  font-size:12.5px; line-height:1.45; color:var(--parch-dim);
+}
+#enc-outcome h5{font-family:var(--font-disp); font-size:16px; color:var(--brass); margin-bottom:4px;}
+#enc-outcome .terms{margin:7px 0 0; display:flex; flex-direction:column; gap:2px;}
+#enc-outcome .terms i{font-style:normal; display:flex; justify-content:space-between; font-size:11px;}
+#enc-outcome .terms .up{color:#8fd39a;}
+#enc-outcome .terms .dn{color:#e08a6a;}
+
+/* short screens: the sides stack rather than squeeze */
+@media (max-height:430px){
+  #enc-card{padding:13px 13px 11px;}
+  #enc-title{font-size:18px;}
+  #enc-sides{margin:9px 0 2px;}
+  #enc-note{margin:8px 0 9px; padding:6px 9px; font-size:11.5px;}
+}
+
+/* ---------- boarding: both decks, and something to say about it ---------- */
+.brd-crews{display:flex; gap:8px; margin:9px 0 7px;}
+.brd-crew{
+  flex:1; min-width:0; padding:7px 9px; border-radius:10px; font-size:11px;
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08);
+}
+.brd-crew.them{background:rgba(120,48,36,.2); border-color:rgba(150,74,54,.3);}
+.bc-head{
+  display:flex; justify-content:space-between; gap:6px; align-items:baseline;
+  font-family:var(--font-disp); font-size:12.5px; color:var(--parch);
+  padding-bottom:4px; margin-bottom:4px; border-bottom:1px solid rgba(255,255,255,.09);
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.bc-head b{color:var(--brass); font-size:14px; font-variant-numeric:tabular-nums;}
+.bc-row{display:flex; justify-content:space-between; gap:6px; color:var(--parch-dim); line-height:1.5;}
+.bc-row b{color:var(--parch); font-variant-numeric:tabular-nums;}
+.bc-off{margin-top:4px; font-size:10px; color:var(--brass-dim); font-style:italic;}
+.bc-lost{margin-top:4px; font-size:10.5px; color:#ff8a63; font-weight:700;}
+
+.brd-acts{display:flex; flex-direction:column; gap:5px; margin-top:9px;}
+.brd-act{
+  display:flex; flex-direction:column; align-items:flex-start; gap:0;
+  min-height:44px; padding:6px 11px; border-radius:10px; width:100%; text-align:left;
+  background:linear-gradient(180deg,#3d6a80,#183a4a); border:1px solid var(--stroke);
+  color:var(--parch); font-size:12px; font-weight:700; letter-spacing:.6px;
+}
+.brd-act small{font-size:10.5px; font-weight:400; color:rgba(244,231,205,.62); letter-spacing:0;}
+.brd-act.on{background:linear-gradient(180deg,#a5512f,#5f2c17); border-color:rgba(230,140,94,.45);}
+.brd-act:active{transform:scale(.985);}
+
+/* landscape phones: the decks go side by side with the actions */
+@media (max-height:430px){
+  .brd-crews{margin:6px 0 5px;}
+  .brd-crew{font-size:10px; padding:5px 7px;}
+  .brd-acts{display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-top:6px;}
+  .brd-act{min-height:40px; font-size:11px;}
+  .brd-act small{display:none;}
+}

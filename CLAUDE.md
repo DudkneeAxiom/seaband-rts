@@ -31,7 +31,7 @@ src/core/             util, geometry, camera, pointer input, keys, procedural au
 src/world/            terrain bake, water shader, sky
 src/ships/            procedural ship meshes, the Ship entity, NPC captains
 src/combat/           ballistics, broadsides, boarding
-src/sim/              market, officers
+src/sim/              market, officers, encounters, battle instances
 src/ui/               DOM helpers, HUD, bottom-sheet screens, the questionnaire
 tools/                QA harnesses, the static server, the build and the bundler
 vendor/               three.js r180, vendored — no CDN, no network at runtime
@@ -58,6 +58,26 @@ CI runs `npm run test:fast` on every PR into `main` (`.github/workflows/tests.ym
 and uploads `shots/` when a suite fails. It skips `gunnery` and `world`, so run
 the full `npm test` yourself after touching anything those two measure.
 
+## The three layers
+
+The ocean is the **campaign**. Physical contact between hostile fleets makes an
+**encounter**. An encounter can make a **battle**. `game.mode` is the one place
+that is written down, and everything that asks "can I fire", "can I dock",
+"what do the buttons say" asks it first.
+
+- **Nobody opens fire on the campaign layer.** `tryFire` refuses when the target
+  is the player's and `ctx.combatLive` is false, and a raider closes to touching
+  distance rather than taking up a gunnery station. Contact is an event, not a
+  range band.
+- **A battle is fought where the fleets met.** Not a separate arena: the reef you
+  were running for is still under you and the terrain is the truth about that
+  place. What a battle does is *narrow* — everyone else is benched by splicing
+  them out of `game.ships` and hiding their meshes.
+- **Splice, never reassign, `game.ships`.** `Projectiles` and the AI `world`
+  object hold a reference to that exact array.
+- **`save()` refuses while `mode === 'battle'`**, because the ship list is not
+  the world at that moment. The battle saves itself when it ends.
+
 ## Conventions worth keeping
 
 - **Derive, do not store.** Only the questionnaire's *answers* are saved; skills,
@@ -77,5 +97,6 @@ the full `npm test` yourself after touching anything those two measure.
 
 ## State of it
 
-Feature-complete vertical slice. `tools/all.mjs` runs 200-odd checks across
-eleven suites; all green at the last commit on this branch.
+Feature-complete vertical slice with the campaign/encounter/battle spine in
+place. `tools/all.mjs` runs 230-odd checks across thirteen suites; all green at
+the last commit on this branch.

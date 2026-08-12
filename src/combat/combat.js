@@ -226,6 +226,15 @@ export class Boarding {
     this.result = null;
     this.log = [];
     this.aStart = attacker.crewTotal; this.dStart = defender.crewTotal;
+    /* How the captain wants it fought. A boarding used to resolve entirely on
+       its own, which made the most dramatic moment in the game a thing you
+       watched. These change the exchange rate between ground gained and
+       people lost — press and you take the deck faster and bury more of your
+       own; fall back and you buy time to cut the grapples. */
+    this.stance = 'steady';
+    this.marinesSent = false;
+    this.lastKa = 0; this.lastKd = 0;
+    this.broke = false;
     // pull the ships alongside
     const dx = defender.x - attacker.x, dz = defender.z - attacker.z;
     this.pullAng = Math.atan2(dx, dz);
@@ -256,21 +265,47 @@ export class Boarding {
     }
   }
 
+  /** What the current stance does to weight of attack, ground and casualties. */
+  stanceMods() {
+    switch (this.stance) {
+      // everything into the rail: ground fast, and it is paid for in people
+      case 'press': return { power: 1.28, ground: 1.45, ourLoss: 1.5, theirLoss: 1.2 };
+      // back off the rail and work the grapples instead of the deck
+      case 'fallback': return { power: 0.62, ground: 0.45, ourLoss: 0.5, theirLoss: 0.6, breaking: true };
+      // the best fighters aboard, spent once
+      case 'marines': return { power: 1.55, ground: 1.3, ourLoss: 0.85, theirLoss: 1.45 };
+      default: return { power: 1, ground: 1, ourLoss: 1, theirLoss: 1 };
+    }
+  }
+
   resolveTick() {
     const a = this.a, d = this.d;
-    const pa = a.boardingPower * (0.75 + Math.random() * 0.5);
+    const m = this.stanceMods();
+    const pa = a.boardingPower * (0.75 + Math.random() * 0.5) * m.power;
     const pd = d.boardingPower * (0.75 + Math.random() * 0.5) * 1.12; // defender's advantage
     const total = pa + pd || 1;
     const swing = (pa - pd) / total;
-    this.progress = clamp(this.progress + swing * 0.20, 0, 1);
+    this.progress = clamp(this.progress + swing * 0.20 * m.ground, 0, 1);
 
-    const lossA = Math.max(0, Math.round((pd / (pa + 1)) * 1.5 * (0.6 + Math.random())));
-    const lossD = Math.max(0, Math.round((pa / (pd + 1)) * 1.5 * (0.6 + Math.random())));
+    /* Falling back is an attempt to get off her, not a way of winning. Given
+       a little sea room and a moment where they are not pressing, the
+       grapples come free and both ships are their own again. */
+    if (m.breaking && this.t > 3 && Math.random() < 0.22 + (swing > 0 ? 0.12 : 0)) {
+      this.broke = true;
+      this.finish('broken');
+      return;
+    }
+
+    const lossA = Math.max(0, Math.round((pd / (pa + 1)) * 1.5 * (0.6 + Math.random()) * m.ourLoss));
+    const lossD = Math.max(0, Math.round((pa / (pd + 1)) * 1.5 * (0.6 + Math.random()) * m.theirLoss));
     const ka = a.killCrew(Math.min(lossA, Math.max(0, a.crewTotal - 1)));
     const kd = d.killCrew(Math.min(lossD, Math.max(0, d.crewTotal - 1)));
     a.morale = clamp(a.morale - ka * 0.012 + (swing > 0 ? 0.02 : 0), 0.05, 1);
     d.morale = clamp(d.morale - kd * 0.018 + (swing < 0 ? 0.02 : 0), 0.05, 1);
 
+    this.lastKa = ka; this.lastKd = kd;
+    // one throw of the marines, then back to whatever was working
+    if (this.stance === 'marines') this.stance = 'steady';
     if (this.ctx.onBoardTick) this.ctx.onBoardTick(this, ka, kd);
 
     const dBroken = d.morale < 0.22 || d.crewTotal <= Math.max(1, this.dStart * 0.22) || this.progress > 0.965;
@@ -286,7 +321,10 @@ export class Boarding {
     a.boarding = null; d.boarding = null;
     a.lockTo = null; d.lockTo = null;
     if (winner === 'attacker') { d.captured = true; d.speed = 0; d.dest = null; d.target = null; }
-    else { a.morale = Math.max(0.25, a.morale); }
+    else if (winner === 'broken') {
+      // grapples cut: nobody has taken anything, and both are under way again
+      a.morale = Math.max(0.3, a.morale); d.morale = Math.max(0.3, d.morale);
+    } else { a.morale = Math.max(0.25, a.morale); }
     if (this.ctx.onBoardEnd) this.ctx.onBoardEnd(this, winner);
   }
 }

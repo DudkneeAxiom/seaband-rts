@@ -111,12 +111,53 @@ export class HUD {
     if (slow) {
       const hintUp = !$('hint').classList.contains('hidden') && !$('hint').classList.contains('out');
       $('objective').classList.toggle('muted', hintUp);
+      /* Where to sail next is campaign guidance and has nothing to say while
+         the guns are out. Hiding it keeps the two layers visually distinct. */
+      $('objective').classList.toggle('hidden', g.mode === 'battle' || !$('obj-text').innerHTML);
     }
 
     this.updateActions();
     this.updateTargetCard(slow);
     this.updateFleetBar();
     this.updateObjectivePointer();
+    this.updatePursuit();
+    this.updateBattleBar();
+  }
+
+  /* ---------------- being hunted ----------------
+     The one thing a pursuit panel has to answer is "can I get away", and the
+     only fact that bears on it is whether the gap is opening or closing. So
+     that is the biggest word on it. */
+  updatePursuit() {
+    const g = this.g, box = $('pursuit');
+    const p = g.pursuit;
+    if (!p || g.mode !== 'campaign') { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    $('pur-name').textContent = p.ship.name;
+    $('pur-verdict').textContent = p.verdict;
+    const st = $('pur-state');
+    st.textContent = p.gaining ? (p.eta ? `gaining · ${p.eta}s` : 'gaining')
+      : p.losing ? 'falling astern' : 'holding';
+    st.className = p.gaining ? 'gaining' : p.losing ? 'losing' : '';
+    $('pur-dist').textContent = p.dist;
+    // the bar fills as she closes: full means she is aboard you
+    const frac = clamp01(1 - (p.dist - 78) / 820);
+    $('pur-fill').style.width = `${(frac * 100).toFixed(0)}%`;
+  }
+
+  /* ---------------- a fleet action ---------------- */
+  updateBattleBar() {
+    const g = this.g, box = $('battlebar');
+    const b = g.battle;
+    if (!b || g.mode !== 'battle') { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    $('bb-kind').textContent = b.kind.name;
+    $('bb-state').textContent = b.enemies.length === 1
+      ? '1 sail against you' : `${b.enemies.length} sail against you`;
+    const run = $('bb-run');
+    // tell the player the way out exists, and what it costs to use it
+    if (b.escapeArmed) { run.textContent = `run clear in ${Math.round(b.escapeDist)}m`; run.className = 'bb-run armed'; }
+    else { run.textContent = 'too close to break off'; run.className = 'bb-run'; }
   }
 
   /* ---------------- objective pointer ----------------

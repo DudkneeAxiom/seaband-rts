@@ -46,7 +46,7 @@ src/core/             util, geometry, camera, pointer input, keys, routing, audi
 src/world/            terrain bake, water shader, sky
 src/ships/            procedural ship meshes, the Ship entity, NPC captains
 src/combat/           ballistics, broadsides, boarding
-src/sim/              market, officers
+src/sim/              market, officers, encounters, battle instances
 src/ui/               DOM helpers, HUD, bottom-sheet screens, the questionnaire
 tools/                QA harnesses, the static server, the build and the bundler
 vendor/               three.js r180, vendored — no CDN, no network at runtime
@@ -100,8 +100,11 @@ of 15 hands surviving, which cannot both hold.
   the hull off in 4. Damage down a fifth: 10.8 volleys now; an eight-gun lugger
   still takes her in 5, which is intended — the answer to that fight is seeing it
   coming, not blunting every gun in the game.
-- *Aggro rings* on the water, drawn from `willHunt()`, which runs the same three
-  tests `findPrey` makes, so a ring cannot promise a fight that would not happen.
+- *Aggro rings* on the water, drawn in `Markers.update` for any ship whose
+  `target` is the player — so the circle only appears once she has actually
+  picked you, and it is her gun range rather than her curiosity. (An earlier
+  commit message in this repo describes a `willHunt()` helper. There is no such
+  function; that description was wrong.)
 - *Sky and headlands* toward a painted look.
 
 **UI pass.** Rope borders replacing the gold (a masked ring on a pseudo-element,
@@ -140,6 +143,41 @@ dry says so.
 
 **Harness hardening.** CI went red on a fixed sleep a fourth time; chasing it
 found four more, two in tests written the same day. `QA_SLOW` came out of this.
+
+**The structural pass: three layers.** The game combined the campaign map and
+combat into one continuous layer — an enemy came into range and the shooting
+started. It is now Mount & Blade-shaped:
+
+```
+CAMPAIGN  sail, trade, explore, be hunted        game.mode === 'campaign'
+   |  physical contact, CONTACT_R = 78
+ENCOUNTER world held, a decision to make         game.mode === 'encounter'
+   |  FIGHT, or a failed ATTEMPT TO FLEE
+BATTLE    a fleet action, guns live              game.mode === 'battle'
+   |  won / routed / fled / lost
+CAMPAIGN  with the damage, the dead and the prizes
+```
+
+- `src/sim/encounter.js` — pure rules. Contact radius, the weather gauge, the
+  option list (contextual: cargo, bribe, colours, parley, demand), the flee
+  chance broken into its terms, and the odds a demand is taken seriously.
+- `src/sim/battle.js` — the instance. Arena kind read off the campaign terrain,
+  deployment from how the meeting happened, escape boundary, rout, teardown.
+- `src/ui/encounter.js` — the card, and the reckoning afterwards.
+
+Things that are load-bearing and easy to break:
+- **Nobody fires at the player on the campaign layer.** `tryFire` refuses unless
+  `ctx.combatLive`. A raider closes to contact instead of taking a gunnery
+  station — without that change she orbits at 140m for ever and the chase never
+  resolves.
+- **`game.ships` is spliced, never reassigned.** `Projectiles` and the AI world
+  hold that array by reference.
+- **`save()` refuses during a battle**, since the ship list is the fight and not
+  the world. Autosave is skipped for the same reason.
+- **The campaign stops spawning traffic during a battle** — it was sailing fresh
+  merchants into an instance that had deliberately benched everyone.
+- Measured across six campaign→battle→campaign round trips: ship count, scene
+  children, geometries and textures all flat. No leak.
 
 ## Numbers that were measured, not guessed
 
