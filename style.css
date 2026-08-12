@@ -929,6 +929,12 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
      nothing to read it against. Static, it sits on the speed control with the
      column's own gap and cannot drift out of step with it again. */
   #fleetbar{position:static; transform:none;}
+  /* Three orders across 244px made the column wider than the ship card under
+     it, and wide enough to reach the action buttons on the other side of a
+     390px screen. Tighter buttons bring the bar in under the card's width;
+     they are still 44px tall, which is the number that matters to a thumb. */
+  .fleet-btn{min-width:52px; padding:0 6px; font-size:10px; letter-spacing:.5px;}
+  #fleetbar{gap:5px; padding:5px;}
   #shipstatus{width:min(50vw,196px);}
   #actions{gap:8px;}
   #notices{width:min(74vw,330px); top:calc(180px + var(--st));}

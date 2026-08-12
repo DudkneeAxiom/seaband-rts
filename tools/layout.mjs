@@ -57,7 +57,7 @@ for (const vp of Object.keys(VIEWPORTS)) {
         if (r.width < 1 || r.height < 1) continue;
         const cs = getComputedStyle(n);
         if (cs.display === 'none' || +cs.opacity < 0.05 || cs.visibility === 'hidden') continue;
-        boxes.push({ sel: s, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
+        boxes.push({ sel: s, node: n, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
       }
     }
     const problems = [];
@@ -75,6 +75,11 @@ for (const vp of Object.keys(VIEWPORTS)) {
     for (let i = 0; i < panels.length; i++) {
       for (let j = i + 1; j < panels.length; j++) {
         const a = panels[i], b = panels[j];
+        /* A panel sitting inside another panel is not two things colliding,
+           it is one thing containing the other — which is exactly what the
+           fleet bar does in the left-hand column on a narrow screen. The
+           selector list above was approximating this rule; ask the DOM. */
+        if (a.node.contains(b.node) || b.node.contains(a.node)) continue;
         const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
         const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
         if (ox > 6 && oy > 6) problems.push(`OVERLAP ${a.sel} x ${b.sel} (${ox}x${oy}px)`);
@@ -84,7 +89,8 @@ for (const vp of Object.keys(VIEWPORTS)) {
     const dbg = { notices: nt.className, top: getComputedStyle(nt).top,
                   card: document.getElementById('targetcard').className,
                   hintCls: document.getElementById('hint').className };
-    return { W, H, boxes, problems, dbg };
+    // nodes cannot cross back out of the page, and nothing outside wants them
+    return { W, H, boxes: boxes.map(({ node, ...b }) => b), problems, dbg };
   };
 
   let res = null;
