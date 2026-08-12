@@ -54,6 +54,10 @@ Look at things. `npm run sweep` walks every screen and writes screenshots — th
 is what found the flat UI, the harbours built in open water, and the firing arcs
 the sea was slicing into shards. Assertions cannot see any of those.
 
+CI runs `npm run test:fast` on every PR into `main` (`.github/workflows/tests.yml`)
+and uploads `shots/` when a suite fails. It skips `gunnery` and `world`, so run
+the full `npm test` yourself after touching anything those two measure.
+
 ## Conventions worth keeping
 
 - **Derive, do not store.** Only the questionnaire's *answers* are saved; skills,
