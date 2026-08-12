@@ -86,7 +86,11 @@ export function setObjective(text, kicker = '') {
   const o = $('objective');
   if (!text) { o.classList.add('hidden'); return; }
   o.classList.remove('hidden');
+  /* Kicker and objective are separate elements so the objective can be
+     line-clamped on a narrow screen without the chapter heading eating the
+     allowance. Wrapped together they left "Make Ilo Vantu and…" — the kicker
+     took two of the three lines and the thing being asked for took the rest. */
   $('obj-text').innerHTML = kicker
-    ? `<span class="obj-kicker">${kicker}</span>${text}`
-    : text;
+    ? `<span class="obj-kicker">${kicker}</span><span class="obj-body">${text}</span>`
+    : `<span class="obj-body">${text}</span>`;
 }

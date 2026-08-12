@@ -7,6 +7,7 @@ import { repairCost, recruitCost, PROVISION_PRICE, SHOT_PRICE } from '../sim/eco
 import { drawPortrait, officerLabel, officerEffect } from '../sim/officers.js';
 import { AMBITIONS, CHAPTERS } from '../data/origins.js';
 import { KEYMAP } from '../core/keys.js';
+import { COLOURS_STANDING, COLOURS_INFAMY } from '../sim/encounter.js';
 import { fmtCoin, clamp } from '../core/util.js';
 import { sfxCoin, toggleMute, audio } from '../core/audio.js';
 
@@ -481,6 +482,49 @@ export function openMenu() {
   openSheet('Ship’s Log', 'THE VANTU SHOALS', tabs, 'log');
 }
 
+/**
+ * Where you stand with each power, and what it buys you.
+ *
+ * The heading said STANDING and then showed the player their own coin. With
+ * six powers in the water — two of whom price their water off this number —
+ * that was a page about nothing. Each row says the word, the number, and
+ * whether your colours will be taken, and the threshold it tests is the one
+ * the encounter rules test, imported rather than retyped, so the page cannot
+ * promise something the sea will not honour.
+ */
+function standingWord(v) {
+  if (v >= 45) return { word: 'Trusted', cls: 'g' };
+  if (v >= COLOURS_STANDING) return { word: 'Known', cls: 'g' };
+  if (v >= 5) return { word: 'Civil', cls: '' };
+  if (v > -5) return { word: 'A stranger', cls: '' };
+  if (v > -25) return { word: 'Watched', cls: 'b' };
+  return { word: 'Unwelcome', cls: 'r' };
+}
+
+function factionStanding(n) {
+  const ids = Object.keys(G.standing).filter(id => FACTIONS[id]);
+  if (!ids.length) return;
+  n.appendChild(el('div', 'sec-title', 'THE POWERS'));
+  const known = G.infamy < COLOURS_INFAMY;
+  for (const id of ids) {
+    const fac = FACTIONS[id];
+    const v = Math.round(G.standing[id] || 0);
+    const s = standingWord(v);
+    const takes = known && v >= COLOURS_STANDING;
+    const row = el('div', 'row');
+    row.appendChild(el('div', 'rmain',
+      `<div class="rtitle">${fac.name}</div>
+       <div class="rsub">${s.word}${takes ? ' · they will take your colours' : ''}</div>`));
+    row.appendChild(el('span', 'pill' + (s.cls ? ' ' + s.cls : ''), `${v >= 0 ? '+' : ''}${v}`));
+    n.appendChild(row);
+  }
+  if (!known) {
+    n.appendChild(el('div', 'note',
+      `A name like yours travels. At <em>infamy ${Math.round(G.infamy)}</em> nobody is
+       taking your word for anything, whatever the books say.`));
+  }
+}
+
 function logTab(n) {
   const p = G.player;
   storySection(n);
@@ -495,6 +539,7 @@ function logTab(n) {
       <span>infamy <b>${Math.round(G.infamy)}</b></span><span>fleet <b>${G.fleet.length}</b></span>
      </div>`));
   n.appendChild(r);
+  factionStanding(n);
 
   n.appendChild(el('div', 'sec-title', 'TALLY'));
   const st = G.stats;

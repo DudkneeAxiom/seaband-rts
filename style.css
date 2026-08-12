@@ -301,9 +301,14 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .ammo-btn.on{background:linear-gradient(180deg,#3d6a80,#1d4356); color:var(--parch); border-color:var(--brass);}
 .ammo-btn:active{transform:scale(.94);}
 
-/* ---------- Fleet bar ---------- */
+/* ---------- Fleet bar ----------
+   It lives inside #leftstack in the markup so that a narrow screen can simply
+   let it fall into that column. Where there is room across the bottom it is
+   lifted back out to the centre — fixed, not absolute, because its parent is
+   itself positioned and would otherwise be the thing it centres on. */
 #fleetbar{
-  position:absolute; left:50%; transform:translateX(-50%);
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(10px + var(--sb));
   display:flex; gap:7px; padding:6px; background:var(--panel);
   border:1px solid var(--stroke); border-radius:15px; box-shadow:var(--shadow);
   backdrop-filter:blur(6px);
@@ -525,6 +530,18 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; touch-action:pan-x;
 }
 #sheet-tabs::-webkit-scrollbar{display:none;}
+/* Five tabs do not fit across a phone held upright, so the strip scrolls —
+   but a tab sliced off square at the edge reads as a broken layout rather
+   than as "there is more this way", and SHIPYARD arriving as a lone S is how
+   a player misses the shipyard. Fading the last few pixels says it scrolls
+   without spending any width on saying so. Harmless where they all fit: the
+   fade falls on empty strip and nothing shows. */
+@media (max-width:560px){
+  #sheet-tabs{
+    -webkit-mask-image:linear-gradient(to right, #000 calc(100% - 26px), transparent);
+    mask-image:linear-gradient(to right, #000 calc(100% - 26px), transparent);
+  }
+}
 .tab{
   flex:0 0 auto; height:42px; padding:0 15px; border-radius:11px;
   background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
@@ -895,12 +912,38 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   /* a narrow screen has no room for a wide objective chip beside the target
      card: 10 + chip + gap + card + 10 has to fit across 390px */
   #objective{max-width:min(45vw,176px);}
-  #fleetbar{bottom:calc(var(--sb) + 264px);}
+  /* And no room for it to grow downward either. Narrow enough to wrap a long
+     objective to five or six lines, the chip reached past where the notices
+     start and sat behind them, one rounded corner poking out from under a
+     message — which reads as a bug because it is one. Three lines is enough
+     to say what is wanted; the full text is on the log. The clamp is on the
+     objective alone: including the chapter heading spent two of the three
+     lines on saying which chapter it was. */
+  .obj-body{
+    display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3;
+    overflow:hidden;
+  }
+  /* Let the column place it. It used to be lifted 264px off the bottom to
+     clear the stack below — a guess at that stack's height, which left it
+     hanging in mid-screen with sixty-odd pixels of empty sea underneath and
+     nothing to read it against. Static, it sits on the speed control with the
+     column's own gap and cannot drift out of step with it again. */
+  #fleetbar{position:static; transform:none;}
   #shipstatus{width:min(50vw,196px);}
   #actions{gap:8px;}
   #notices{width:min(74vw,330px); top:calc(180px + var(--st));}
   /* the target card is tall once it carries the weight comparison */
   #notices.low{top:calc(276px + var(--st));}
+  /* The action banner and the top bar both want the very top of the screen.
+     On a wide one they share it — banner in the middle, chips either side —
+     but across 390px the banner is nearly the full width and was landing
+     squarely on the coin and prestige chips, with the numbers showing
+     through it. Below the bar there is room for both. */
+  #battlebar{
+    top:calc(10px + var(--tap) + var(--st));
+    max-width:calc(100vw - 20px);
+    white-space:normal; text-align:center; justify-content:center;
+  }
 }
 
 /* ---------- Landscape / short screens ---------- */

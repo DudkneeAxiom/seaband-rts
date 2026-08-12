@@ -15,6 +15,16 @@ import { FACTIONS } from '../data/gamedata.js';
 export const CONTACT_R = 78;
 /** Inside this she is committed and closing; the HUD says so. */
 export const PURSUIT_R = 900;
+/**
+ * The standing at which a patrol takes your word for it.
+ *
+ * Exported because the log shows the player which powers will accept their
+ * colours, and a screen that promises something the rules do not do is worse
+ * than a screen that says nothing. One number, read by both.
+ */
+export const COLOURS_STANDING = 20;
+/** And the infamy at which no amount of standing helps. */
+export const COLOURS_INFAMY = 40;
 
 /* ---------------------------------------------------------------
    Reading the situation
@@ -162,7 +172,7 @@ export function optionsFor(game, enc) {
      colours has no reason to board you. */
   if (!pirates) {
     const standing = game.standing[enc.faction] || 0;
-    if (standing >= 20 && game.infamy < 40) {
+    if (standing >= COLOURS_STANDING && game.infamy < COLOURS_INFAMY) {
       out.push({
         id: 'colours', label: 'SHOW YOUR COLOURS',
         sub: `${enc.factionName} standing ${Math.round(standing)}`,

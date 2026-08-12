@@ -202,8 +202,15 @@ ok('a failed run goes straight into the action, and she knows it',
 /* ---------------------------------------------------------------
    6 · the battle instance holds only the fight
    --------------------------------------------------------------- */
+/* Drive the clock rather than waiting on one. The HUD redraws off the render
+   loop, and `dt` is clamped to 0.1 to survive a tab switch — so on a runner
+   rendering software GL at a couple of frames a second, wall-clock seconds
+   buy very little simulation, and an eight-second wait can expire before the
+   chrome has caught up. ff() advances the sim itself and cannot be starved.
+   The frames after it are only so the DOM reflects what the sim now says. */
+await ff(page, 1);
 await waitFor(page, () => !document.getElementById('battlebar').classList.contains('hidden')
-  && document.getElementById('objective').classList.contains('hidden'), 8000);
+  && document.getElementById('objective').classList.contains('hidden'), 15000);
 const inst = await G(() => {
   const g = window.__game, b = g.battle;
   return {
@@ -217,8 +224,9 @@ const inst = await G(() => {
 });
 ok(`the fight is instanced (${inst.ships} sail in it, ${inst.benched} benched, ${inst.kind} water)`,
   inst.mode === 'battle' && inst.benched > 0 && inst.ships === inst.enemies + inst.allies);
-ok('guns are live inside it and the campaign chrome is gone',
-  inst.live && inst.barUp && inst.objectiveHidden);
+ok(`guns are live inside it and the campaign chrome is gone (guns ${inst.live ? 'live' : 'cold'}, `
+  + `bar ${inst.barUp ? 'up' : 'down'}, objective ${inst.objectiveHidden ? 'hidden' : 'showing'})`,
+inst.live && inst.barUp && inst.objectiveHidden);
 await shot(page, `cm-battle-${vp}`);
 
 /* ---------------------------------------------------------------
@@ -317,7 +325,8 @@ const won = await G(() => ({
   title: document.getElementById('enc-title').textContent,
   alive: window.__game.player.alive,
 }));
-ok(`fighting her out ends the action ("${won.title}")`, ended && won.mode === 'campaign' && won.alive);
+ok(`fighting her out ends the action (${ended ? 'ended' : 'still running after 156s'}, ${won.mode}, "${won.title}")`,
+  ended && won.mode === 'campaign' && won.alive);
 ok(`and the campaign world is whole again (${worldBefore.ships} sail before, ${won.ships} after, ${won.sunk} sunk)`,
   won.ships === worldBefore.ships - won.sunk);
 

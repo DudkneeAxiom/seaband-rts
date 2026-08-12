@@ -196,7 +196,15 @@ export class HUD {
     const ang = Math.atan2(dy, dx) * 180 / Math.PI;
 
     ptr.classList.remove('hidden');
-    ptr.style.transform = `translate(${(px - ptr.offsetWidth / 2).toFixed(0)}px,${(py - ptr.offsetHeight / 2).toFixed(0)}px)`;
+    /* Keep the whole chip on the glass. It is positioned by its centre, so a
+       target off the port bow put its left half — the chevron and the first
+       letters of the name — past the edge of a narrow screen, sliced off
+       square. Clamp after centring: the chevron still points the right way,
+       and the label is still readable, which is the entire job. */
+    const pw = ptr.offsetWidth, ph = ptr.offsetHeight;
+    const tx = clamp(px - pw / 2, 8, Math.max(8, W - pw - 8));
+    const ty = clamp(py - ph / 2, 8, Math.max(8, H - ph - 8));
+    ptr.style.transform = `translate(${tx.toFixed(0)}px,${ty.toFixed(0)}px)`;
     ptr.querySelector('.op-arrow').style.transform = `rotate(${ang.toFixed(0)}deg)`;
     void short;
     if (this._ptrKey !== m.label + d) {

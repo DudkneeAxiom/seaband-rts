@@ -7,7 +7,15 @@ const vp = process.argv[2] || 'phone';
 const { browser, page, errors } = await launch(vp);
 const S = n => shot(page, `sweep-${vp}-${n}`);
 
-await sleep(1400);
+/* Wait for the loading card to actually go, rather than guessing at how long
+   boot takes. A fixed sleep here meant every title shot this sweep has ever
+   written was a picture of the loading screen on a slow renderer — the one
+   state nobody needed to look at. */
+await waitFor(page, () => {
+  const l = document.getElementById('loading');
+  return !!l && l.classList.contains('hidden');
+}, 20000);
+await sleep(300);
 await S('01-title');
 
 await page.click('#btn-new');
@@ -52,17 +60,48 @@ await page.click('#sheet-close');
 await sleep(700);
 await dismissModal(page);
 
-/* combat */
+/* contact, and the question it asks
+
+   This used to drop a raider a hundred metres off and start shooting, which
+   is not a thing the game does any more: she closes to touching distance, the
+   world stops and the encounter card comes up. The sweep did not know that,
+   so the card swallowed the next click and every screen after this one — the
+   log, the helm, the settings, the loss — went unphotographed at every size.
+   Walk the road the game actually has. */
 await page.evaluate(() => {
   const g = window.__game, p = g.player;
   p.x = 120; p.z = 60; p.dest = null; p.shot = 60;
-  const pir = g.ships.find(s => s.faction === 'pirate' && s.alive) || g.spawnNPC('pirate');
-  pir.x = p.x + 110; pir.z = p.z + 40; pir.hostileToPlayer = true;
+  p.hull = p.hullMax; p.sails = p.sailMax;
+  const pir = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s)) || g.spawnNPC('pirate');
+  pir.x = p.x + 110; pir.z = p.z + 40;
+  pir.hostileToPlayer = true; pir.target = p; pir.aggro = 40; pir.chaseHold = 0;
+  pir.brain = { state: 'hunt', t: 0, cooldown: 0 };
+  g.encounterCooling = 0;
   g.selectTarget(pir);
 });
 await ff(page, 2);
 await sleep(700);
 await S('12-target');
+
+for (let i = 0; i < 60; i++) {
+  await ff(page, 1);
+  if (await page.evaluate(() => window.__game.mode !== 'campaign')) break;
+}
+await sleep(500);
+await S('12b-encounter');
+await page.evaluate(() => {
+  const g = window.__game;
+  if (g.mode === 'encounter') g.chooseEncounter('fight');
+});
+await waitFor(page, () => window.__game.mode === 'battle', 9000);
+await page.evaluate(() => {
+  // the card is a screen like any other and holds the world while it is up
+  const c = document.getElementById('encounter');
+  if (c && !c.classList.contains('hidden')) c.classList.add('hidden');
+  window.__game.paused = false;
+});
+await sleep(500);
+await S('12c-battle');
 await page.evaluate(() => {
   const g = window.__game;
   for (let i = 0; i < 6; i++) { g.player.reload.stb = 0; g.player.reload.port = 0; g.playerFire(); g.update(0.6); }
@@ -92,6 +131,22 @@ if (boardable) {
   await S('15-prize');
   await dismissModal(page);
 }
+
+/* the reckoning, and back out to the sea
+
+   A battle has to be left properly or everything after it is photographed
+   through a card that is holding the world still. */
+await page.evaluate(() => {
+  const g = window.__game;
+  if (g.mode === 'battle' && g.battle) g.battle.finish('won');
+});
+await sleep(800);
+await S('15b-reckoning');
+if (await page.evaluate(() => !document.getElementById('encounter').classList.contains('hidden'))) {
+  await page.click('#enc-options .enc-opt').catch(() => { });
+  await waitFor(page, () => document.getElementById('encounter').classList.contains('hidden'), 6000);
+}
+await page.evaluate(() => { window.__game.paused = false; });
 
 /* fleet + menu */
 await sleep(600);

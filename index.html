@@ -64,6 +64,12 @@
 
     <!-- bottom-left stack: time controls above the flagship's condition -->
     <div id="leftstack" class="safe-bottom">
+    <!-- Fleet orders live in this column, not beside it. On a wide screen they
+         float free at the bottom centre; on a phone held upright there is no
+         room for them down there, and lifting them clear of the stack left
+         them adrift in open water with nothing to belong to. In the column
+         they sit on the speed control and move with it. -->
+    <div id="fleetbar" class="hidden"></div>
     <div id="speedctl">
       <button class="spd" data-s="0" aria-label="Pause">❙❙</button>
       <button class="spd on" data-s="1" aria-label="Normal speed">1×</button>
@@ -86,9 +92,6 @@
 
     <!-- contextual action stack, bottom-right -->
     <div id="actions" class="safe-bottom"></div>
-
-    <!-- fleet bar -->
-    <div id="fleetbar" class="hidden safe-bottom"></div>
 
     <!-- target readout -->
     <div id="targetcard" class="hidden">
