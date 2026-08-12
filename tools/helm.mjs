@@ -202,11 +202,15 @@ await page.keyboard.press('2');
 await sleep(150);
 ok('2 loads chain', await G(() => window.__game.player.ammo === 'chain'));
 await page.keyboard.press('1');
-// the strip only exists while a ship is marked, and she is under way — hold her
-// alongside so this is testing the shortcut and not the pirate's navigation
+/* The strip belongs to the action. Guns are cold on the campaign layer, so
+   there is no ammunition to choose out there and nothing to show — the
+   shortcut still loads the shot, and this checks the strip reflects it where
+   the strip exists. She is held alongside so this tests the shortcut and not
+   the pirate's navigation. */
 await G(() => {
   const g = window.__game, p = g.player;
   if (g.target) { g.target.x = p.x + 100; g.target.z = p.z; g.target.speed = 0; }
+  g.ctx.combatLive = true;
   g.update(0.05);
 });
 await waitFor(page, () => document.querySelectorAll('.ammo-btn').length === 3);
