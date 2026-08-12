@@ -146,6 +146,39 @@ ok(`the voyage can be saved locally (${saved})`, saved === true);
 await sleep(1200);
 await page.screenshot({ path: `${OUT}/single-ipad.png` });
 
+/* ---------------------------------------------------------------
+   and the machine that cannot run it at all
+
+   The renderer is built while the module is still being evaluated, so a
+   browser that will not hand over a 3D context takes the whole boot down
+   with it — and every line after the throw is skipped, including the two
+   that hide the loading card. That is what a player sees as "making sail…"
+   for ever. Blocking getContext reproduces it exactly.
+   --------------------------------------------------------------- */
+const blind = await ctx.newPage();
+await blind.addInitScript(() => {
+  const real = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (kind, ...rest) {
+    return /webgl/i.test(kind) ? null : real.call(this, kind, ...rest);
+  };
+});
+await blind.goto(FILE, { waitUntil: 'load' });
+await sleep(2500);
+const told = await blind.evaluate(() => {
+  const box = document.getElementById('loading');
+  const text = box ? box.textContent : '';
+  return {
+    stuck: /making sail/.test(text),
+    said: /would not answer the helm/.test(text),
+    named3d: /3d:/.test(text) && /hardware acceleration/.test(text),
+  };
+});
+ok(`a browser with no 3D says so instead of hanging (${told.said ? 'told' : told.stuck ? 'still making sail' : 'blank'})`,
+  told.said && !told.stuck);
+ok('and it names the likely cause and the facts to send on', told.named3d);
+await blind.screenshot({ path: `${OUT}/single-no-webgl.png` });
+await blind.close();
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

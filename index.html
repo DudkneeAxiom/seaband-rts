@@ -217,6 +217,109 @@
 
   <div id="loading"><div class="ld-inner"><div class="ld-wave"></div><div>making sail…</div></div></div>
 </div>
+<!-- Boot guard. Plain ES5, no module, and first in the document on purpose.
+
+     The game is one module, and the renderer is built while it is still being
+     evaluated. If that throws — no WebGL context, a browser too old to parse
+     the syntax — every line after it is skipped, including the two that take
+     the loading card down. What the player gets is "making sail…" for ever
+     and nothing to tell anyone. This runs before all of it and turns a silent
+     hang into a sentence they can send back. -->
+<script>
+(function () {
+  var told = false;
+
+  function facts(err) {
+    var gl = 'unknown';
+    try {
+      var c = document.createElement('canvas');
+      gl = c.getContext('webgl2') ? 'webgl2'
+        : c.getContext('webgl') ? 'webgl1 only (this game needs webgl2)'
+          : 'none';
+    } catch (e) { gl = 'blocked: ' + (e && e.message); }
+    return [
+      err ? ('error: ' + err) : 'error: none reported — it simply never finished',
+      '3d: ' + gl,
+      'page: ' + location.protocol,
+      'browser: ' + navigator.userAgent,
+    ].join('\n');
+  }
+
+  /* No 3D canvas is far and away the likeliest cause, and it is the one the
+     player can actually do something about — so it gets said in plain words
+     rather than left inside a stack trace, and the words differ by browser.
+     Telling a Safari user to turn on hardware acceleration sends them hunting
+     for a setting Safari does not have. */
+  function guess(detail) {
+    var no3d = detail.indexOf('3d: none') >= 0 || detail.indexOf('webgl1 only') >= 0
+      || detail.indexOf('3d: blocked') >= 0;
+    var ua = navigator.userAgent;
+    var safari = /Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua);
+    if (no3d && safari) {
+      return 'Safari is not giving the page the kind of 3D canvas this game needs. '
+        + 'That takes Safari 15 or newer — macOS Monterey and iPadOS 15, released in 2021. '
+        + 'Updating the system fixes it; so does opening the same file in Chrome or Firefox.';
+    }
+    if (no3d) {
+      return 'This browser is not giving the page a 3D canvas. That is usually '
+        + 'hardware acceleration being switched off — in Chrome it lives under '
+        + 'Settings › System, in Firefox under Settings › General › Performance. '
+        + 'Turn it on, restart the browser and open the file again.';
+    }
+    return 'The game stopped while it was starting up. The lines below say where; '
+      + 'sending them on is enough to fix it.';
+  }
+
+  function tell(err) {
+    if (told) return;
+    told = true;
+    var box = document.getElementById('loading');
+    if (!box) return;
+    var detail = facts(err);
+    box.className = '';
+    // take the wave and the words down first: "making sail…" under an error
+    // message reads as though it is still trying, and it is not
+    while (box.firstChild) box.removeChild(box.firstChild);
+    box.setAttribute('style',
+      'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;'
+      + 'justify-content:center;padding:24px;background:#0b2a3a;color:#e8dcc0;'
+      + 'font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;'
+      + 'overflow:auto;-webkit-overflow-scrolling:touch');
+    var card = document.createElement('div');
+    card.setAttribute('style', 'max-width:560px;width:100%');
+    var h = document.createElement('div');
+    h.setAttribute('style', 'font-size:19px;font-weight:700;margin-bottom:10px;color:#e6b25e');
+    h.textContent = 'She would not answer the helm';
+    var p = document.createElement('div');
+    p.setAttribute('style', 'margin-bottom:14px');
+    p.textContent = guess(detail);
+    var pre = document.createElement('pre');
+    pre.setAttribute('style',
+      'white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,.32);'
+      + 'border:1px solid rgba(232,220,192,.22);border-radius:8px;padding:12px;'
+      + 'margin:0;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace');
+    pre.textContent = detail;          // never innerHTML: this is an error string
+    card.appendChild(h); card.appendChild(p); card.appendChild(pre);
+    box.appendChild(card);
+  }
+
+  window.addEventListener('error', function (e) {
+    tell((e && e.message) || 'script error');
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    tell((r && (r.message || r)) || 'promise rejected');
+  });
+
+  /* And the case with no exception at all — a boot that simply stops. Fifteen
+     seconds is far longer than the slowest phone takes to bake the terrain,
+     and the check is skipped entirely once the card is down. */
+  setTimeout(function () {
+    var box = document.getElementById('loading');
+    if (box && box.className.indexOf('hidden') < 0 && box.className.indexOf('out') < 0) tell(null);
+  }, 15000);
+})();
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
