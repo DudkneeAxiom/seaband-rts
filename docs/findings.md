@@ -38,6 +38,23 @@ screens was taken and read.
 - *Officers.* Not audited this session.
 
 
+## 6. The objective chevron sat on the fleet bar  (P2)
+
+**Symptom.** Layout audit, viewport B: `#objptr` overlapping `#leftstack`
+(111×29px) and `#fleetbar` (111×24px).
+
+**Root cause.** The pointer keeps itself out of the bottom band by a fixed
+margin — 150px, or 176 on a short screen. That number was right when it was
+written, but the left column grows a fleet bar the moment the player takes a
+consort, and the chevron then landed on it.
+
+**Change.** After clamping to the glass, the chip asks `#leftstack` and
+`#actions` where they actually are and steps above whichever one it lands on.
+Measured, not guessed — the same instinct as the notices column, which already
+measures `#rightstack`.
+
+**Verification.** `layout`: 0 problems across five viewports.
+
 ## 5. A battle over a reef could pin the player on it  (P0)
 
 **Symptom.** A full-suite run failed the battle-escape check with the player

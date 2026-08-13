@@ -218,7 +218,23 @@ export class HUD {
     const pw = ptr.offsetWidth, ph = ptr.offsetHeight;
     const tx = clamp(px - pw / 2, 8, Math.max(8, W - pw - 8));
     const ty = clamp(py - ph / 2, 8, Math.max(8, H - ph - 8));
-    ptr.style.transform = `translate(${tx.toFixed(0)}px,${ty.toFixed(0)}px)`;
+    /* And clear of the furniture, measured rather than guessed. The safe rect
+       above keeps the chevron out of the bottom band by a fixed margin, which
+       is a number that was right when it was written: the left column grows a
+       fleet bar the moment you take a consort, and the chip then sat on it.
+       Ask the elements where they actually are and step over whichever one
+       this lands on. */
+    let ty2 = ty;
+    for (const id of ['leftstack', 'actions']) {
+      const box = $(id);
+      if (!box || box.classList.contains('hidden')) continue;
+      const r = box.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const hitsX = tx < r.right + 6 && tx + pw > r.left - 6;
+      const hitsY = ty2 < r.bottom + 6 && ty2 + ph > r.top - 6;
+      if (hitsX && hitsY) ty2 = Math.max(8, r.top - ph - 8);
+    }
+    ptr.style.transform = `translate(${tx.toFixed(0)}px,${ty2.toFixed(0)}px)`;
     ptr.querySelector('.op-arrow').style.transform = `rotate(${ang.toFixed(0)}deg)`;
     void short;
     if (this._ptrKey !== m.label + d) {
