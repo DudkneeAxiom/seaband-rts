@@ -117,8 +117,20 @@ export function closeModal() {
 }
 
 /* ---------------- objective chip ---------------- */
+let objLast = null;
 export function setObjective(text, kicker = '') {
   const o = $('objective');
+  /* Called every frame from the story tick, and it used to rewrite the chip's
+     innerHTML and clear `hidden` each time. Two costs: sixty DOM rewrites a
+     second for a string that changes perhaps ten times a campaign, and a
+     running fight with the HUD — which hides this chip during a battle on its
+     own slow tick, only for the next frame to put it straight back. The card
+     was therefore visible through most of every action it was meant to be
+     absent from. Nothing changed, nothing to say: whoever owns the element's
+     visibility keeps it. */
+  const key = `${kicker}\u0000${text}`;
+  if (key === objLast) return;
+  objLast = key;
   if (!text) { o.classList.add('hidden'); return; }
   o.classList.remove('hidden');
   /* Kicker and objective are separate elements so the objective can be

@@ -3,6 +3,38 @@
 Symptom → reproduction → root cause → change → verification.
 Newest first. Trivia omitted deliberately.
 
+## 4. The chapter chip sat over every battle  (P2)
+
+**Symptom.** A sweep screenshot of a fleet action had "CHAPTER 1 OF 6 ·
+SHIP'S STORES / Make Ilo Vantu and dock" on the glass over the fight. The HUD
+has hidden that chip in battles since it was written.
+
+**Reproduction.** `intoBattle`, then read `#objective` — `hidden` absent while
+`game.mode === 'battle'`.
+
+**Root cause.** The story tick calls `refreshObjective()` every frame, and
+`setObjective` unconditionally did `classList.remove('hidden')` plus a full
+`innerHTML` rewrite. The HUD re-hides the chip only on its 0.14s slow tick, so
+between ticks the story tick put it straight back. Two costs: the chip was
+visible through most of every action it was meant to be absent from, and the
+DOM was rewritten sixty times a second for a string that changes perhaps ten
+times a campaign.
+
+**Change.** `setObjective` early-returns when neither text nor kicker has
+changed, so it stops fighting the HUD for ownership of the element and stops
+the per-frame churn.
+
+**Verification.** `campaign` section 15 drives a real battle and polls for the
+chip to stand down, then leaves the action and polls for it to come back.
+
+**Note on method.** This one took four wrong diagnoses — a stale-game
+hypothesis, a second-element hypothesis, a `$`-helper hypothesis, and
+`updateObjectivePointer`. What settled it was a MutationObserver with stack
+traces on the element itself. The repo's own rule applies: reproduce and
+instrument before diagnosing. Two of my intermediate probes also reported
+"still showing" because `page.evaluate` polling contends with the frame loop
+under software GL — the observer run was the one that told the truth.
+
 ## 3. Grape shot made capture a formality  (P1)
 
 **Symptom.** Playtest measurement of the brief's "is the right answer always

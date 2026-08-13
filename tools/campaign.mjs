@@ -9,7 +9,7 @@
    Where an outcome is a roll, the scenario is stacked until the roll is
    lopsided and the check is "at least one of N", rather than pinned to a mean
    that will fail the first unlucky time. */
-import { launch, sleep, ff, shot, newVoyage, waitFor, dismissModal } from './qa.mjs';
+import { launch, sleep, ff, shot, newVoyage, waitFor, dismissModal, intoBattle, leaveBattle } from './qa.mjs';
 
 const vp = process.argv[2] || 'phone';
 const { browser, page, errors } = await launch(vp);
@@ -698,6 +698,35 @@ await G(() => {
   g.setFleetOrder('follow', true);
   g.paused = false;
 });
+
+/* ---------------------------------------------------------------
+   15 · the campaign's guidance stands down for the action
+   --------------------------------------------------------------- */
+/* Where to sail next has nothing to say while the guns are out, and the HUD
+   hides the chapter chip in a battle for exactly that reason. It did not
+   work: the story tick calls setObjective every frame, which cleared the
+   `hidden` class the HUD had just set, so the chip sat over the fight
+   through most of every action — visible in a sweep screenshot of a battle
+   with "Make Ilo Vantu and dock" still on the glass. */
+await G(() => {
+  const g = window.__game;
+  if (g.mode === 'battle') g.battle.finish('fled');
+  if (g.mode === 'encounter') g.closeEncounter();
+  g.paused = false;
+});
+const inBattle15 = await intoBattle(page);
+const chipGone = await waitFor(page,
+  () => window.__game.mode === 'battle'
+    && document.getElementById('objective').classList.contains('hidden'), 12000);
+const chip = await G(() => ({ mode: window.__game.mode,
+  cls: document.getElementById('objective').className,
+  text: document.getElementById('obj-text').textContent.slice(0, 30) }));
+ok(`the chapter chip stands down for a fleet action (${inBattle15 ? 'in action, ' : ''}chip "${chip.cls}")`,
+  chipGone);
+await leaveBattle(page);
+const chipBack = await waitFor(page,
+  () => !document.getElementById('objective').classList.contains('hidden'), 12000);
+ok('and comes back when the sea is quiet again', chipBack);
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
