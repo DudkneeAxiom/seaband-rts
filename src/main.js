@@ -254,7 +254,13 @@ function boot() {
   window.__portrait = (x, z, opts = {}) => {
     try {
       const w = opts.w || 640, h = opts.h || 220;
-      const cam = new THREE.PerspectiveCamera(46, w / h, 1, 6000);
+      /* The lens matters as much as where you stand. These strips are about
+         3:1, and three.js takes the *vertical* angle — so the 46° this used to
+         pass was a 104° horizontal ultra-wide: everything small and far, the
+         near corner of a wall stretched across the frame, and a third of the
+         picture empty sky. A longer lens is what a photograph of a place
+         actually looks like. */
+      const cam = new THREE.PerspectiveCamera(opts.fov ?? 46, w / h, 1, 6000);
       const ang = opts.ang ?? 0;
       const dist = opts.dist ?? 230;
       cam.position.set(x + Math.sin(ang) * dist, opts.high ?? 74, z + Math.cos(ang) * dist);

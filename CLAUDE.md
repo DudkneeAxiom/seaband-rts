@@ -34,6 +34,7 @@ src/game.js           game state, world simulation, rules, save/load, markers
 src/data/gamedata.js  factions, hulls, goods, ports, crew — tuning lives here
 src/data/origins.js   the five questions, their effects, antagonists, chapters
 src/data/notables.js  the people of the two authored ports, and named officers
+                      (every port has a town page; these add people to two)
 src/core/             util, geometry, camera, pointer input, keys, procedural audio
 src/world/            terrain bake, water shader, sky
 src/ships/            procedural ship meshes, the Ship entity, NPC captains
@@ -111,6 +112,24 @@ that is written down, and everything that asks "can I fire", "can I dock",
   name. One shared stream means adding a harbour silently reshuffles every
   harbour after it in the list — which is how two new ports once put a ◆385/min
   arbitrage run on the board that nobody had tuned.
+- **A tuned number is tuned against something — say what, and re-measure it
+  elsewhere.** What a builder will accept was measured honestly on Ilo Vantu
+  and then applied to every coast: Ilo Vantu is a beach, Fort Escarra is a
+  seventy-metre rock, and the rock built *no buildings at all* while six
+  settlement checks passed. Both limits are derived per port from that port's
+  own ground now. A constant that came from measuring one place is a constant
+  with a hidden argument in it.
+- **Assert the thing exists, not only that it is well placed.** Every check on
+  the settlements asked *where* the town was — waterfront on dry land, label
+  above the roofs, mooring afloat — and a port with zero buildings passed all
+  of them. Cheap existence checks catch the failures the careful ones assume
+  away.
+- **Every port is a place, not a set of counters.** A harbour opens on its town
+  — a photograph of its real buildings, what it is, and where you can go from
+  here — and the counters are one tap behind that. The page derives from what
+  every port already has (`tagline`, `desc`, its faction's flag colour), so
+  adding a port cannot leave a half-built screen; `PORT_IDENTITY` and
+  `NOTABLES` add mood and people on top where they exist.
 - Comments explain *why*, especially where a number was tuned or a bug was
   subtle. Match the surrounding prose style.
 

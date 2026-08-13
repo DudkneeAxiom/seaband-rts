@@ -88,31 +88,37 @@ export function openPort(port) {
   const tabs = [];
   /* The town before the transactions.
      A port used to open on a row of shop counters, which is how a place
-     becomes a dashboard. It opens on the place now — who is here, what they
-     are worried about, and where in the town you could go — and the counters
-     are still one tap away for anybody who just wants to buy shot. Only the
-     two ports authored with people get it; the rest open as they always did,
-     which is also how this scales without a half-finished town anywhere. */
-  if (PORT_IDENTITY[port.id]) {
-    tabs.push({ id: 'town', label: 'THE TOWN', icon: '⌂', render: n => townTab(n, port) });
-  }
+     becomes a dashboard. It opens on the place now — where you are, where you
+     could go from here, and who is about — and the counters are still one tap
+     away for anybody who just wants to buy shot.
+
+     Every port has this. It used to be only the two written up with people,
+     on the reasoning that a town page without notables would be half a
+     feature; what that actually shipped was three harbours that were a wall
+     of counters and no place at all, and no WHERE TO GO anywhere in them. The
+     page is built from what every port already has — its own name for itself,
+     its own description, its faction's colour and a photograph of the real
+     buildings — and the people section simply is not drawn where there is
+     nobody yet. */
+  tabs.push({ id: 'town', label: 'THE TOWN', icon: '⌂', render: n => townTab(n, port) });
   tabs.push({ id: 'harbour', label: 'HARBOUR', icon: '⚓', render: n => harbourTab(n, port) });
   if (svc.includes('market')) tabs.push({ id: 'market', label: 'MARKET', icon: '▣', render: n => marketTab(n, port) });
   if (svc.includes('crew')) tabs.push({ id: 'crew', label: 'CREW', icon: '☰', render: n => crewTab(n, port) });
   if (svc.includes('shipyard')) tabs.push({ id: 'yard', label: 'SHIPYARD', icon: '⚒', render: n => yardTab(n, port) });
   if (svc.includes('tavern')) tabs.push({ id: 'tavern', label: 'TAVERN', icon: '☕', render: n => tavernTab(n, port) });
   const fac = FACTIONS[port.faction];
-  openSheet(port.name, `${port.tagline.toUpperCase()} · ${fac.short}`, tabs,
-    PORT_IDENTITY[port.id] ? 'town' : 'harbour');
+  openSheet(port.name, `${port.tagline.toUpperCase()} · ${fac.short}`, tabs, 'town');
 }
 
-/** A view of the part of the town you are standing in. Authored ports only —
-    everywhere else the tabs open as they always did, with no strip at all. */
+/** A view of the part of the town you are standing in. Every port, now that
+    every port has a town built well enough to be photographed. */
 function placeStrip(n, port, place, label) {
-  if (!PORT_IDENTITY[port.id]) return;
   const shot = portPortrait(port, place);
+  if (!shot) return;
+  const fac = FACTIONS[port.faction];
   const strip = el('div', 'townscene small');
-  strip.style.setProperty('--banner', PORT_IDENTITY[port.id].banner);
+  strip.style.setProperty('--banner', (PORT_IDENTITY[port.id] || {}).banner
+    || `#${(fac.flag >>> 0).toString(16).padStart(6, '0')}`);
   if (shot) strip.style.backgroundImage = `url(${shot})`;
   else strip.classList.add('noshot');
   strip.innerHTML = `<div class="ts-grade"></div>
@@ -124,7 +130,16 @@ function placeStrip(n, port, place, label) {
    Place, then people, then opportunities — in that order, because that is the
    order a person arriving somewhere actually takes it in. */
 function townTab(n, port) {
-  const idn = PORT_IDENTITY[port.id];
+  /* Authored where there is prose, derived where there is not. A port has
+     always known what to call itself and how to describe itself; the two
+     written-up towns add a mood, a worry and their own people on top. */
+  const fac = FACTIONS[port.faction];
+  const auth = PORT_IDENTITY[port.id];
+  const idn = auth || {
+    role: port.tagline,
+    line: port.desc,
+    banner: `#${(fac.flag >>> 0).toString(16).padStart(6, '0')}`,
+  };
   const S = G.social;
 
   /* The place, photographed rather than drawn.
@@ -142,21 +157,24 @@ function townTab(n, port) {
     <div class="ts-name">${port.name}<span>${idn.role}</span></div>
     <div class="ts-flag"></div>`;
   n.appendChild(scene);
-  n.appendChild(el('div', 'town-role', `${idn.tone}`));
+  if (idn.tone) n.appendChild(el('div', 'town-role', `${idn.tone}`));
   n.appendChild(el('div', 'note', idn.line));
 
   // what the town is worried about — the reason there is work here at all
-  const prob = el('div', 'town-problem');
-  prob.innerHTML = `<span class="tp-k">TALK ON THE QUAY</span><span>${idn.problem}</span>`;
-  n.appendChild(prob);
-
-  /* the people, at the places they actually stand */
-  n.appendChild(el('div', 'sec-title', 'PEOPLE HERE'));
-  for (const who of notablesAt(port.id)) {
-    n.appendChild(notableRow(who, port));
+  if (idn.problem) {
+    const prob = el('div', 'town-problem');
+    prob.innerHTML = `<span class="tp-k">TALK ON THE QUAY</span><span>${idn.problem}</span>`;
+    n.appendChild(prob);
   }
 
-  /* and the ways further in, named for what they are rather than what they sell */
+  /* Where you can go, before who is about.
+     This is the page a player lands on when they dock, and its first job is
+     to be a way in to the rest of the port. It used to sit under five
+     biography cards, which on a phone put every counter in the harbour below
+     the fold — the town screen answered "who is here" long before it answered
+     "where is the market", and only the tab strip was really navigating. The
+     people are still here, one thumb further down, which is the right order
+     for a place you have already arrived at. */
   n.appendChild(el('div', 'sec-title', 'WHERE TO GO'));
   const places = [
     { tab: 'harbour', label: 'The Quay', sub: 'Repairs, stores, the harbourmaster’s board' },
@@ -174,12 +192,22 @@ function townTab(n, port) {
     r.appendChild(b);
     n.appendChild(r);
   }
+
+  /* the people, at the places they actually stand. A port nobody has been
+     written for says nothing here rather than showing an empty heading. */
+  const people = notablesAt(port.id);
+  if (people.length) {
+    n.appendChild(el('div', 'sec-title', 'PEOPLE HERE'));
+    for (const who of people) n.appendChild(notableRow(who, port));
+  }
   void S;
 }
 
 /* One render per port *and place* per session. Pressing TAVERN should move
    the view to a building in the town, not merely relabel the same picture. */
 const PORTRAITS = {};
+// the QA harnesses look at these pictures; nothing in the game reads it
+if (typeof window !== 'undefined') window.__portraitCache = PORTRAITS;
 
 /** Which of the town's own buildings belongs to which part of the port.
     Chosen by hashing the place name against the list the settlement recorded,
@@ -206,6 +234,76 @@ function spotFor(port, place) {
     .slice().sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, 8);
   return rank.length ? rank[h % rank.length] : null;
 }
+/**
+ * Where to stand to photograph a building.
+ *
+ * Pointing the lens at the building's own front is right in principle and not
+ * sufficient in practice: these towns are built up hillsides, so the bearing
+ * that faces a door can also be the bearing with forty metres of hill in the
+ * way, and two of the first three shots taken that way were a green slope
+ * with a roof behind it.
+ *
+ * So the stand is measured rather than chosen. Swing around the building's
+ * front, stand further back as needed, and for each candidate ask the terrain
+ * two questions: is the camera in open air rather than inside a hill, and is
+ * the line from it to the upper half of the building clear? Take the first
+ * stand that answers yes to both, else the least obstructed one.
+ */
+function standFor(spot) {
+  const H = (window.__terrain || {}).heightAt;
+  const top = (spot.y || 0) + (spot.h || 10);
+  const size = Math.max(spot.w || 12, spot.d || 12, spot.h || 10);
+  const front = spot.ry !== undefined ? spot.ry : 0;
+  const aimY = (spot.y || 0) + (spot.h || 10) * 0.6;
+  /* Score a stand by how much of the building it can actually see, not by
+     whether one ray to the middle of it happens to get through: a hummock
+     that hides the door and the barrels while leaving the roof visible is
+     exactly the shot that kept coming back, and a single centre ray calls it
+     clear. Six points — the corners at eaves height, the ridge, and the door
+     — say how much of the thing is really in view. */
+  const hw = (spot.w || 12) * 0.5, hd = (spot.d || 12) * 0.5;
+  const c = Math.cos(front), s = Math.sin(front);
+  const marks = [];
+  for (const [ox, oz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    marks.push({ x: spot.x + (ox * hw * c + oz * hd * s), z: spot.z + (-ox * hw * s + oz * hd * c), y: aimY });
+  }
+  marks.push({ x: spot.x, z: spot.z, y: top });
+  marks.push({ x: spot.x, z: spot.z, y: (spot.y || 0) + 2.5 });
+
+  let best = null;
+  // the building's front first, then progressively further round it
+  for (const swing of [0.55, -0.55, 0.95, -0.95, 0.2, -0.2, 1.35, -1.35, 1.9, -1.9]) {
+    for (const mult of [4.4, 5.8, 7.4, 9.5]) {
+      const dist = Math.max(54, size * mult);
+      const ang = front + swing;
+      const cx = spot.x + Math.sin(ang) * dist, cz = spot.z + Math.cos(ang) * dist;
+      /* Above the roofline and looking slightly down. A lens level with the
+         building sees every rise between it and the subject edge-on, and
+         these towns are built up hillsides; from too far above it becomes a
+         plan of the rooftops and the silhouettes that were the whole point of
+         typing the buildings go flat. This is the middle of the two. */
+      const camY = top + 10 + dist * 0.22;
+      if (!H) return { ang, dist, camY };
+      // not inside the hillside, and with air under the lens
+      if (H(cx, cz) > camY - 7) continue;
+      let seen = 0;
+      for (const m of marks) {
+        let clear = true;
+        for (let t = 0.1; t < 0.96; t += 0.06) {
+          const px = cx + (m.x - cx) * t, pz = cz + (m.z - cz) * t;
+          if (H(px, pz) > camY + (m.y - camY) * t + 1.2) { clear = false; break; }
+        }
+        if (clear) seen++;
+      }
+      // most of the building visible wins; among equals the nearest stand,
+      // so the subject fills as much of the strip as it can
+      if (!best || seen > best.seen) best = { ang, dist, camY, seen };
+      if (seen === marks.length) return best;
+    }
+  }
+  return best || { ang: front + 0.55, dist: Math.max(54, size * 5.8), camY: top + 24 };
+}
+
 /** The angle each harbour actually looks best from — chosen by eye, not by
     formula: a town wants to be seen from the water it is entered from. */
 const PORTRAIT_VIEW = {
@@ -223,28 +321,27 @@ function portPortrait(port, place = 'town') {
     const spot = spotFor(port, place);
     if (spot) {
       const sh = (window.__shore || {})[port.id];
-      const ang = sh ? Math.atan2(sh.x - sh.townX, sh.z - sh.townZ) : 0;
-      /* Far enough back that a building reads as a building, and aimed at the
-         building rather than at the grass beside it. At fifty metres the lens
-         was inside the hedge; at ninety it was looking downhill past the roof. */
-      const top = (spot.y || 0) + (spot.h || 10);
-      /* Closer for a building we actually know the identity of: it has been
-         given elbow room on the waterfront, so the lens can come in and let
-         it fill the frame instead of hedging against its neighbours. */
-      const known = !!spot.kind && spot.kind !== 'house' && spot.kind !== 'warehouse';
-      /* A picture rather than an inspection.
-         Stand off and stay low: at fifty metres from above, a building filled
-         the frame and the harbour it belongs to was nowhere in it. From
-         eighty-odd metres at roughly its own roofline the water, the hulls
-         and the hills behind all come into the shot, and the building is
-         still plainly the subject. Swung a little off the square, too — a
-         three-quarter view has depth where a straight-on one has none. */
+      if (spot.quay) {
+        const ang = sh ? Math.atan2(sh.x - sh.townX, sh.z - sh.townZ) : 0;
+        PORTRAITS[key] = window.__portrait(spot.x, spot.z, {
+          w: 720, h: 240, fov: 30, ang, dist: 108, high: 22, lookY: 3,
+        });
+        return PORTRAITS[key];
+      }
+      /* A building, photographed from a stand the terrain was asked about. */
+      const st = standFor(spot);
       PORTRAITS[key] = window.__portrait(spot.x, spot.z, {
-        w: 720, h: 240,
-        ang: ang + (known ? 0.34 : 0.2),
-        dist: spot.quay ? 130 : (known ? 86 : 96),
-        high: spot.quay ? 26 : top * 0.55 + 12,
-        lookY: spot.quay ? 3 : (spot.y || 0) + (spot.h || 10) * 0.42,
+        /* A long lens, and the single biggest change to how these read.
+           Three.js takes the *vertical* angle and these strips are 3:1, so
+           the 46° this used to pass was 104° across: an ultra-wide, which is
+           why every building came out small and far with a third of the frame
+           empty sky and the near corner of a wall stretched over the rest.
+           At 24° the subject fills the strip from a stand that is still
+           outside the hedge, and the compression flatters flat-shaded
+           geometry the way a telephoto flatters a face. */
+        w: 720, h: 240, fov: 24,
+        ang: st.ang, dist: st.dist, high: st.camY,
+        lookY: (spot.y || 0) + (spot.h || 10) * 0.5,
       });
       return PORTRAITS[key];
     }
@@ -257,8 +354,10 @@ function portPortrait(port, place = 'town') {
   const tx = shore ? port.x + (shore.x - port.x) * 0.45 : port.x;
   const tz = shore ? port.z + (shore.z - port.z) * 0.45 : port.z;
   const ang = shore ? Math.atan2(port.x - shore.x, port.z - shore.z) : (v.ang || 0);
+  /* The wide shot wants a longer lens too, but not as long: a town is a
+     spread-out thing and 38° still takes in the harbour either side of it. */
   PORTRAITS[key] = window.__portrait(tx, tz, {
-    w: 720, h: 260, dist: 250, high: 78, ...v, ang: v.ang ?? ang,
+    w: 720, h: 260, fov: 38, dist: 250, high: 78, ...v, ang: v.ang ?? ang,
   });
   return PORTRAITS[key];
 }

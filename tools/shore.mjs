@@ -40,6 +40,48 @@ ok('while the mooring still floats a hull', geo.every(r => r.moorD > 8));
 ok(`and the town is within reach of its own harbour (gaps ${geo.map(r => r.gap).join(', ')})`,
   geo.every(r => r.gap < r.dockR * 1.6));
 
+/* ---------- every port actually built a town ----------
+
+   Nothing anywhere asserted that a settlement contains buildings. It was
+   possible for a port to build *none* — and two did: what a builder would
+   accept was two absolute numbers measured on Ilo Vantu's beach, so Fort
+   Escarra, which stands on a seventy-metre rock, placed nothing at all and
+   Greywake placed one shed, while their port screens photographed bare grass
+   and captioned it an Admiralty station and a League fortress. Marasay lost
+   its whole waterfront row the same way and so had no market building to
+   frame. Every check above passed throughout, because they all ask where the
+   town is rather than whether there is one.
+
+   The service test is the sharp half: a port screen that captions a picture
+   THE MARKET has to have a market to point the lens at. */
+const towns = await G(() => {
+  const g = window.__game;
+  return g.PORTS.map(p => {
+    const t = window.__shore[p.id] || {};
+    const spots = t.spots || [];
+    const kinds = [...new Set(spots.map(s => s.kind))];
+    const want = ['tavern', 'market']
+      .filter(k => p.services.includes(k))
+      .concat(p.services.includes('shipyard') ? ['yard'] : []);
+    return {
+      id: p.id, size: p.size, spots: spots.length, piers: (t.piers || []).length,
+      kinds, missing: want.filter(k => !kinds.includes(k)),
+      front: spots.filter(s => s.front).length,
+    };
+  });
+});
+console.log('\n port        buildings  waterfront  piers  kinds');
+for (const t of towns) {
+  console.log(`  ${t.id.padEnd(10)} ${String(t.spots).padStart(9)} ${String(t.front).padStart(11)}`
+    + ` ${String(t.piers).padStart(6)}  ${t.kinds.join(' ')}${t.missing.length ? '   MISSING ' + t.missing.join(' ') : ''}`);
+}
+ok(`every port built a town (${towns.map(t => `${t.id} ${t.spots}`).join(', ')})`,
+  towns.every(t => t.spots >= (t.size === 'major' ? 12 : 6)));
+ok('and every town has a waterfront row', towns.every(t => t.front >= 2));
+ok(`and a building for every service it advertises `
+  + `(${towns.filter(t => t.missing.length).map(t => `${t.id}: ${t.missing}`).join(', ') || 'all present'})`,
+towns.every(t => t.missing.length === 0));
+
 /* ---------- nothing is left standing in open water ---------- */
 const floating = await G(() => {
   const g = window.__game, H = window.__terrain.heightAt;

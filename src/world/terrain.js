@@ -601,6 +601,49 @@ function buildSettlement(port, group) {
      candidates are tried until enough of them stand on ground a builder would
      accept. That keeps the terracing where the coast allows it and lets the
      town bend around the parts where it does not, which is what real ones do. */
+  /* ---- limits the ground can actually meet ----
+
+     What a builder will accept was written as two absolute numbers: nothing
+     above 46 metres, nothing with more than ten metres of fall across its own
+     footprint. Both were measured — on Ilo Vantu, which is a beach.
+
+     Fort Escarra is a seventy-metre rock and Greywake is a headland. Measured
+     the same way, their waterfront rows sit at 44m with 26 to 28 metres of
+     fall across a footprint, so the two tests between them rejected every
+     single candidate: Escarra built *nothing* and Greywake built one shed,
+     while their port screens photographed bare grass and captioned it an
+     Admiralty station and a League fortress. Marasay lost its whole front row
+     the same way, which is why it had no market building to frame.
+
+     So the limits are taken from the port's own coast instead. Sample the
+     bands first, then accept what this ground has to offer. The old constants
+     are the floors, so a gentle coast keeps exactly today's standards and
+     nothing about Ilo Vantu moves; a rock gets a town that climbs it. The
+     ceiling on the fall is what still refuses a sheer cliff.
+
+     Sitting the building on the lowest corner of its footprint stays right
+     even here: every view of a port is from the water, which is the downhill
+     side, so a hillside building stands on its low corner with the hill
+     rising behind it and is buried only from angles nothing looks from. */
+  const probe = [];
+  for (let r = 0; r < rows.length; r++) {
+    const nw = 1 - r / rows.length;
+    for (let k = 0; k < 40; k++) {
+      const along = ((k / 39) * 2 - 1) * spread * (0.55 + nw * 0.45);
+      const x = base.x + inland.x * rows[r] + perpG.x * along;
+      const z = base.y + inland.y * rows[r] + perpG.y * along;
+      const g = ground(x, z, 11 * (0.72 + nw * 0.42), 10 * (0.72 + nw * 0.34));
+      if (g.lo >= 1.6) probe.push(g);
+    }
+  }
+  const pct = (arr, q) => {
+    if (!arr.length) return 0;
+    const s = arr.slice().sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.floor(s.length * q))];
+  };
+  const MAX_UP = Math.max(46, pct(probe.map(g => g.hi), 0.72) + 6);
+  const MAX_FALL = clampNum(Math.max(10, pct(probe.map(g => g.slope), 0.6) + 1), 10, 30);
+
   /* Who gets the waterfront.
      A harbour town puts its public buildings where the boats are, so the
      front row is dealt the named ones first — and only the services this
@@ -655,11 +698,10 @@ function buildSettlement(port, group) {
       const d = rngRange(rng, 7, 13) * (0.72 + nearWater * 0.34);
       const bh = rngRange(rng, 6, isMajor ? 15 : 10) * (0.7 + nearWater * 0.45);
       const g = ground(x, z, w, d);
-      /* No building on water, on a cliff, or on ground that falls away under
-         it. Ten metres of fall across a footprint is the limit — measured,
-         not guessed: this coast runs eight to nine under a normal house, and
-         a stricter number built one shed and called it a town. */
-      if (g.lo < 1.6 || g.hi > 46 || g.slope > 10) continue;
+      /* No building on water, up a cliff, or on ground that falls away under
+         it — with both limits taken from this port's own coast above, because
+         a number measured on a beach builds nothing on a rock. */
+      if (g.lo < 1.6 || g.hi > MAX_UP || g.slope > MAX_FALL) continue;
       // and not on top of a neighbour
       let clash = false;
       for (const o of shoreRec.spots) {
@@ -677,7 +719,13 @@ function buildSettlement(port, group) {
       for (const part of building(rng, w * k, bh * k, d * k, kind)) {
         parts.push(xf(part, { x, y: g.lo - 1, z, ry }));
       }
-      shoreRec.spots.push({ x, z, y: g.lo, w: w * k, h: bh * k, front: r === 0, kind });
+      /* `ry` and `d` are recorded because a picture of a building wants to be
+         taken from its front. Without them the port screen framed every
+         building from one bearing borrowed from the town centre, which is the
+         front of the average building and the back or the gable end of plenty
+         of individual ones — a market photographed from behind its own
+         awnings is a shed. */
+      shoreRec.spots.push({ x, z, y: g.lo, w: w * k, d: d * k, h: bh * k, ry, front: r === 0, kind });
       placed++; inThisRow++;
     }
   }

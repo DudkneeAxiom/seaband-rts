@@ -5,6 +5,132 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 24. Two of five ports had no town at all  (P1)
+
+**Symptom.** Chasing "the visuals for the area views still need work", I dumped
+the settlement record for every port before touching anything:
+
+```
+ilovantu 23 buildings   marasay 7   greywake 1   tideglass 25   escarra 0
+```
+
+Fort Escarra — an Admiralty station whose own description promises a stone
+mole and a signal mast — had **no buildings**. Greywake, the League's fortress
+harbour, had one shed. Both port screens were photographing bare grass.
+
+**Root cause.** What a builder will accept was two absolute numbers: nothing
+above 46m, nothing with more than ten metres of fall across its own footprint.
+Finding 19 measured those — on Ilo Vantu, which is a beach. Re-measuring per
+port shows what that costs everywhere else:
+
+| port | shore | front row | median fall | candidates accepted |
+|---|---|---|---|---|
+| ilovantu | 74m | ok | 7.4m | 207 / 1300 |
+| marasay | 74m | **none** | 10.5m | 153 |
+| greywake | 74m | **none** | 22.0m | **2** |
+| tideglass | 110m | ok | 8.5m | 421 |
+| escarra | 56m | **none** | 23.9m | **0** |
+
+Escarra stands on a seventy-metre rock — the code says so ten lines above the
+test that then rejected all of it — and Greywake on a headland. Their
+waterfront rows sit at 44m with 26 to 28 metres of fall, so *every* candidate
+failed one of the two tests. Marasay lost its whole front row the same way,
+which is why it had no market building for the port screen to frame.
+
+**Change.** The limits come from the port's own coast: sample the bands first,
+take the 72nd percentile of height and the 60th of fall, and accept what that
+ground offers. The old constants are the floors, so a gentle coast keeps
+exactly today's standards and nothing about Ilo Vantu moves; the ceiling on
+the fall is what still refuses a sheer cliff. Sitting a building on the lowest
+corner of its footprint stays right even on a hillside, because every view of
+a port is from the water — the downhill side — so it stands on its low corner
+with the hill rising behind it.
+
+Result: 26, 11, 26, 26, 11. Greywake and Escarra have towns; Marasay,
+Tideglass and Greywake have the market building their tabs advertise.
+
+**Verification, and the part worth keeping.** `shore` now asserts that every
+port built a town, that every town has a waterfront row, and that there is a
+building for every service the port advertises — because a screen that
+captions a picture THE MARKET needs a market to point the lens at. Reverted
+against the old limits the three checks name all three faults exactly:
+
+```
+FAIL every port built a town (ilovantu 23, marasay 7, greywake 1, tideglass 25, escarra 0)
+FAIL and every town has a waterfront row
+FAIL and a building for every service it advertises
+   (marasay: market, greywake: tavern,market, tideglass: market, escarra: tavern,market)
+```
+
+**Why nothing caught this.** `shore` has six checks about settlements and all
+six ask *where* the town is — its waterfront on dry land, its label above the
+roofs, its mooring afloat. Not one asked whether there was a town. A port with
+zero buildings passed every one of them.
+
+## 23. Every area view was taken through a 104° lens  (P2)
+
+**Symptom.** Reported: the visuals for the area views still need work. The
+close-ups were pale, flat and empty — a third of each frame sky, the subject
+small and far, and the near corner of some wall stretched across the rest.
+
+**Root cause.** `PerspectiveCamera(46, w/h)` — and three.js takes the
+*vertical* angle. These strips are 3:1, so 46° vertical is **104° horizontal**:
+an ultra-wide. Everything an ultra-wide does to a photograph, it was doing to
+these.
+
+Two more, found by looking rather than reasoning:
+
+- **The bearing was borrowed from the middle of the town.** Every building is
+  turned square to the water and now records the angle it was turned to, so
+  its front — where the sign, the door and the awnings are — is a known
+  direction. It was being photographed from a bearing that is the front of the
+  *average* building and the gable end or the back of plenty of individual
+  ones. A market shot from behind its own awnings is a shed.
+- **A hill in the way reads as "clear" to a single ray.** First attempt aimed
+  from the building's front and came back with a green slope and a roof behind
+  it, twice.
+
+**Change.** A 24° lens, which fills the strip from a stand that is still
+outside the hedge and whose compression flatters flat-shaded geometry. The
+stand is *measured*: swing around the building's own front, stand further back
+as needed, and ask the terrain whether the camera is in open air and how many
+of six marks on the building — four eaves corners, the ridge, the door — it
+can actually see. First stand that sees all six wins; nearest among equals, so
+the subject fills as much of the strip as it can.
+
+**Mistake worth recording.** Between the two I raised the camera by
+`dist * 0.3` and turned the market into a plan of its own rooftops, which
+threw away the silhouettes finding 20 exists to have created. The value that
+shipped is the middle of the two I could see were wrong, which is the only
+reason I know it is right.
+
+## 22. Three harbours were a wall of counters  (P1, reported)
+
+**Symptom.** Reported: "the where to go options needs to go on town pages".
+
+**Root cause.** The town hub — the place, its people, and WHERE TO GO — was
+built only for the two ports written up with notables, on the reasoning that a
+town page without people would be half a feature. What that actually shipped
+was Marasay, Greywake and Tideglass opening straight onto a repair counter
+with no sense of place and **no WHERE TO GO anywhere in them**: the tab strip
+was the only navigation those three ports had.
+
+And on the two that had it, WHERE TO GO sat *below* five biography cards, so
+on a phone the way to the market was under the fold on the screen whose whole
+job is to be the way in.
+
+**Change.** Every port has a town page. It is built from what every port
+already has — its own name for itself, its own description, its faction's
+colour, and a photograph of its real buildings — and the authored two add
+their mood, their worry and their people on top. Where nobody has been written
+yet the people section is simply not drawn, rather than showing an empty
+heading. WHERE TO GO now comes before the people: it is the first thing on the
+page a player lands on when they dock, and the people are one thumb further
+down, which is the right order for a place you have already arrived at.
+
+**Verification.** All five ports open on THE TOWN with a photograph and their
+full set of destinations; Greywake shows all five without scrolling on desktop.
+
 ## 21. The save-guard check assumed a battle that does not always live that long  (harness)
 
 **Symptom.** One intermittent failure across full runs: "a battle cannot
