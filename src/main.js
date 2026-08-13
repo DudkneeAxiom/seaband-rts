@@ -267,7 +267,14 @@ function enterWorld() {
   t.classList.add('out');
   setTimeout(() => t.classList.add('hidden'), 700);
   rig.focus.set(game.player.x, 0, game.player.z);
-  rig.azimuth = -0.62;
+  /* Look where she is pointed, which is at Ilo Vantu.
+     This was a fixed -0.62 from when the opening heading was also fixed, so
+     a new voyage opened staring off into empty water with the town somewhere
+     over your shoulder. Squaring the view on her heading is the same thing
+     the C key does, and she now starts bows-on to the first mark — so the
+     first thing a new captain sees is the place the game is about to tell
+     her to go. */
+  rig.azimuth = Math.PI + game.player.yaw;
   rig.setZoom(isMobile ? 165 : 190);
 }
 

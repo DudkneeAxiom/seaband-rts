@@ -14,6 +14,23 @@ const G = (fn, arg) => page.evaluate(fn, arg);
 await sleep(900);
 await newVoyage(page);
 
+/* ---- a new voyage opens looking at the place it is about to name ---- */
+const opening = await G(() => {
+  const g = window.__game, p = g.player, port = g.PORTS[0];
+  const rect = document.getElementById('scene').getBoundingClientRect();
+  const s = window.__worldToScreen(window.__cam.cam, port.x, 6, port.z, rect);
+  const brg = Math.atan2(port.x - p.x, port.z - p.z);
+  const norm = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+  return {
+    offBow: +Math.abs(norm(p.yaw - brg)).toFixed(2),
+    xFrac: +(s.x / rect.width).toFixed(2), yFrac: +(s.y / rect.height).toFixed(2),
+  };
+});
+ok(`a new voyage opens facing Ilo Vantu (bow ${opening.offBow} rad off, town at `
+  + `${Math.round(opening.xFrac * 100)}% across, ${Math.round(opening.yFrac * 100)}% down)`,
+opening.offBow < 0.2 && opening.xFrac > 0.2 && opening.xFrac < 0.8
+  && opening.yFrac > 0 && opening.yFrac < 0.9);
+
 /* ---- two ports that do not read alike ---- */
 const towns = await G(() => {
   const g = window.__game;
