@@ -28,7 +28,37 @@ that have each been learned painfully here, both in `CLAUDE.md`:
 
 ---
 
-## THE IMMEDIATE JOB: three open failures
+## THE IMMEDIATE JOB: what is actually failing
+
+**Read this whole section before acting — the picture changed twice while it
+was being written, which is itself the point.**
+
+A run on the *typed-buildings* commit came back **15/16**, and it cleared two
+of the three failures listed further down: `trade` passed, and `layout`
+reported 0 problems. Those two were transient — disturbed by an intermediate
+state of the town rebuild, not broken by it. The `systems` 4× one also passed.
+
+That run's single failure was new:
+
+### `campaign` — "a battle cannot overwrite the save with a benched world (13 sail in the instance)"
+
+Thirteen ships in one battle instance is a lot. A battle is supposed to
+*narrow*: everyone not fighting is spliced out of `game.ships` and hidden. So
+either the encounter legitimately gathered thirteen hulls (possible — the
+social pass puts more named ships on the water, and bounty targets cluster), or
+the benching did not happen. Start by printing what those thirteen are.
+
+The rule under test is a real one and worth protecting: **`save()` refuses
+while `mode === 'battle'`**, because the ship list is not the world at that
+moment. The battle saves itself when it ends.
+
+A further run covering the roof/yard/framing head (`3808eeb`) was still in
+flight at handoff and was never seen. **Run `npm test` and work from what it
+says.** Do not assume any list below is the live set — including this one.
+
+## The three failures from the previous commit (mostly cleared)
+
+Kept because the reasoning may still be useful if any of them return.
 
 A full run on the town-layout commit came back **13/16**. These are almost
 certainly disturbed by rebuilding every settlement (see "the town pass" below),
