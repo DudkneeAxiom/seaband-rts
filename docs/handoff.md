@@ -3,7 +3,7 @@
 Read this first, then `CLAUDE.md`, then `docs/findings.md`.
 
 Branch: **`claude/maritime-sandbox-rpg-uhrf5r`** — everything below is pushed.
-Head at handoff: `3808eeb`.
+Head at handoff: the finding-21 commit (the campaign save-guard staging fix).
 
 ---
 
@@ -30,20 +30,23 @@ that have each been learned painfully here, both in `CLAUDE.md`:
 
 ## Where the suite actually stands
 
-**16/16 clean on `3808eeb`, in 1211s.** That run covers everything in this
-document — the social pass, the typed buildings, the rebuilt roofs, the yard on
-the pier line and the scenic port cards.
+**16/16 clean, twice** — once on `3808eeb` in 1211s, and again in 1382s after
+the finding-21 fix below. Those runs cover everything in this document — the
+social pass, the typed buildings, the rebuilt roofs, the yard on the pier line
+and the scenic port cards.
 
-Two earlier runs during this work reported failures (13/16, then 15/16) and
-**every one of those cleared without being fixed**. They were transient:
-suites disturbed by an intermediate state of the town rebuild, or by staging
-that depended on ground the settlement generator had just moved. The specific
-ones, in case any returns:
+Earlier runs during this work reported failures (13/16, then 15/16). Three of
+those cleared without being fixed — transient, disturbed by an intermediate
+state of the town rebuild. The fourth looked like it had cleared too, and had
+not: it was an intermittent harness fault that simply rolled a passing run.
+The specific ones, in case any returns:
 
 - `systems` — "an action at 4x opens at 1x (clock read 4x **on the campaign
   layer**)". The diagnostic is the useful half: *on the campaign layer* means
   `intoBattle()` never produced a battle. A staging failure, not the 4× rule.
-  `intoBattle` (`tools/qa.mjs`) stages at `(120, 60)`; check that water first.
+  The water suspicion was since checked directly: the bake puts 70m under both
+  hulls at `(120, 60)` and along the whole approach, so if this fails on the
+  campaign layer again, the water is not the reason.
 - `trade` — "DOCK offers itself when you are hove to on a clear quay". Docking
   needs `dist < port.dockR && speed < 7.5`. Print depth, speed and distance at
   the moment it gives up.
@@ -52,13 +55,20 @@ ones, in case any returns:
   "0 problems" when it measured nothing. It needs a real frame before it
   measures — the `ff()` trap below.
 - `campaign` — "a battle cannot overwrite the save with a benched world (13
-  sail in the instance)". A battle is supposed to *narrow*: everyone not
-  fighting is spliced out of `game.ships`. If it returns, print what those
-  thirteen hulls are before assuming the benching is broken.
+  sail in the instance)". **This one was a real defect in the harness and is
+  fixed — finding 21.** The guard was never leaking: the boarding checks in
+  section 10b run the better part of a minute of simulation, a capture that
+  empties the instance ends the battle by itself, and the check then measured
+  `save()` on the campaign layer, where writing is correct. The thirteen sail
+  were the restored campaign roster, not an instance. Section 11 now re-enters
+  a real battle when the last one has settled, and its message says which of
+  the two bugs it is describing.
 
-**The lesson is the pattern, not the list.** Four failures across three runs,
-none of them a defect, all of them worth the twenty minutes it took to find
-that out. Run `npm test` and work from what it says today.
+**The lesson is the pattern, not the list.** Most failures under a rebuild are
+the suite catching an intermediate state — but "it passed on the rerun" is not
+the same as "it was transient", and the one that was written off that way was
+a coin-flip that had merely landed well. Run `npm test`, work from what it
+says today, and when a failure vanishes, know *why* before closing the book.
 
 ## Where to pick up
 

@@ -5,6 +5,39 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 21. The save-guard check assumed a battle that does not always live that long  (harness)
+
+**Symptom.** One intermittent failure across full runs: "a battle cannot
+overwrite the save with a benched world (13 sail in the instance)". A solo
+campaign run from the same head passed all 32 checks.
+
+**Root cause.** Section 11 measures that `save()` refuses while
+`mode === 'battle'` — and took its battle on trust from section 10, two
+boarding checks earlier. Those checks run the better part of a minute of
+simulation, and a boarding that captures the last enemy empties the instance,
+which ends the battle by itself (`battle.js`: no enemies left → `finish`).
+That is the game being right. The check then ran `save()` on the campaign
+layer, the save was correctly written, and the failure read as the guard
+leaking. The "13 sail" in the message was the restored campaign roster, not a
+battle instance at all — the count could not tell those apart, which is the
+same message ambiguity as finding 9.
+
+**Change.** Two halves, both in `tools/campaign.mjs`:
+- Section 11 brings the check to its subject: if the earlier action has
+  settled, it dismisses whatever cards the victory queued and re-enters a
+  live battle through the real chain (`intoBattle` — contact, encounter,
+  FIGHT), then measures. Nothing writes `mode` by hand.
+- The message now reports the mode and whether the save was refused or
+  written, and a failure prints the roster — so the two different bugs this
+  message can describe stop sharing one line.
+
+**Verification.** The settled-battle path was exercised deliberately — the
+battle force-finished through its own `finish()` just before section 11, a
+throwaway line removed after the run — and the re-entry staged a fresh action:
+"2 sail, mode battle, save refused", 32/32, with every later section
+unaffected. The normal path passed unchanged before and after. Full suite
+green: 16/16.
+
 ## Session handoff — adaptive audio + polish pass
 
 **What was played.** A cold fresh voyage driven through the real UI: the

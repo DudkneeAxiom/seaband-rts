@@ -494,15 +494,38 @@ ok('and the boarding card offers the choice at all',
 /* ---------------------------------------------------------------
    11 · the save is never written from inside a battle
    --------------------------------------------------------------- */
+/* The action from section 10 does not always live this long: the boarding
+   checks above run the better part of a minute of simulation, and a capture
+   that empties the instance ends the battle by itself — correctly. This check
+   needs a battle to refuse from, so when the last one has settled, get back
+   into one the real way rather than assuming it held. */
+if (!await G(() => window.__game.mode === 'battle')) {
+  // a won action can queue more than one card, and contact waits on them all
+  for (let i = 0; i < 5 && await dismissModal(page); i++);
+  await G(() => {
+    const g = window.__game;
+    if (g.mode === 'encounter') g.closeEncounter();
+    document.getElementById('encounter').classList.add('hidden');
+    g.paused = false;
+  });
+  await intoBattle(page);
+}
 const saveGuard = await G(() => {
   const g = window.__game;
   const before = localStorage.getItem('salt-and-tally-v1');
   g.save();
   const after = localStorage.getItem('salt-and-tally-v1');
-  return { same: before === after, inBattle: g.mode === 'battle', shipsInBattle: g.ships.length };
+  /* Say which half failed. "13 sail in the instance" is equally what you get
+     when the guard leaks and when the battle ended before the check arrived —
+     different bugs, and the count alone cannot tell them apart. */
+  return { same: before === after, inBattle: g.mode === 'battle',
+    mode: g.mode, battle: !!g.battle, ships: g.ships.length,
+    roster: g.ships.map(s => `${s.name}${s.isPlayer ? '*' : ''}(${s.faction})`).join(' ') };
 });
-ok(`a battle cannot overwrite the save with a benched world (${saveGuard.shipsInBattle} sail in the instance)`,
-  saveGuard.inBattle && saveGuard.same);
+ok(`a battle cannot overwrite the save with a benched world (${saveGuard.ships} sail, `
+  + `mode ${saveGuard.mode}, save ${saveGuard.same ? 'refused' : 'WRITTEN'})`,
+saveGuard.inBattle && saveGuard.same);
+if (!(saveGuard.inBattle && saveGuard.same)) console.log('  roster:', saveGuard.roster);
 
 /* ---------------------------------------------------------------
    12 · out of the battle, and a save/load round trip still works
