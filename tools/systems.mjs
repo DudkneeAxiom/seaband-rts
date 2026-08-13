@@ -420,6 +420,48 @@ await newVoyage(page);
 const recovered = await page.evaluate(() => !!window.__game && !!window.__game.player);
 ok('a corrupt save does not brick the game', recovered);
 
+/* ---- other people's wars are not your action ----
+
+   combatHeat means "the player is in action", and half the game reads it: the
+   score's tension layer, `engaged` (which holds a chapter card back until the
+   guns are quiet), and treble crew sea-time. It used to be raised by any ball
+   striking any hull anywhere, and the world fights its own wars whether you
+   are watching or not — so a skirmish over the horizon kept the player
+   permanently in action. A playtester saw the symptom: chapter cards queued
+   for minutes, then arrived three at a time. */
+const farWar = await G(async () => {
+  const g = window.__game, p = g.player;
+  p.x = 0; p.z = -1700; p.hull = p.hullMax;          // open water, far from everyone
+  g.combatHeat = 0;
+  // two strangers, an ocean away, going at each other in earnest
+  const a = g.spawnNPC('pirate'), b = g.spawnNPC('patrol');
+  a.x = 1500; a.z = 1500; b.x = a.x + 60; b.z = a.z;
+  a.hostileToPlayer = false; b.hostileToPlayer = false;
+  a.target = b; b.target = a; a.chaseHold = 0; b.chaseHold = 0;
+  a.shot = 200; b.shot = 200;
+  g.encounterCooling = 900;
+  let sawShots = 0;
+  for (let i = 0; i < 60 * 30; i++) {
+    const before = g.projectiles.list.length + g.projectiles.pending.length;
+    g.update(1 / 60);
+    sawShots += Math.max(0, (g.projectiles.list.length + g.projectiles.pending.length) - before);
+  }
+  const heatFar = g.combatHeat;
+  const engagedFar = g.engaged;
+  /* And the same iron alongside her IS her problem. The AI will not stage
+     this one — a raider that close switches to hunting the player, and
+     nobody fires on the campaign layer — so the hit callback is driven
+     directly, which is the same path the AI's own broadsides take. */
+  b.x = p.x + 100; b.z = p.z;
+  const res = b.damage(6, 'round', a);
+  g.onHit({ owner: a }, b, res);
+  return { sawShots, heatFar: +heatFar.toFixed(1), engagedFar, heatNear: +g.combatHeat.toFixed(1) };
+});
+ok(`a war over the horizon is not your action (${farWar.sawShots} shots fired out there, `
+  + `your heat ${farWar.heatFar}, engaged ${farWar.engagedFar})`,
+farWar.sawShots > 0 && farWar.heatFar === 0 && farWar.engagedFar === false);
+ok(`but the same guns alongside you are (heat ${farWar.heatNear})`, farWar.heatNear > 0);
+
 /* ---- the clock's fourth notch ---- */
 /* One fast button, cycling 2x/4x, with pause and 1x their own buttons. Driven
    through the real strip, because the wiring is the thing under test.

@@ -1448,7 +1448,8 @@ export class Game {
       this.stats.broadsides++;
       this.rig.addShake(0.35 + n * 0.02);
     } else if (d < 420) this.rig.addShake(0.06);
-    this.combatHeat = Math.max(this.combatHeat, 10);
+    // the firing ship is both parties as far as "is this near me" goes
+    this.heatFrom(ship, ship, d, 10);
     void side;
   }
   onSplash(x, z) {
@@ -1476,7 +1477,32 @@ export class Game {
       if (!s.alive) this.onKill(s, proj.owner);
       if (!isHostile(p, s) && s.faction !== 'pirate' && !s.hostileToPlayer) this.provoke(s);
     }
-    this.combatHeat = Math.max(this.combatHeat, 10);
+    this.heatFrom(s, proj.owner, d, 10);
+  }
+
+  /* ---- whose fight is this? ----
+
+     combatHeat means "the player is in action", and half the game reads it:
+     the score raises the tension layer on it, `engaged` holds a chapter card
+     back until it cools, and crew earn treble sea-time while it burns.
+
+     It used to be set by ANY ball striking ANY hull anywhere. The world
+     simulates its own wars whether you are watching or not, so a skirmish
+     over the horizon kept the player permanently "in action": tension music
+     with nothing in sight, chapter cards queueing up for minutes and then
+     arriving in a stack, and free crew experience for other people's
+     battles. That stacked delivery is exactly what a playtester reported.
+
+     So it asks whose fight it is. Yours, your fleet's, or one close enough
+     to be your problem — and out past that, somebody else's war. */
+  heatFrom(target, owner, d, amount) {
+    const p = this.player;
+    if (!p) return;
+    const mine = target === p || owner === p
+      || this.fleet.includes(target) || this.fleet.includes(owner);
+    // 520m: the range at which `engaged` already counts a marked ship as yours
+    if (!mine && !(Number.isFinite(d) && d < 520)) return;
+    this.combatHeat = Math.max(this.combatHeat, amount);
   }
   onGround(s, over) {
     if (s.isPlayer) {

@@ -518,8 +518,13 @@ export function musicUpdate(dt, st) {
   const askFor = want;
   const held = now - wantedSince;
   const currentKey = state + '|' + JSON.stringify(detail);
-  if (key !== currentKey && held >= (DEBOUNCE[askFor] || 2)
-      && (now >= dwellUntil || askFor === 'battle' || askFor === 'boarding')) {
+  /* Danger is never made to wait its turn. Civil states hold a minimum dwell
+     so that sailing the rim of a harbour's radius cannot thrash the mix, but
+     the whole point of the tension layer is to be heard BEFORE the thing it
+     warns about — so anything with a threat in it preempts the dwell. */
+  const urgent = askFor === 'battle' || askFor === 'boarding'
+    || askFor === 'tension_high' || askFor === 'tension_low';
+  if (key !== currentKey && held >= (DEBOUNCE[askFor] || 2) && (now >= dwellUntil || urgent)) {
     enterState(askFor, wantedDetail);
   }
 

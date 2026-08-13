@@ -8,7 +8,7 @@ import { initMusic, musicUpdate, musicEvent, musicState } from './music.js';
 let ctx = null, master = null, ambBus = null, sfxBus = null, musBus = null;
 let started = false, muted = false;
 let waveLFO = null, windGain = null, waveGain = null;
-let gullTimer = 0, creakTimer = 0, harbourGain = null;
+let gullTimer = 0, creakTimer = 0, quayTimer = 0, harbourGain = null;
 let noiseBuf = null, echoIn = null, probe = null;
 
 /* A broadside is one call per gun, and a fleet action is several broadsides
@@ -194,9 +194,78 @@ export function updateAudio(dt, st) {
   creakTimer -= step;
   if (creakTimer <= 0) { creakTimer = 3 + Math.random() * 7; if (speedN > 0.15) creak(); }
 
+  /* The waterfront, heard. The murmur bed above says "people"; these say
+     "harbour": a slack halyard knocking on wood, a mooring rope taking the
+     strain, and now and then the harbour bell. All of it scales with how
+     close the town is, and none of it follows you to sea. */
+  quayTimer -= step;
+  if (quayTimer <= 0) {
+    quayTimer = 2.6 + Math.random() * 5;
+    if (nearPort > 0.45) {
+      const r = Math.random();
+      if (r < 0.45) quayKnock(nearPort);
+      else if (r < 0.8) quayRope(nearPort);
+      else if (nearPort > 0.85) quayBell(nearPort);
+    }
+  }
+
   /* The score reads the same state bag, in its own module, behind the same
      rule: a music bug may cost the music, never the frame. */
   try { musicUpdate(step, st); } catch (e) { void e; }
+}
+
+/* ---------------- the waterfront ---------------- */
+function quayKnock(near) {
+  if (!voice(0.3)) return;
+  // a block or a spar knocking hollow wood, twice, off the beat
+  const t0 = ctx.currentTime;
+  for (let i = 0; i < 2; i++) {
+    const at = t0 + i * (0.14 + Math.random() * 0.08);
+    const o = ctx.createOscillator(); o.type = 'triangle';
+    const f = num(160 + Math.random() * 120, 200, 80, 500);
+    o.frequency.setValueAtTime(f, at);
+    o.frequency.exponentialRampToValueAtTime(f * 0.6, at + 0.09);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(gainOf(0.05 * near, 0.12), at + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
+    o.connect(g); g.connect(ambBus);
+    o.start(at); o.stop(at + 0.16);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
+  }
+}
+function quayRope(near) {
+  if (!voice(0.6)) return;
+  // a mooring line stretching: the hull creak's smaller cousin, higher and shorter
+  const t = ctx.currentTime;
+  const o = ctx.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(num(120 + Math.random() * 60, 150, 60, 400), t);
+  o.frequency.linearRampToValueAtTime(num(90 + Math.random() * 40, 110, 50, 300), t + 0.5);
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 5;
+  o.connect(f);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gainOf(0.028 * near, 0.08), t + 0.18);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+  f.connect(g); g.connect(ambBus);
+  o.start(t); o.stop(t + 0.7);
+  o.onended = () => { o.disconnect(); f.disconnect(); g.disconnect(); };
+}
+function quayBell(near) {
+  if (!voice(2)) return;
+  // the harbour bell, once, far enough off to be somebody else's watch
+  const t = ctx.currentTime;
+  [392, 588].forEach((f, i) => {
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.value = f * (1 + (Math.random() - 0.5) * 0.003);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gainOf(0.035 * near / (i + 1), 0.06), t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+    o.connect(g); g.connect(ambBus);
+    o.start(t); o.stop(t + 1.9);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
+  });
 }
 
 /** Gameplay's only other door into the score: victory, defeat, discovery. */
