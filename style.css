@@ -1259,3 +1259,7 @@ input.slider:focus-visible { outline: 2px solid var(--brass); outline-offset: 4p
   .fwrap { min-width: 0; width: 100%; }
   input.slider { flex: 1; width: auto; }
 }
+
+/* A hull that cannot be worked says so in her own line, not only when you
+   press the button she will refuse. */
+.statline em.warn { color: var(--danger); font-style: normal; opacity: .95; }

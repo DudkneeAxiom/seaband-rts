@@ -401,7 +401,8 @@ function fleetRow(s, port) {
      <div class="statline">
        <span>hull <b>${Math.round(s.hull)}/${s.hullMax}</b></span>
        <span>guns <b>${s.gunsPort + s.gunsStb}</b></span>
-       <span>crew <b>${s.crewTotal}/${s.cls.crewMax}</b></span>
+       <span>crew <b>${s.crewTotal}/${s.cls.crewMax}</b>${
+  s.crewTotal < s.cls.crewMin ? ` <em class="warn">needs ${s.cls.crewMin}</em>` : ''}</span>
        <span>speed <b>${s.cls.speed.toFixed(1)}</b></span>
      </div>`));
   if (!s.isPlayer) {
@@ -412,12 +413,18 @@ function fleetRow(s, port) {
        own should not have to keep sailing the cutter — that was most of the
        point of taking it. Only in harbour, and only if she can be worked:
        the hull carries the hands, but the captain carries the skill. */
+    /* Not disabled when she is short-handed. A greyed button gives no reason,
+       and on a phone there is no tooltip to give one either — so it stays live
+       and says what she wants, which is a thing the player can then go and do
+       on the crew page two taps away. */
     const cmd = el('button', 'btn gold', 'COMMAND');
     const short = s.crewTotal < s.cls.crewMin;
-    cmd.disabled = short;
-    if (short) cmd.title = `${s.name} needs ${s.cls.crewMin} hands to work; she has ${s.crewTotal}.`;
+    if (short) cmd.classList.add('dim');
     onTap(cmd, () => {
-      if (short) return toast(`${s.name} wants ${s.cls.crewMin} hands before she will answer.`, 'bad', 3400);
+      if (short) {
+        return toast(`${s.name} wants ${s.cls.crewMin} hands to answer the helm — `
+          + `she has ${s.crewTotal}. Sign more on at the crew page.`, 'bad', 4200);
+      }
       modal({
         title: `Shift your flag?`,
         text: `You will command <b>${s.name}</b>, and <b>${G.player.name}</b> falls in`
