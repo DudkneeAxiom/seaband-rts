@@ -5,6 +5,77 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 30. Only the player knew how to sail round an island  (P1, reported)
+
+**Symptom.** Reported: "Ships seem to get stuck next to the left grey arm at
+Greywake." Reproduced by putting fourteen hulls round Greywake and telling
+them to make the harbour: after 400 simulated seconds, four were still out
+there — two of them turning circles against the left arm for **352 and 179
+seconds** at full speed — and two had driven ashore.
+
+**Root cause.** `findRoute` — the A* over the baked depth field, written
+because "tap-to-sail used to steer the rhumb line and nothing else, so a
+course laid across the shoals ran the ship aground" — was called from
+`game.js` and nowhere else. It was the *player's*. Every NPC captain still
+steered the rhumb line with `avoidLand`, a greedy local rule that can nudge a
+bow off a rock and cannot work a hull through a harbour mouth. Each deflection
+pointed them back at the arm, so they orbited it until something killed them.
+`avoidLand` already carried a comment about a fleet grinding itself to death
+on this exact breakwater; the answer to that had been to sound the probe ray
+better, which is the instance, not the class.
+
+**Change.** `steerVia` in `ai.js`: the same grid, the same search, laid once
+when a course is set and followed waypoint by waypoint with `steerTo` still
+doing the sailing. Merchants on a leg and damaged ships running for their yard
+use it — the long hauls that end inside a harbour. It falls back to the rhumb
+line whenever no route is found, so open water costs nothing.
+
+**And the bug underneath it, which was the player's too.** `smooth()` appended
+the destination *unconditionally*: a route worked carefully round every
+headland finished with an **unchecked straight line** from the last water cell
+to the mark. Harmless where the mark is in open water; into Greywake that last
+leg crosses a breakwater arm, so hulls that had just been routed neatly
+through the mouth turned and drove onto the masonry inside it. Where the mark
+cannot be seen from the last waypoint the route now ends in the water, and the
+last few metres are left to the ship's own avoidance.
+
+**Result.** Stuck or circling: 4 → **0**. Lost aground: 4 → 2. Twelve of the
+fourteen now make the harbour and carry on to their next leg.
+
+## 29. The Iron Sound was a gate nothing could get through  (P2, reported)
+
+**Symptom.** Reported: "Can you move the outer two islands out further so it's
+not so tight?"
+
+**Change.** The Iron Teeth and Graithold stand 220m and 160m further off Sable
+Head, along their own bearings from it, and Greywake's arms close to 80 metres
+either side of the axis instead of 54. Narrow channels are the point of this
+water — the League's argument is that whoever holds the gates holds the
+traffic — but they were narrow enough that the traffic could not use them at
+all, which makes the argument to nobody. Against a two-hundred-metre arm the
+heads still very nearly meet.
+
+Kept honest by measurement, not taste: `shore` still asserts the arms stand in
+water, that the mouth carries a hull, and that both islands' towns build.
+
+## 28. A new campaign inherited the last one's clock  (P1, reported)
+
+**Symptom.** Reported: "When starting a new campaign the world speed seems off
+and player has to change the speed for it to go normal x1 speed."
+
+**Root cause.** The `Game` object outlives a voyage — it is built once and
+`newGame` re-dresses it — and `newGame` reset thirty-odd fields without
+touching `speed`. So a captain who had been running at 4× and started a new
+campaign got a world moving at four times life from the first frame, with
+nothing to do about it but notice and wind the clock back by hand. `time` was
+the same leak and quieter: contract epochs, the dry-stores warning and
+everything the social layer timestamps were all being dated from the end of
+the previous voyage.
+
+**Verification.** Driven the way it was reported — wind the clock to 4×, start
+a new campaign, read the clock. Before: `speed=4, worldClock=4.9s`. After:
+`speed=1, worldClock=0.3s`. `systems` now checks it.
+
 ## 27. The islands now level the ground their towns stand on  (P2)
 
 **Symptom.** Finding 24 let every port build a town, but two of them were

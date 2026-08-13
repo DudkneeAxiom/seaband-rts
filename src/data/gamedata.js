@@ -218,11 +218,18 @@ export const ISLANDS = [
     blobs:[ {x:0,z:0,r:190,h:150},{x:150,z:120,r:120,h:96},{x:-130,z:90,r:104,h:72} ],
     trees: 5, rocks: 26,
   },
-  { id:'ironteeth', ground:'iron', name:'The Iron Teeth', x:-1120, z:-1520, seed: 89,
+  /* The two outer islands stand further off Sable Head than they did.
+     Narrow channels are the point of this water, but they were narrow enough
+     that traffic could not use them: hulls making for Greywake milled about
+     outside for six minutes together without finding the way in, and two
+     drove ashore. Pushed 220m and 160m out along their own bearings from
+     Sable Head, which opens the approach without moving the argument — these
+     are still gates, and Greywake still sits behind them. */
+  { id:'ironteeth', ground:'iron', name:'The Iron Teeth', x:-917, z:-1605, seed: 89,
     blobs:[ {x:0,z:0,r:132,h:128},{x:140,z:-70,r:96,h:88},{x:-120,z:-40,r:88,h:66} ],
     trees: 3, rocks: 22,
   },
-  { id:'graithold', ground:'iron', name:'Graithold', x:-1760, z:-960, seed: 97,
+  { id:'graithold', ground:'iron', name:'Graithold', x:-1847, z:-826, seed: 97,
     blobs:[ {x:0,z:0,r:160,h:118},{x:-110,z:110,r:110,h:74} ],
     trees: 6, rocks: 18,
   },

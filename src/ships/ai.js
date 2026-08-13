@@ -6,6 +6,7 @@
 import { PORTS, EDGE_NODES, FISH_GROUNDS, FACTIONS } from '../data/gamedata.js';
 import { clamp, clamp01, angDiff, dist, TAU } from '../core/util.js';
 import { depthAt } from '../world/terrain.js';
+import { findRoute } from '../core/route.js';
 import { fireBroadside, bestSide, GUN_RANGE, canBoard } from '../combat/combat.js';
 import { crewPower } from './ship.js';
 
@@ -81,6 +82,43 @@ function steerTo(ship, x, z, dt) {
   ship.headingCmd = safe;
   ship.dest = null;
   ship.throttle = 1;
+}
+
+/**
+ * Steer for somewhere a long way off, round the land rather than into it.
+ *
+ * `steerTo` lays the rhumb line and leans on `avoidLand`, which is a greedy
+ * local rule: it can deflect a bow off a rock, and it cannot work a hull
+ * through a harbour mouth or round the end of a two-hundred-metre breakwater.
+ * Put traffic into Greywake and you could watch it — hulls standing off the
+ * left arm turning circles for six minutes at a stretch, and two of fourteen
+ * driving ashore, because every deflection pointed them back at the arm.
+ *
+ * The route grid was written for exactly this and given only to the player:
+ * the module's own opening comment describes tap-to-sail steering the rhumb
+ * line and grinding on the shoals, and NPC captains were still doing it. Same
+ * grid, same A*, same corner-pulling — laid once when a course is set and
+ * followed waypoint by waypoint, with `steerTo` still doing the sailing.
+ *
+ * Falls back to the rhumb line whenever no route is found, so open water
+ * costs nothing and nothing can be made unreachable by a failed search.
+ */
+function steerVia(ship, x, z, dt, world) {
+  const b = ship.brain;
+  if (!b) { steerTo(ship, x, z, dt); return; }
+  const moved = !b.pathGoal || dist(b.pathGoal.x, b.pathGoal.z, x, z) > 90;
+  if (moved) {
+    b.pathGoal = { x, z };
+    b.path = findRoute(ship.x, ship.z, x, z, (world && world.limit) || 1900) || null;
+    // the first leg is usually where she already is; drop it
+    if (b.path && b.path.length > 1) b.path.shift();
+  }
+  if (b.path && b.path.length) {
+    const wp = b.path[0];
+    if (dist(ship.x, ship.z, wp.x, wp.z) < 70) { b.path.shift(); }
+  }
+  const leg = b.path && b.path.length ? b.path[0] : null;
+  steerTo(ship, leg ? leg.x : x, leg ? leg.z : z, dt);
 }
 
 /** Station-keeping off the target's beam: the classic circling gun duel. */
@@ -321,9 +359,10 @@ function runRoute(ship, dt, world, ctx) {
     if (p.id && world.market) world.market.merchantArrived(p.id);
     if (ctx && ctx.onArrive) ctx.onArrive(ship, p);
     b.route = [b.route[1], pickFarNode(b.route[1])];
+    b.path = null; b.pathGoal = null;      // a new leg wants a new route
     return;
   }
-  steerTo(ship, p.x, p.z, dt);
+  steerVia(ship, p.x, p.z, dt, world);
 }
 function pickFarNode(fromId) {
   const ids = [...PORTS.map(p => p.id), 'edge_w', 'edge_n', 'edge_e', 'edge_s'];
@@ -438,7 +477,7 @@ function sableAI(ship, dt, world, ctx, hurt) {
 
   if (hurt) {                                  // damaged ships go home to the yard
     const home = nearestPort(ship, p => p.faction === 'sable') || nearestPort(ship);
-    steerTo(ship, home.x, home.z, dt);
+    steerVia(ship, home.x, home.z, dt, world);
     ship.target = null;
     return;
   }
@@ -509,7 +548,7 @@ function patrolAI(ship, dt, world, ctx, hurt) {
   const b = ship.brain;
   if (hurt) {
     const home = nearestPort(ship, p => p.faction === ship.faction) || nearestPort(ship);
-    steerTo(ship, home.x, home.z, dt);
+    steerVia(ship, home.x, home.z, dt, world);
     ship.target = null;
     return;
   }

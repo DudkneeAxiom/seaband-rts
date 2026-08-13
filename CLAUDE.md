@@ -130,6 +130,11 @@ that is written down, and everything that asks "can I fire", "can I dock",
   already has (`tagline`, `desc`, `prices`, its faction's flag colour), so
   adding a port cannot leave a half-built screen; `PORT_IDENTITY` and
   `NOTABLES` add mood and people on top where they exist.
+- **If the player has a rule, the world usually needs it too.** `findRoute`
+  existed for a year and was wired to tap-to-sail alone, so NPC captains went
+  on steering the rhumb line into headlands — the exact fault the route module
+  was written to cure, still live for every hull but one. When a fix lands on
+  the player's path, ask what else takes that path.
 - **One control per job.** The town page briefly carried a WHERE TO GO list —
   a row and a GO button per counter — directly beneath a tab strip with one
   tab per counter. Navigation written out twice is not twice as navigable; it

@@ -880,6 +880,30 @@ ok(`word in harbour points you at the story's quarry (${hunt.note
 ok(`and the objective says so in words (${hunt.note || hunt.toldText.replace(/<[^>]+>/g, '').trim()})`,
   !hunt.note && /off /.test(hunt.toldText) && hunt.blindText !== hunt.toldText);
 
+/* ---- last of all: a new voyage starts on a clock nobody has to reset ----
+   Reported: starting a new campaign gave a world already running fast, with
+   nothing to do about it but notice and set the clock back by hand. The game
+   object outlives a voyage — it is made once and `newGame` re-dresses it —
+   and the clock was not among the things being re-dressed. World time is
+   checked with it because it leaks the same way and more quietly: contract
+   epochs and everything the social layer timestamps were being dated from
+   the end of the previous voyage.
+
+   Dead last in the file on purpose. This is the one check here that throws
+   the world away and builds another, which puts the opening scene up over
+   everything — run it mid-file and every click after it hits that card
+   instead, which is exactly how it took the whole suite down once. */
+const clockReset = await G(() => {
+  const g = window.__game;
+  g.speed = 4;                        // where a player might well have left it
+  const wasTime = +g.time.toFixed(1);
+  g.newGame(false, g.origin);
+  return { speed: g.speed, time: +g.time.toFixed(1), wasTime };
+});
+ok(`a new voyage opens at 1x on a clock reading zero (was 4x at ${clockReset.wasTime}s, `
+  + `now ${clockReset.speed}x at ${clockReset.time}s)`,
+clockReset.speed === 1 && clockReset.time === 0);
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

@@ -203,6 +203,17 @@ export class Game {
     this.world.market = this.market;
     this.gameOver = false;
     this.paused = false;
+    /* A new voyage starts at 1× on a clock reading zero.
+       Neither of these was reset here, and the game object outlives a voyage —
+       it is made once and `newGame` re-dresses it. So a captain who had been
+       running at 4× and started a new campaign got one that opened at 4×: the
+       world moving at four times life from the first frame, with nothing to
+       do about it but notice and set the clock back by hand. The world clock
+       is the same kind of leak, quieter — contract epochs, the dry-stores
+       warning and everything the social layer timestamps were all being dated
+       from the end of the last voyage. */
+    this.speed = 1;
+    this.time = 0;
     this.hintState = {};
     this.fleetOrder = 'follow';
     /* Which layer the game is on. The ocean is the campaign; contact between

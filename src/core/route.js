@@ -132,7 +132,20 @@ function smooth(pts, x1, z1) {
     out.push(pts[j]);
     i = j;
   }
-  if (!out.length || Math.hypot(out[out.length - 1].x - x1, out[out.length - 1].z - z1) > 1) {
+  /* The last leg has to be sounded like every other one.
+     This used to append the destination unconditionally, so a route that had
+     been carefully worked round every headland finished with an unchecked
+     straight line from the last water cell to the mark. Usually harmless —
+     usually the mark is in open water. Into Greywake it is not: the run from
+     the last cell to the mooring crosses a breakwater arm, and hulls that had
+     just been routed neatly through the harbour mouth turned and drove onto
+     the masonry inside it. The player's tap-to-sail had the same hole.
+     Where the mark cannot be seen from the last waypoint, the route ends in
+     the water instead; the last few metres are close enough for the ship's
+     own land-avoidance, which is what that rule is good at. */
+  const last = out.length ? out[out.length - 1] : null;
+  const short = last && Math.hypot(last.x - x1, last.z - z1) <= 1;
+  if (!short && (!last || clearWater(last.x, last.z, x1, z1))) {
     out.push({ x: x1, z: z1 });
   }
   return out;

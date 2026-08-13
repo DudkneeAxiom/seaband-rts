@@ -874,9 +874,15 @@ function buildSettlement(port, group) {
       const armLen = 200, seg = 13;
       for (let i = 0; i < seg; i++) {
         const t = i / (seg - 1);
-        // each arm curves in toward the mouth as it runs out
+        /* Each arm curves in toward the mouth as it runs out — but not as far
+           as it used to. They closed to 54 metres either side of the axis,
+           and with the rubble footing under them that left a gap barely wider
+           than a hull is long: shipping simply could not find it, and stood
+           off circling the left arm until something else killed it. At 80 the
+           two heads still very nearly meet against a two-hundred-metre arm,
+           which is the League's argument, and a ship can now answer it. */
         const out = 46 + t * armLen;
-        const across = side * (128 - t * 74);
+        const across = side * (128 - t * 48);
         const bx = base.x - inland.x * out + perpG.x * across;
         const bz = base.y - inland.y * out + perpG.y * across;
         const h = 13 - t * 3;
@@ -886,8 +892,8 @@ function buildSettlement(port, group) {
         raiseSeabed(bx, bz, 21, 1.6);
       }
       // a light on the head of each arm, where the mouth is
-      const hx = base.x - inland.x * (46 + armLen) + perpG.x * side * 54;
-      const hz = base.y - inland.y * (46 + armLen) + perpG.y * side * 54;
+      const hx = base.x - inland.x * (46 + armLen) + perpG.x * side * 80;
+      const hz = base.y - inland.y * (46 + armLen) + perpG.y * side * 80;
       seaworks.push(prep(xf(new THREE.CylinderGeometry(3.4, 4.6, 22, 7), { x: hx, y: 10, z: hz }), stoneLit, 0.04));
       seaworks.push(prep(xf(new THREE.BoxGeometry(5, 4, 5), { x: hx, y: 22, z: hz }), 0x8e2b28, 0.05));
       raiseSeabed(hx, hz, 14, 1.2);
