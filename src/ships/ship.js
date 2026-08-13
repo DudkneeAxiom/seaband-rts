@@ -438,9 +438,23 @@ export class Ship {
     res.sails = amount * a.sail * 0.9;
     this.sails = Math.max(0, this.sails - res.sails);
 
-    // crew casualties
+    /* Crew casualties, with a floor.
+
+       Grape used to be able to sweep a ship to literally nobody: twelve
+       broadsides took a full complement to zero, which made boarding odds
+       exactly 1.0 and turned "capture the prize" into a formality with one
+       correct answer. It is also nonsense — you cannot shoot every hand off
+       a ship from across the water. The last of them are below the
+       waterline, behind the guns, in the hold, and they are precisely the
+       ones you will meet coming over the rail.
+
+       So gunnery cannot reduce a company below a working core. Boarding
+       melee can and does kill to the last man; that path calls killCrew
+       directly and is untouched. */
     let losses = Math.round(amount * a.crew * 0.28 * (0.6 + Math.random() * 0.8));
     if (this.hasOfficer('surgeon')) losses = Math.round(losses * 0.65);
+    const core = Math.ceil(this.cls.crewMin * 0.35);
+    losses = Math.min(losses, Math.max(0, this.crewTotal - core));
     if (losses > 0) res.crew = this.killCrew(losses);
 
     // guns

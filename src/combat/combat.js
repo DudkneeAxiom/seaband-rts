@@ -335,8 +335,15 @@ export class Boarding {
   }
 }
 
+/* Never a certainty, in either direction.
+
+   A pure ratio reached 1.0 the moment gunnery emptied the other deck, and a
+   guaranteed capture is not a decision — it is a chore with a good reward.
+   The clamp keeps the last of a beaten crew dangerous and leaves a desperate
+   boarding just possible, so closing alongside stays a risk the player takes
+   rather than a button they press. */
 export function boardOdds(a, d) {
   const pa = a.boardingPower, pd = d.boardingPower * 1.12;
-  return clamp01(pa / (pa + pd || 1));
+  return clamp(pa / (pa + pd || 1), 0.06, 0.92);
 }
 export { lerp };

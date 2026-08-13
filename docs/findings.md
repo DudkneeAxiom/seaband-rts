@@ -3,6 +3,55 @@
 Symptom → reproduction → root cause → change → verification.
 Newest first. Trivia omitted deliberately.
 
+## 3. Grape shot made capture a formality  (P1)
+
+**Symptom.** Playtest measurement of the brief's "is the right answer always
+the biggest number?" question. Five ammunition plans, same hull class, same
+pose, twelve broadsides each:
+
+| plan | sunk | boarding odds | her rig | her crew |
+|---|---|---|---|---|
+| round | 5/6 | — | 0.77 | 13 |
+| chain | 0/6 | 0.49 | 0.00 | 13.8 |
+| grape | 0/6 | **1.00** | 0.68 | **0** |
+| chain+grape | 0/6 | **1.00** | 0.13 | **0** |
+
+**Root cause.** `killCrew` had no floor, so grape swept a full company to
+literally nobody; `boardOdds` was an unclamped ratio, so an empty deck gave
+exactly 1.0. Capture was therefore a chore with one correct answer — load
+grape, close, press the button — and chain had no reason to exist.
+
+**Change.** Gunnery cannot reduce a company below a working core
+(`ceil(crewMin × 0.35)`); the last hands are below the waterline and behind
+the guns, and they are who you meet at the rail. Boarding melee still kills to
+the last man — that path calls `killCrew` directly and is untouched.
+`boardOdds` clamps to [0.06, 0.92], so a prize is never certain and a
+desperate boarding is never impossible.
+
+**Result.** The three shot types are now three intentions:
+
+| plan | sunk | boarding odds | her rig | her crew |
+|---|---|---|---|---|
+| round | 6/6 | — | 0.80 | 11 |
+| chain | 0/8 | 0.53 | 0.00 | 12 |
+| grape | 0/8 | 0.79 | 0.66 | 2 |
+| chain+grape | 0/8 | 0.79 | **0.12** | 2 |
+
+Round destroys the prize. Chain strips her rig so she cannot run but leaves a
+coin-flip melee. Grape softens her deck for a favoured boarding. Chain+grape
+is the expert answer — she can neither run nor repel you — paid for in
+broadsides and time alongside.
+
+**Verification.** `systems` asserts the design rather than the numbers: round
+sinks her, grape beats chain for odds by a clear margin, chain leaves her rig
+under a quarter, and no gunnery makes a prize certain.
+
+**Probe note.** The first version of this measurement compared arms against
+whatever raider happened to be first in `game.ships`, which is a different
+hull class between runs — it reported round shot going from 5/6 sinks to 0/6
+after a change that touches no hull damage at all. The regression test pins
+the class.
+
 ## 1. Other people's wars counted as the player's action  (P1)
 
 **Symptom.** Tension music rose while sailing empty water with nothing in

@@ -420,6 +420,92 @@ await newVoyage(page);
 const recovered = await page.evaluate(() => !!window.__game && !!window.__game.player);
 ok('a corrupt save does not brick the game', recovered);
 
+/* ---- the three shot types are three different intentions ----
+
+   Measured during a playtest pass: grape used to sweep a full company to
+   literally nobody, which made boarding odds exactly 1.0. Capture was then a
+   chore with one correct answer — load grape, close, press the button — and
+   chain had no reason to exist. The floor on gunnery casualties and the cap
+   on boarding odds exist to keep these three apart, so this asserts the
+   design rather than the numbers: round is for sinking, grape is for taking,
+   and a prize is never a certainty.
+
+   Every arm fights the same hull class from the same pose; only the shot
+   differs. Comparing arms against whatever raider happened to be first in
+   the array is how an earlier version of this measurement lied. */
+const shotWork = await G(async (plans) => {
+  const g = window.__game;
+  const out = [];
+  for (const plan of plans) {
+    let sunk = 0, odds = 0, kept = 0, sails = 0, crew = 0;
+    const trials = 6;
+    for (let t = 0; t < trials; t++) {
+      const p = g.player;
+      p.x = -1500; p.z = 1400; p.hull = p.hullMax; p.sails = p.sailMax; p.shot = 300;
+      p.crew.deckhand = 6; p.crew.sailor = 5; p.crew.gunner = 1; p.crew.marine = 1;
+      let foe = g.ships.find(s => s.faction === 'pirate' && s.alive && s.classId === 'cutter'
+        && !g.fleet.includes(s));
+      for (let k = 0; k < 40 && !foe; k++) {
+        const c = g.spawnNPC('pirate');
+        if (c && c.classId === 'cutter') foe = c;
+      }
+      if (!foe) return null;
+      foe.hull = foe.hullMax; foe.sails = foe.sailMax; foe.alive = true; foe.captured = false;
+      foe.crew.deckhand = 6; foe.crew.sailor = 4; foe.crew.marine = 2;
+      foe.crew.gunner = 0; foe.crew.rigger = 0; foe.crew.veteran = 0; foe.morale = 1;
+      foe.x = p.x + 70; foe.z = p.z; foe.speed = 0; p.yaw = 0; p.speed = 0;
+      g.target = foe; g.ctx.combatLive = true; g.mode = 'battle';
+      for (let v = 0; v < 12 && foe.alive; v++) {
+        p.ammo = plan[v % plan.length];
+        p.reload.stb = 0; p.reload.port = 0;
+        foe.x = p.x + 70; foe.z = p.z; foe.speed = 0;
+        g.update(0.03);
+        if (!g.fireSide) break;
+        g.playerFire();
+        for (let k = 0; k < 34; k++) g.update(0.03);
+      }
+      if (!foe.alive) { sunk++; foe.alive = true; foe.hull = foe.hullMax; }
+      else {
+        kept++; sails += foe.sailFrac; crew += foe.crewTotal;
+        foe.x = p.x + 22; foe.z = p.z; g.update(0.03);
+        odds += g.boardOdds || 0;
+      }
+      g.mode = 'campaign'; g.ctx.combatLive = false; g.target = null;
+    }
+    out.push({ plan: plan.join('+'), sunk, trials,
+      odds: kept ? +(odds / kept).toFixed(2) : 0,
+      sails: kept ? +(sails / kept).toFixed(2) : 0,
+      crew: kept ? +(crew / kept).toFixed(1) : 0 });
+  }
+  return out;
+}, [['round'], ['chain'], ['grape'], ['chain', 'grape']]);
+const arm = id => shotWork && shotWork.find(r => r.plan === id);
+const R = arm('round'), C = arm('chain'), Gp = arm('grape'), CG = arm('chain+grape');
+ok(`round shot is for sinking her (${R && R.sunk}/${R && R.trials} went down)`,
+  !!R && R.sunk >= R.trials * 0.5);
+ok(`grape is for taking her (${Gp && Gp.sunk} sunk, her deck down to ${Gp && Gp.crew} hands, odds ${Gp && Gp.odds})`,
+  !!Gp && Gp.sunk === 0 && Gp.odds > (C ? C.odds : 1) + 0.1);
+ok(`chain is for stopping her running (her rig at ${C && C.sails} of full)`,
+  !!C && C.sails < 0.25 && C.sunk === 0);
+ok(`and no gunnery makes a prize certain (best odds ${CG && CG.odds}, `
+  + `a fighting remnant of ${CG && CG.crew} left aboard)`,
+!!CG && CG.odds <= 0.92 && CG.crew >= 1);
+/* Stand the sea down. This section leaves beaten raiders lying alongside the
+   player with the guns warm, and the very next thing that touches the screen
+   otherwise finds an encounter card over it. */
+await G(() => {
+  const g = window.__game, p = g.player;
+  g.mode = 'campaign'; g.ctx.combatLive = false; g.clearTarget();
+  g.combatHeat = 0; g.encounterCooling = 900;
+  p.x = 0; p.z = -1700; p.hull = p.hullMax; p.sails = p.sailMax;
+  for (const s of g.ships) {
+    if (s.isPlayer || g.fleet.includes(s)) continue;
+    s.hostileToPlayer = false; s.target = null; s.chaseHold = 900; s.aggro = 0;
+    if (Math.hypot(s.x - p.x, s.z - p.z) < 900) { s.x = 9e4; s.z = 9e4; }
+  }
+});
+await noEncounters();
+
 /* ---- other people's wars are not your action ----
 
    combatHeat means "the player is in action", and half the game reads it: the
