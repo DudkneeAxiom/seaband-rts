@@ -58,6 +58,35 @@ function analyticHeight(x, z) {
     if (val > h) h = val;
   }
 
+  /* An apron of level ground behind each beach.
+     People do not build a harbour town up a 25° slope; they build it on the
+     flattest ground near the water and terrace what is left. These islands
+     were pure blobs, so two of the five ports had their waterfront on rock
+     falling twenty-five metres across a single house — which is buildable
+     only in the sense that a wall can be stood on it, and reads from the
+     water as sheds glued to a cliff.
+
+     So the island gets the shelf the town would have levelled. It only
+     touches ground that is already dry, and fades out as it approaches the
+     waterline, so the coastline, the beaches and every depth a hull cares
+     about are exactly what they were. */
+  /* Written out flat on purpose. This is the innermost line of the bake —
+     150k samples — and the first version cost 1.4 seconds of load all by
+     itself: a `for…of` allocates an iterator every call and `Math.hypot`
+     carries overflow handling nothing here needs. A plain indexed loop over
+     squared distances is the same arithmetic for a fraction of the time. */
+  if (h > 0.5) {
+    for (let i = 0; i < TOWN_PADS.length; i++) {
+      const pad = TOWN_PADS[i];
+      const dx2 = x - pad.x, dz2 = z - pad.z;
+      const d2 = dx2 * dx2 + dz2 * dz2;
+      if (d2 > pad.r2) continue;
+      // strongest in the middle of the apron, and absent at the tideline
+      const t = smoothstep(pad.r2, pad.rIn2, d2) * smoothstep(1.0, 7.0, h);
+      h = lerp(h, pad.level, t * 0.76);
+    }
+  }
+
   // carve harbours flat & deep enough to sail into
   for (const p of PORTS) {
     const d = Math.hypot(x - p.x, z - p.z);
@@ -69,8 +98,39 @@ function analyticHeight(x, z) {
   return h;
 }
 
+/* ---------------- town aprons ----------------
+   Worked out once, from the raw islands, before anything is baked — the shore
+   sweep reads the analytic height, so the pads have to be absent while it
+   runs or each port would be siting its town on the shelf it is about to cut.
+   Cheap: five ports, one sweep each, at load. */
+const TOWN_PADS = [];
+function planTownPads() {
+  TOWN_PADS.length = 0;                   // measure the island, not the terrace
+  const pads = [];
+  for (const p of PORTS) {
+    const s = nearestShore(p.x, p.z, p.ang);
+    const major = p.size === 'major';
+    // the middle of where the rows will go, a little way up the beach
+    const cx = s.point.x + s.dir.x * (major ? 60 : 44);
+    const cz = s.point.y + s.dir.y * (major ? 60 : 44);
+    /* Take the ground down toward the water without flattening the island:
+       a third of what is there, so a rock still stands and a low shore stays
+       low, bounded so no town sits on a plinth or in a quarry. */
+    const raw = heightAtAnalytic(cx, cz);
+    const r = major ? 168 : 124;
+    // squared radii, because the sample loop compares squared distances
+    pads.push({
+      x: cx, z: cz,
+      r2: r * r, rIn2: (r * 0.3) * (r * 0.3),
+      level: clamp(raw * 0.34 + 7, 9, 26),
+    });
+  }
+  for (const p of pads) TOWN_PADS.push(p);
+}
+
 /* ---------------- bake ---------------- */
 export function bakeHeights() {
+  planTownPads();                 // before the field is sampled anywhere
   heightGrid = new Float32Array(GRID * GRID);
   const half = WORLD_SIZE * 0.5;
   for (let j = 0; j < GRID; j++) {
@@ -531,6 +591,19 @@ function buildSettlement(port, group) {
   const shore = nearestShore(anchor.x, anchor.y, port.ang);
   const inland = shore.dir;
   const base = shore.point;
+  /* Two fields, and the record has to be true in the one the game reads.
+     The sweep above measures the analytic height, which has detail the baked
+     grid cannot — its cells are twenty-six metres across. Everything
+     downstream reads the *baked* field: hulls, the route grid, the harness.
+     Right at the waterline the two can disagree, and one settlement ended up
+     recording a waterfront the baked field called half a metre under water.
+     So walk the record inland until the field the game actually uses agrees
+     this is dry land. Nothing else moves: the piers still run seaward from
+     here, and the buildings are still placed against the finer field. */
+  for (let i = 0; i < 12 && heightAt(base.x, base.y) < 1.2; i++) {
+    base.x += inland.x * 6;
+    base.y += inland.y * 6;
+  }
   const shoreRec = {
     x: base.x, z: base.y, dist: shore.dist,
     inland: { x: inland.x, z: inland.y },

@@ -125,11 +125,15 @@ that is written down, and everything that asks "can I fire", "can I dock",
   of them. Cheap existence checks catch the failures the careful ones assume
   away.
 - **Every port is a place, not a set of counters.** A harbour opens on its town
-  — a photograph of its real buildings, what it is, and where you can go from
-  here — and the counters are one tap behind that. The page derives from what
-  every port already has (`tagline`, `desc`, its faction's flag colour), so
+  — a photograph of its real buildings, what it is, and what it trades — and
+  the counters are one tap behind that. The page derives from what every port
+  already has (`tagline`, `desc`, `prices`, its faction's flag colour), so
   adding a port cannot leave a half-built screen; `PORT_IDENTITY` and
   `NOTABLES` add mood and people on top where they exist.
+- **One control per job.** The town page briefly carried a WHERE TO GO list —
+  a row and a GO button per counter — directly beneath a tab strip with one
+  tab per counter. Navigation written out twice is not twice as navigable; it
+  is one control and one thing in the way.
 - Comments explain *why*, especially where a number was tuned or a bug was
   subtle. Match the surrounding prose style.
 

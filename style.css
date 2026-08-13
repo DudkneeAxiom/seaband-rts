@@ -1336,8 +1336,6 @@ canvas.npc-face.big{border-radius:10px;}
   font-size:12.5px; line-height:1.55; color:var(--parch-dim);
   border-left:2px solid rgba(230,178,94,.3); padding-left:10px; margin:8px 0;
 }
-.row.place .rtitle{font-family:Georgia,serif;}
-
 /* ---- officers as people ---- */
 .epithet{color:var(--parch-dim); font-weight:400; font-style:italic;}
 .stars{color:var(--brass); letter-spacing:1px;}

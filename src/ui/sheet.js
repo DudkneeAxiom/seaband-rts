@@ -54,14 +54,6 @@ function renderTabs() {
     box.appendChild(b);
   }
 }
-/** Walk to another part of the town. Used by the hub's WHERE TO GO rows. */
-function goTab(id) {
-  if (!current || !current.tabs.some(t => t.id === id)) return;
-  current.tab = id;
-  renderTabs();
-  renderTab();
-}
-
 function renderTab(keepScroll = false) {
   const c = $('sheet-content');
   /* Switching tabs starts at the top; redrawing the tab you are already on
@@ -167,30 +159,29 @@ function townTab(n, port) {
     n.appendChild(prob);
   }
 
-  /* Where you can go, before who is about.
-     This is the page a player lands on when they dock, and its first job is
-     to be a way in to the rest of the port. It used to sit under five
-     biography cards, which on a phone put every counter in the harbour below
-     the fold — the town screen answered "who is here" long before it answered
-     "where is the market", and only the tab strip was really navigating. The
-     people are still here, one thumb further down, which is the right order
-     for a place you have already arrived at. */
-  n.appendChild(el('div', 'sec-title', 'WHERE TO GO'));
-  const places = [
-    { tab: 'harbour', label: 'The Quay', sub: 'Repairs, stores, the harbourmaster’s board' },
-    { tab: 'market', label: 'The Market', sub: 'Cargo, bought and sold' },
-    { tab: 'crew', label: 'The Hiring Steps', sub: 'Hands for the fleet' },
-    { tab: 'yard', label: 'The Yard', sub: 'Prizes, refits, your fleet' },
-    { tab: 'tavern', label: 'The Tavern', sub: 'Officers, rumours, whoever is in' },
-  ];
-  for (const pl of places) {
-    if (!current.tabs.some(t => t.id === pl.tab)) continue;
-    const r = el('div', 'row place');
-    r.appendChild(el('div', 'rmain', `<div class="rtitle">${pl.label}</div><div class="rsub">${pl.sub}</div>`));
-    const b = el('button', 'btn', 'GO');
-    onTap(b, () => goTab(pl.tab), 500);
-    r.appendChild(b);
-    n.appendChild(r);
+  /* No list of ways further in.
+     There was one — a WHERE TO GO row per counter, each with its own GO
+     button — and it was the tab strip written out longhand directly beneath
+     the tab strip. Two controls for one job, and the duplicate was the one
+     that pushed the people and everything else down the page. The tabs are
+     the navigation; this page is the place. */
+
+  /* What the harbour is actually for, which is the one thing a captain wants
+     to know on arrival and is not a second copy of the tabs. Read off the
+     port's own price table, so it cannot disagree with the market. */
+  const cheap = [], dear = [];
+  for (const [id, mult] of Object.entries(port.prices || {})) {
+    const good = GOODS[id];            // keyed by id, not a list
+    if (!good) continue;
+    if (mult <= 0.9) cheap.push(good.name);
+    else if (mult >= 1.14) dear.push(good.name);
+  }
+  if (cheap.length || dear.length) {
+    const tr = el('div', 'town-problem');
+    tr.innerHTML = `<span class="tp-k">THE TRADE HERE</span><span>`
+      + `${cheap.length ? `Goes out cheap: <b>${cheap.join(', ')}</b>. ` : ''}`
+      + `${dear.length ? `Wanted, and paid for: <b>${dear.join(', ')}</b>.` : ''}</span>`;
+    n.appendChild(tr);
   }
 
   /* the people, at the places they actually stand. A port nobody has been

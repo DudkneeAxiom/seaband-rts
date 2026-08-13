@@ -5,6 +5,92 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 27. The islands now level the ground their towns stand on  (P2)
+
+**Symptom.** Finding 24 let every port build a town, but two of them were
+building it on ground that fell 24 metres across a single house. Buildable, in
+the sense that a wall can be stood on it; from the water it read as sheds glued
+to a cliff.
+
+**Change, with permission to move the terrain.** Real harbour towns are not
+built up a 25° slope — the ground gets levelled first. So each island now gets
+the apron its town would have cut: a shelf behind the beach, pulled toward a
+third of whatever height is there so a rock still stands and a low shore stays
+low. Measured, per port, before and after:
+
+| port | median fall across a footprint | |
+|---|---|---|
+| | before | after |
+| ilovantu | 7.4m | 3.5m |
+| marasay | 10.5m | 2.8m |
+| greywake | 22.0m | 7.2m |
+| tideglass | 8.5m | 2.7m |
+| escarra | 23.9m | 7.0m |
+
+It only touches ground that is already dry and fades out approaching the
+waterline, so the coastline, the beaches and every depth a hull cares about
+are what they were.
+
+**The cost, caught by measuring it.** The first version added **1.7 seconds to
+world load** — a `for…of` allocating an iterator on the innermost line of a
+150k-sample bake, and `Math.hypot` carrying overflow handling nothing here
+needs. An indexed loop over squared distances is the same arithmetic: the bake
+went 2782ms → 1196ms against a 1035ms baseline, so the aprons cost 160ms
+rather than 1750.
+
+**And the fault it exposed.** `shore` then failed *"every settlement is
+anchored on dry land"* — Marasay's recorded waterfront sampled at −0.6m. Not
+the aprons' doing so much as their revealing: the shore sweep measures the
+**analytic** field, which has detail the baked grid cannot at twenty-six
+metres a cell, while everything downstream — hulls, the route grid, the
+harness — reads the **baked** one. At the waterline the two can disagree. The
+record now walks inland until the field the game actually uses agrees it is
+dry: 4.5m, and nothing else moves.
+
+## 26. A nine-second wait for a world that takes eight to build  (harness)
+
+**Symptom.** None yet, which is the point. Timing the boot to check what the
+aprons cost showed the world build at **7.9 seconds** under software GL —
+against `newVoyage`'s 9-second wait for the opening scene. The baseline was
+already 7.3s.
+
+**Why it matters.** Answering the last question is what builds the world, and
+*every suite in the repo starts that way*. A 1.1-second margin on the one step
+all sixteen share was a single slow runner away from failing all of them at
+once — and it had been narrowing quietly every time a port gained buildings.
+Exactly the flake CLAUDE.md's "poll, do not sleep" rule exists to prevent,
+sitting inside the helper that implements that rule.
+
+**Change.** 40 seconds. A generous wait costs nothing when the condition is
+met early; a tight one costs a whole CI run.
+
+## 25. The where-to-go list was the tab strip, written out twice  (P2, reported)
+
+**Symptom.** Reported: "I don't want to see the where to go on any of the town
+pages."
+
+**Root cause, and a misread worth recording.** The previous instruction was
+"the where to go options needs to go on town pages" — which I read as *put
+them there* and finding 22 duly put them on all five. It meant *get rid of
+them*. The reading should have been suspicious of itself: what I built was a
+row per counter, each with its own GO button, sitting directly beneath a tab
+strip that already had one tab per counter. Two controls for one job, one of
+them a longhand copy of the other, and the copy was what pushed everything
+else down the page.
+
+**Change.** Gone, with `goTab` and its CSS rule. The tabs are the navigation;
+the town page is the place. In its stead, the one thing a captain wants on
+arrival that is *not* a second copy of the tabs: what this harbour sells cheap
+and what it pays for, read off the port's own price table so it cannot
+disagree with the market.
+
+**And a bug that only a real run would have found.** `GOODS.find(...)` —
+`GOODS` is keyed by id, not a list. It threw inside `townTab`, and the boot
+guard in `index.html` did exactly what it was written to do: caught the
+uncaught error and replaced the screen with "She would not answer the helm"
+and the stack. Every port screen was dead. No assertion covered it; docking
+and looking did.
+
 ## 24. Two of five ports had no town at all  (P1)
 
 **Symptom.** Chasing "the visuals for the area views still need work", I dumped

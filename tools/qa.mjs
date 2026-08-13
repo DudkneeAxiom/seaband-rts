@@ -123,8 +123,14 @@ export async function newVoyage(page, picks = null) {
   // rolls whatever is still unanswered; gone once every question has an answer
   if (await page.isVisible('#og-skip')) { await page.click('#og-skip'); await sleep(250); }
   await page.click('.og-go');
-  // the opening scene: wait for it, then dismiss it like a player would
-  await waitFor(page, () => !document.getElementById('modal').classList.contains('hidden'));
+  /* The opening scene: wait for it, then dismiss it like a player would.
+     Generously. Answering the last question is what builds the world — five
+     settlements, their islands and every hull on the water — and under
+     software GL that measures 7 to 8 seconds against what used to be a 9
+     second wait. Every suite starts this way, so that margin was one slow
+     runner away from failing all sixteen of them at once, and it narrowed
+     every time a port gained buildings. */
+  await waitFor(page, () => !document.getElementById('modal').classList.contains('hidden'), 40000);
   await page.click('#modal-actions .btn');
   await sleep(300);
 }
