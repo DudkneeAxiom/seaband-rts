@@ -40,7 +40,7 @@ function avoidLand(ship, wantAng, dt) {
      ground themselves to death against a wall none of them had sounded. */
   const at = (a, d) => {
     let m = Infinity;
-    for (const f of [0.35, 0.7, 1]) {
+    for (const f of [0.2, 0.4, 0.6, 0.8, 1]) {
       m = Math.min(m, depthAt(ship.x + Math.sin(a) * d * f, ship.z + Math.cos(a) * d * f));
     }
     return m;
@@ -607,16 +607,29 @@ function consortAI(ship, dt, world, ctx) {
   let fz = flag.z - Math.cos(flag.yaw) * back - Math.sin(flag.yaw) * side;
   /* An echelon slot is a courtesy, not a suicide pact: in a channel the slot
      can sit on the mole while the flag's own track is the only proved water.
-     When the slot has less water than she needs, fall in dead astern instead. */
-  if (depthAt(fx, fz) < ship.draft * 1.9 + 3) {
+     When the slot has less water than she needs, fall in dead astern instead —
+     and if even dead astern is foul (the flag beating through a harbour mouth
+     swings that point across the arms), heave to and let her come back out. */
+  const need = ship.draft * 1.9 + 3;
+  if (depthAt(fx, fz) < need) {
     fx = flag.x - Math.sin(flag.yaw) * back;
     fz = flag.z - Math.cos(flag.yaw) * back;
+    if (depthAt(fx, fz) < need) {
+      ship.throttle = 0.1;
+      ship.dest = null;
+      ship.headingCmd = ship.yaw;
+      return;
+    }
   }
   const d = dist(ship.x, ship.z, fx, fz);
   steerTo(ship, fx, fz, dt);
   // press on harder the further astern she is, so a slower hull can still keep station
   ship.throttle = clamp01(d / 60) * 0.65 + 0.35 + clamp01((d - 80) / 140) * 0.95;
   if (d < 22) ship.throttle = 0.25;
+  /* Harbour water is entered the way harbours are entered — slowly. Half sail
+     keeps the probe short and the sampling fine through exactly the water
+     where the walls are, and takes the way off her if she still touches. */
+  if (portGuarding(ship.x, ship.z)) ship.throttle = Math.min(ship.throttle, 0.5);
   // consorts fire at anything hostile that wanders into the arc
   const e = findEnemy(ship, world.ships, GUN_RANGE);
   if (e) tryFire(ship, e, ctx, 55);
