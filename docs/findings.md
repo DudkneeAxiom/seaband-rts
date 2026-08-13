@@ -62,6 +62,42 @@ finding 5 be deleted. Two copies of a rule is one rule and one bug.
 deliberately stranded on 0.4m of water under a 3.4m draft claws off with 85%
 of her hull.
 
+## 14. A design change broke what the tests had memorised  (harness)
+
+**Symptom.** After the social pass, `trade` and `playthrough` each failed one
+check: "the harbourmaster's board shows the advance (0 offers)" and "buying
+provisions costs coin and adds stores".
+
+**Root cause.** Both dock and immediately read `#sheet-content`, because for
+the whole life of those suites docking landed you on the quay. The two
+authored ports now open on THE TOWN, which is the entire point of the change —
+so the content under the cursor was the town, and the board was one tap away.
+Neither check was wrong about the game; both were wrong about where the game
+now puts you.
+
+**Change.** A `goPortTab(page, label)` helper in `qa.mjs`, and both checks walk
+to the quay first — which is exactly what a player does. The checks still
+verify the board and the stores; they no longer assume the route. Ports
+without an authored town are unaffected, and the helper is a no-op there.
+
+**Worth saying plainly:** this is the correct kind of test failure. The suites
+encoded an assumption about navigation, the design deliberately changed it,
+and the tests said so instead of quietly still passing. Weakening them to
+match would have thrown away the only thing that noticed.
+
+## 15. The documentation edit that failed inside its own chain  (process, again)
+
+Finding 8 recorded that a chain which writes prose and then commits will
+commit without the prose. It happened again in the same session, to the same
+file: the `CLAUDE.md` edit asserted on a line with different trailing
+whitespace than I assumed, threw, and the chain carried on into a backgrounded
+test run where the traceback was never read. The commit would have shipped a
+new module undocumented.
+
+Caught only by grepping the artefact before committing. The rule stands and
+needs to be applied rather than merely written down: **verify the artefact,
+not the exit code.**
+
 ## 13. Two things play asked for: bounties, and a hunt you can actually hunt
 
 **Bounties.** Ports now post notices against named ships — the other half of a

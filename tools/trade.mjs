@@ -1,6 +1,6 @@
 /* The merchant road: can a captain who never fires a gun make a living,
    and can a captain who has run out of everything get going again? */
-import { launch, sleep, newVoyage, dismissModal, waitFor } from './qa.mjs';
+import { launch, sleep, newVoyage, dismissModal, waitFor, goPortTab } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -304,6 +304,9 @@ if (!dockUp) {
 }
 await page.click('.act-btn.dock');
 await sleep(900);
+/* Ilo Vantu opens on the town now, not on a counter — so go to the quay, the
+   way a player does. The board is what is under test, not where it lives. */
+await goPortTab(page, 'HARBOUR');
 const uiOffer = await page.evaluate(() => {
   const rows = [...document.querySelectorAll('#sheet-content .row')];
   const hit = rows.filter(r => /Advance/.test(r.textContent));

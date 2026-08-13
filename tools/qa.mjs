@@ -211,6 +211,23 @@ export async function leaveBattle(page) {
 /** Poll for a condition in the page. Fixed sleeps lie on a software renderer.
     `arg` is passed through to the page, since the predicate is serialised and
     cannot close over anything out here. */
+/**
+ * Walk to a part of a port.
+ *
+ * The two authored towns open on THE TOWN rather than on a counter, so a
+ * check that wants the harbourmaster's board has to go to the quay first —
+ * which is what a player does. Tabs that do not exist are a no-op, so this is
+ * safe to call for any port.
+ */
+export async function goPortTab(page, label) {
+  await page.evaluate(l => {
+    const t = [...document.querySelectorAll('#sheet-tabs .tab')]
+      .find(x => new RegExp(l, 'i').test(x.textContent));
+    if (t && !t.classList.contains('on')) t.click();
+  }, label);
+  await sleep(420);
+}
+
 export async function waitFor(page, fn, ms = 9000, arg = undefined) {
   const t0 = Date.now();
   for (;;) {

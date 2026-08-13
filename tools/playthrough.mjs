@@ -1,7 +1,7 @@
 /* Full-arc functional test: new game → sail → dock → trade/recruit/hire
    → sea → combat → board → capture → two-ship fleet → save/load.
    Uses real UI clicks wherever a player would. */
-import { launch, shot, sleep, ff, newVoyage, dismissModal, waitFor, intoBattle } from './qa.mjs';
+import { launch, shot, sleep, ff, newVoyage, dismissModal, waitFor, intoBattle, goPortTab } from './qa.mjs';
 
 const vp = process.argv[2] || 'phone';
 const { browser, page, errors } = await launch(vp);
@@ -36,6 +36,9 @@ ok('port sheet opened', await G(() => !document.getElementById('sheet').classLis
 await shot(page, `p2-harbour-${vp}`);
 
 const before = await G(() => ({ coin: window.__game.coin, prov: window.__game.player.provisions }));
+/* The quay first: the two authored ports open on the town, and stores are
+   bought at the quay. One tap for a player, one line here. */
+await goPortTab(page, 'HARBOUR');
 // buy provisions (first gold button in the STORES section)
 await page.evaluate(() => {
   const rows = [...document.querySelectorAll('#sheet-content .row')];
