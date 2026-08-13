@@ -3,6 +3,41 @@
 Symptom → reproduction → root cause → change → verification.
 Newest first. Trivia omitted deliberately.
 
+---
+
+## Session handoff — adaptive audio + polish pass
+
+**What was played.** A cold fresh voyage driven through the real UI: the
+opening leg to Ilo Vantu, docking, the harbour sheets, a measured census of
+the sea, four port-to-port voyages, and repeated real battles entered through
+contact → encounter → clear for action. Ammunition tactics were measured
+across four plans against a pinned hull class. A full visual sweep of thirty
+screens was taken and read.
+
+**Measured.**
+
+- Opening leg: 15 s, wind factor 0.86, uninterrupted. (Before the wind pass
+  this leg was a dead beat at 0.43 with the ship pointed 170° the wrong way.)
+- Voyages: Ilo Vantu→Marasay 975 m ≈1.5 min; →Greywake 2045 m ≈3.2 min;
+  →Tideglass 1831 m ≈2.9 min; Greywake→Tideglass 3777 m ≈5.9 min.
+- World density: 16 sail besides the player, 3 within 900 m. Six powers
+  represented.
+- Ammunition: see finding 3 — the before/after tables are the substance of
+  this session's balance work.
+
+**What remains, honestly.**
+
+- *Water.* The brief flags the sea as the weakest visual element. It reads
+  better than it did, but at distance it still shows large soft blotches that
+  scan as smudges rather than swell. Not attempted this session: it is a
+  shader change and the brief rightly warns against starting one late.
+- *Progression choice.* With ~2400 coin a captain can afford three of the
+  four yard upgrades at once, so the "A or B, not both" tension the brief
+  asks for is weak. This needs income measured against upgrade cost over a
+  real half-hour of play before touching numbers — measure first, as ever.
+- *Officers.* Not audited this session.
+
+
 ## 4. The chapter chip sat over every battle  (P2)
 
 **Symptom.** A sweep screenshot of a fleet action had "CHAPTER 1 OF 6 ·
