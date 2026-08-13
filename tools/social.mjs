@@ -205,6 +205,58 @@ const journal = await G(() => {
 void journal;
 await G(() => { const g = window.__game; g.paused = false; });
 
+/* These two run last on purpose. Both of them meet people, and meeting
+   somebody is exactly the state the checks above are asserting is absent —
+   inserted mid-chain they made "introducing yourself" fail because Kesk had
+   already been introduced, and put Sar's hull on the water before the check
+   that spawns it. Sections that change the world go after sections that
+   measure a world without those changes. */
+/* ---- each part of the town has its own view, and its own picture ---- */
+const strips = await G(async () => {
+  const g = window.__game;
+  g.enterPort(g.PORTS.find(p => p.id === 'ilovantu'));
+  await new Promise(r => setTimeout(r, 200));
+  const seen = [];
+  for (const label of ['TAVERN', 'MARKET', 'SHIPYARD']) {
+    const b = [...document.querySelectorAll('#sheet-tabs .tab')].find(x => new RegExp(label).test(x.textContent));
+    if (b) b.click();
+    await new Promise(r => setTimeout(r, 260));
+    const s = document.querySelector('.townscene.small');
+    seen.push({ label, has: !!s, img: s ? (s.style.backgroundImage || '').length : 0 });
+  }
+  return seen;
+});
+ok(`each part of the town shows its own place (${strips.map(s => `${s.label}:${s.has ? 'yes' : 'NO'}`).join(' ')})`,
+  strips.every(s => s.has && s.img > 200)
+  && new Set(strips.map(s => s.img)).size === strips.length);
+
+/* ---- and ten people do not recite one sentence about the harbour ---- */
+const voices = await G(async () => {
+  const g = window.__game;
+  const b = [...document.querySelectorAll('#sheet-tabs .tab')].find(x => /TOWN/.test(x.textContent));
+  if (b) b.click();
+  await new Promise(r => setTimeout(r, 260));
+  const said = [];
+  for (const who of ['Doro Kesk', 'Ines Marroq', 'Aleti Sar']) {
+    const row = [...document.querySelectorAll('.row.notable')].find(r => r.textContent.includes(who));
+    if (!row) continue;
+    row.querySelector('button').click();
+    await new Promise(r => setTimeout(r, 200));
+    const ask = [...document.querySelectorAll('#modal-actions button')].find(x => /Ask about/.test(x.textContent));
+    if (ask) { ask.click(); await new Promise(r => setTimeout(r, 200)); }
+    said.push(((document.querySelector('.npc-say') || {}).textContent || '').slice(0, 30));
+    for (const x of document.querySelectorAll('#modal-actions button')) if (/BACK/.test(x.textContent)) x.click();
+    await new Promise(r => setTimeout(r, 160));
+    for (const x of document.querySelectorAll('#modal-actions button')) if (/Leave/i.test(x.textContent)) x.click();
+    await new Promise(r => setTimeout(r, 160));
+  }
+  g.leavePort();
+  return said;
+});
+ok(`and each of them answers in their own voice (${voices.length} asked, `
+  + `${new Set(voices).size} different answers)`,
+voices.length >= 3 && new Set(voices).size === voices.length);
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

@@ -72,6 +72,7 @@ export const NOTABLES = [
       ambition: 'To retire to the hill above the harbour and never look at water again.',
       problem: 'Admiralty auditors are due in the spring and his books will not survive them.',
     },
+    onTown: 'Quiet enough, if you do not read the ledger too closely. Everything that comes over this quay is somebody’s and most of it is not theirs.',
     lines: {
       cold: 'Berth’s eight a night. Pay Halda, not me.',
       known: 'Captain. Your name turns up in my book more than it used to. That is usually good.',
@@ -88,6 +89,7 @@ export const NOTABLES = [
       ambition: 'To own the pepper road outright, from the Reach to the Thimbles.',
       problem: 'Four cargoes gone past the Thimbles in a season. She does not believe in that much bad luck.',
     },
+    onTown: 'This town would sell its own anchors. That is fine — but somebody is selling *mine*, off the Thimbles, and I will find out who.',
     lines: {
       cold: 'If you are selling, show me. If you are talking, I am busy.',
       known: 'You again. Good — you at least arrive when you say you will.',
@@ -106,6 +108,7 @@ export const NOTABLES = [
       ambition: 'A quiet network from here to the Glass Reach, and nobody to answer to.',
       problem: 'Escarra’s customs officer has her name and is two manifests from proving it.',
     },
+    onTown: 'Best harbour in the Shoals. Nobody asks, nobody writes it down, and the Admiralty come once a season and see exactly what we show them.',
     lines: {
       cold: 'I sell fish. Ask anyone.',
       known: 'You have the look of somebody who does not read other people’s cargo manifests. I like that.',
@@ -122,6 +125,7 @@ export const NOTABLES = [
       ambition: 'To see both her sons crewed on ships that come home.',
       problem: 'Somebody has been pressing her people off the quay at night.',
     },
+    onTown: 'Good hands here. Too many of them going aboard ships at night that nobody signed for.',
     lines: {
       cold: 'Hands are hands. Take who I give you.',
       known: 'I will give you the steady ones. Do not waste them.',
@@ -138,6 +142,7 @@ export const NOTABLES = [
       ambition: 'To hear, once, a story worth closing the room for.',
       problem: 'He owes Aleti Sar more than the room is worth.',
     },
+    onTown: 'Eleven taverns and I keep the biggest, so I hear it all twice. Half of it is a lie and the other half is worse.',
     lines: {
       cold: 'Sit where you like. Do not whistle.',
       known: 'Captain! Same as before? Sit down, there is talk worth hearing.',
@@ -156,6 +161,7 @@ export const NOTABLES = [
       ambition: 'A squadron of her own, and orders that come from the sea rather than a desk.',
       problem: 'She is four crews short and the Tally have counted.',
     },
+    onTown: 'A stone mole, two sloops and a signal mast. I am supposed to hold the eastern approaches with that, and I am four crews short of it.',
     lines: {
       cold: 'State your business with the station, Captain.',
       known: 'You keep turning up where the Tally have been. The Admiralty notices that eventually. I notice it now.',
@@ -172,6 +178,7 @@ export const NOTABLES = [
       ambition: 'A posting somewhere that matters, earned by catching somebody who matters.',
       problem: 'Somebody inside Escarra is selling the station’s manifests.',
     },
+    onTown: 'Correct, on paper. Somebody here is selling our manifests, and when I have him this station will be correct in fact.',
     lines: {
       cold: 'Your hold. I will see it now, if it is all the same to you.',
       known: 'Your papers are in order. They usually are. I have not stopped looking.',
@@ -188,6 +195,7 @@ export const NOTABLES = [
       ambition: 'To build one ship to his own drawing before his hands go.',
       problem: 'The Admiralty will fund repairs and nothing else, ever.',
     },
+    onTown: 'Good stone, bad money. They will pay to patch a hull and not a penny to build one properly.',
     lines: {
       cold: 'She will be ready when she is ready.',
       known: 'You look after her. That is rarer than you would think.',
@@ -204,6 +212,7 @@ export const NOTABLES = [
       ambition: 'A proper infirmary at Escarra instead of two rooms and an argument.',
       problem: 'She is out of nearly everything and the requisitions go unanswered.',
     },
+    onTown: 'Under-supplied and over-quiet. I have two rooms and an argument where an infirmary ought to be.',
     lines: {
       cold: 'If they are bleeding, bring them in. If not, I am busy.',
       known: 'You bring your people back alive more often than most. I keep count.',
@@ -220,6 +229,7 @@ export const NOTABLES = [
       ambition: 'To stand off the Glass Reach one more time before he dies.',
       problem: 'Every captain he asks is polite about it.',
     },
+    onTown: 'It was busier once. Now it is mostly me at this window and the young ones who will not sign an old navigator.',
     lines: {
       cold: 'Mind the bar, Captain. I am only sitting.',
       known: 'You have been east lately. I can tell by how you came in.',

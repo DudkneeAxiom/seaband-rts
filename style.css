@@ -1348,3 +1348,6 @@ canvas.npc-face.big{border-radius:10px;}
   background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09);
 }
 .dimtxt{color:var(--parch-dim); opacity:.75; font-style:italic;}
+/* the strip on a location tab: a glance, not a hero image */
+.townscene.small{height:clamp(72px, 15vh, 116px); margin-bottom:12px;}
+.townscene.small .ts-name{font-size:16px; bottom:7px;}

@@ -106,6 +106,20 @@ export function openPort(port) {
     PORT_IDENTITY[port.id] ? 'town' : 'harbour');
 }
 
+/** A view of the part of the town you are standing in. Authored ports only —
+    everywhere else the tabs open as they always did, with no strip at all. */
+function placeStrip(n, port, place, label) {
+  if (!PORT_IDENTITY[port.id]) return;
+  const shot = portPortrait(port, place);
+  const strip = el('div', 'townscene small');
+  strip.style.setProperty('--banner', PORT_IDENTITY[port.id].banner);
+  if (shot) strip.style.backgroundImage = `url(${shot})`;
+  else strip.classList.add('noshot');
+  strip.innerHTML = `<div class="ts-grade"></div>
+    <div class="ts-name">${label}<span>${port.name}</span></div>`;
+  n.appendChild(strip);
+}
+
 /* ---------------- the town ----------------
    Place, then people, then opportunities — in that order, because that is the
    order a person arriving somewhere actually takes it in. */
@@ -163,18 +177,59 @@ function townTab(n, port) {
   void S;
 }
 
-/* One render per port per session. */
+/* One render per port *and place* per session. Pressing TAVERN should move
+   the view to a building in the town, not merely relabel the same picture. */
 const PORTRAITS = {};
+
+/** Which of the town's own buildings belongs to which part of the port.
+    Chosen by hashing the place name against the list the settlement recorded,
+    so a given town always puts its tavern in the same building — and two
+    different towns put theirs somewhere different. */
+function spotFor(port, place) {
+  const shore = (window.__shore || {})[port.id];
+  if (!shore) return null;
+  if (place === 'harbour' && shore.piers && shore.piers.length) {
+    return { ...shore.piers[0], quay: true };
+  }
+  const spots = shore.spots || [];
+  if (!spots.length) return null;
+  let h = 0x9e37;
+  for (let i = 0; i < place.length; i++) h = Math.imul(h ^ place.charCodeAt(i), 0x01000193) >>> 0;
+  // biggest buildings first, so the tavern is a building and not a shed
+  const rank = spots.slice().sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, Math.min(8, spots.length));
+  return rank[h % rank.length];
+}
 /** The angle each harbour actually looks best from — chosen by eye, not by
     formula: a town wants to be seen from the water it is entered from. */
 const PORTRAIT_VIEW = {
   ilovantu: { dist: 165, high: 52 },
   escarra: { dist: 130, high: 44 },
 };
-function portPortrait(port) {
-  if (PORTRAITS[port.id] !== undefined) return PORTRAITS[port.id];
+function portPortrait(port, place = 'town') {
+  const key = `${port.id}:${place}`;
+  if (PORTRAITS[key] !== undefined) return PORTRAITS[key];
   const v = PORTRAIT_VIEW[port.id] || {};
-  if (typeof window === 'undefined' || !window.__portrait) { PORTRAITS[port.id] = null; return null; }
+  if (typeof window === 'undefined' || !window.__portrait) { PORTRAITS[key] = null; return null; }
+  /* A named place in the town: stand close to that building, from the water
+     side, so the player sees the actual thing they just chose. */
+  if (place !== 'town') {
+    const spot = spotFor(port, place);
+    if (spot) {
+      const sh = (window.__shore || {})[port.id];
+      const ang = sh ? Math.atan2(sh.x - sh.townX, sh.z - sh.townZ) : 0;
+      /* Far enough back that a building reads as a building, and aimed at the
+         building rather than at the grass beside it. At fifty metres the lens
+         was inside the hedge; at ninety it was looking downhill past the roof. */
+      const top = (spot.y || 0) + (spot.h || 10);
+      PORTRAITS[key] = window.__portrait(spot.x, spot.z, {
+        w: 720, h: 220, ang,
+        dist: spot.quay ? 110 : 78,
+        high: spot.quay ? 34 : top + 16,
+        lookY: spot.quay ? 4 : (spot.y || 0) + (spot.h || 10) * 0.45,
+      });
+      return PORTRAITS[key];
+    }
+  }
   /* Aim between the harbour and the town it belongs to, and stand off on the
      seaward side. Pointed at the port marker alone the camera looks at open
      water with the buildings shoved into one corner — the harbour is the
@@ -183,10 +238,10 @@ function portPortrait(port) {
   const tx = shore ? port.x + (shore.x - port.x) * 0.45 : port.x;
   const tz = shore ? port.z + (shore.z - port.z) * 0.45 : port.z;
   const ang = shore ? Math.atan2(port.x - shore.x, port.z - shore.z) : (v.ang || 0);
-  PORTRAITS[port.id] = window.__portrait(tx, tz, {
+  PORTRAITS[key] = window.__portrait(tx, tz, {
     w: 720, h: 260, dist: 250, high: 78, ...v, ang: v.ang ?? ang,
   });
-  return PORTRAITS[port.id];
+  return PORTRAITS[key];
 }
 
 /** One person, as they would appear to somebody standing on the quay. */
@@ -235,15 +290,19 @@ function openNotable(who, port) {
 
   const acts = [];
   // what they know about the town — always available, and how rumours travel
+  /* Their own view of the place, not the town's press release. Ten people
+     reciting one sentence about the harbour is how a cast of characters turns
+     back into a menu — so each of them answers this in their own voice, and
+     what the town at large is worried about is on the town screen where it
+     belongs. */
   acts.push({
     label: `Ask about ${port.name}`,
     fn: () => {
-      const idn = PORT_IDENTITY[port.id];
       S.bump(who.id, 1, 'helped');
+      S.learn(who.id, 'town');
       modal({
         title: who.name, dismissable: true,
-        text: `<p class="npc-say">“${idn.problem}”</p>`
-          + `<p class="npc-mem">${idn.line}</p>`,
+        text: `<p class="npc-say">“${who.onTown || PORT_IDENTITY[port.id].problem}”</p>`,
         actions: [{ label: 'BACK', fn: () => openNotable(who, port) }],
       });
     },
@@ -306,6 +365,7 @@ function openNotable(who, port) {
 
 /* ---------------- harbour ---------------- */
 function harbourTab(n, port) {
+  placeStrip(n, port, 'harbour', 'The Quay');
   const p = G.player;
   n.appendChild(el('div', 'note', port.desc));
 
@@ -463,6 +523,7 @@ function questRow(q, port) {
 
 /* ---------------- market ---------------- */
 function marketTab(n, port) {
+  placeStrip(n, port, 'market', 'The Market');
   const p = G.player;
   const head = el('div', 'row');
   head.appendChild(el('div', 'rmain', `<div class="rtitle">Hold: ${p.cargoUsed}/${p.cls.cargo}</div><div class="rsub">Buy where it is common. Sell where it is not.</div>`));
@@ -521,6 +582,7 @@ function marketTab(n, port) {
 
 /* ---------------- crew ---------------- */
 function crewTab(n, port) {
+  placeStrip(n, port, 'crew', 'The Hiring Steps');
   const p = G.player;
   n.appendChild(el('div', 'note',
     `Your people are <em>${p.crewTotal}</em> of a possible ${p.cls.crewMax}. Sailors work the rig, gunners the battery, marines the rail.`));
@@ -606,6 +668,7 @@ function describeRank(id) {
 
 /* ---------------- shipyard ---------------- */
 function yardTab(n, port) {
+  placeStrip(n, port, 'yard', 'The Yard');
   n.appendChild(el('div', 'sec-title', 'YOUR FLEET'));
   for (const s of G.fleet) n.appendChild(fleetRow(s, port));
 
@@ -737,6 +800,7 @@ function commissionFlow(prize, port) {
 
 /* ---------------- tavern ---------------- */
 function tavernTab(n, port) {
+  placeStrip(n, port, 'tavern', 'The Tavern');
   n.appendChild(el('div', 'note', 'Smoke, salt-fish stew, and every rumour in the Shoals — most of them wrong.'));
 
   /* Who is in tonight. The tavern's own notables stand here, so the room has

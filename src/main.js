@@ -258,7 +258,7 @@ function boot() {
       const ang = opts.ang ?? 0;
       const dist = opts.dist ?? 230;
       cam.position.set(x + Math.sin(ang) * dist, opts.high ?? 74, z + Math.cos(ang) * dist);
-      cam.lookAt(x, 6, z);
+      cam.lookAt(x, opts.lookY ?? 6, z);
       const before = renderer.getSize(new THREE.Vector2());
       const dpr = renderer.getPixelRatio();
       renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));

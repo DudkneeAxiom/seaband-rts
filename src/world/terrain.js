@@ -404,6 +404,13 @@ function buildSettlement(port, group) {
     townX: base.x + inland.x * (isMajor ? 46 : 34),
     townZ: base.y + inland.y * (isMajor ? 46 : 34),
     townY: 0,
+    /* Where the town actually put its buildings and its piers.
+       The settlement is procedural and used to throw these away the moment it
+       had drawn them — which meant nothing could ever point at a particular
+       building. The port screen frames real ones now, so the town records
+       what it placed. Cheap: a few dozen small objects per port, built once. */
+    spots: [],
+    piers: [],
   };
   // clear of whatever the town is standing on — Escarra's is a 70-metre rock,
   // and a fixed height put its name inside the hill
@@ -425,6 +432,7 @@ function buildSettlement(port, group) {
     const d = rngRange(rng, 7, 13);
     const bh = rngRange(rng, 6, isMajor ? 15 : 10);
     for (const g of building(rng, w, bh, d)) parts.push(xf(g, { x, y: h - 1, z, ry: rng() * 6.28 }));
+    shoreRec.spots.push({ x, z, y: h, w, h: bh });
     placed++;
   }
 
@@ -440,6 +448,7 @@ function buildSettlement(port, group) {
     const len = reach * rngRange(rng, 0.85, 1.1);
     const midX = rootX - inland.x * len * 0.5, midZ = rootZ - inland.y * len * 0.5;
     parts.push(prep(xf(new THREE.BoxGeometry(6.5, 1.5, len), { x: midX, y: 2.4, z: midZ, ry: pierAng }), 0x8a6f4c, 0.09));
+    shoreRec.piers.push({ x: midX, z: midZ });
     for (let k = 0; k <= 5; k++) {
       const t = k / 5;
       const lx = rootX - inland.x * len * t, lz = rootZ - inland.y * len * t;
