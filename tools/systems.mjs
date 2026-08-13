@@ -777,6 +777,109 @@ ok(`and your own skill goes with you, but not in open water `
   + `(skill carried ${flag.skillCameAcross}, refused at sea ${flag.outOfPort === false})`,
 !flag.note && flag.skillCameAcross && flag.outOfPort === false);
 
+/* ---- the bounty board ----
+   Requested from play: work from ports that pays for taking or destroying a
+   named ship. The point is that a bounty names a hull *already sailing in
+   this world* — not one conjured when you accept it — so these checks tie the
+   notice to a real ship and then settle it by really sinking her. */
+const bounty = await G(() => {
+  const g = window.__game, port = g.PORTS[0];
+  g.quests = g.quests.filter(q => q.kind !== 'bounty');
+  // make sure there is something for the board to object to, near this port
+  for (let i = 0; i < 3; i++) {
+    const s = g.spawnNPC('pirate');
+    if (s) { s.x = port.x + 300 + i * 60; s.z = port.z + 120; s.hostileToPlayer = false; }
+  }
+  const posted = g.bountiesAt(port);
+  const real = posted.map(q => {
+    const t = g.ships.find(x => x.id === q.targetId);
+    return { name: q.targetName, alive: !!(t && t.alive), sameName: !!(t && t.name === q.targetName),
+      pays: q.reward, mine: !!(t && (t.isPlayer || g.fleet.includes(t))) };
+  });
+  return { count: posted.length, real, board: posted[0] ? posted[0].board : null };
+});
+ok(`a harbour posts bounties on ships that are really out there `
+  + `(${bounty.count} posted: ${bounty.real.map(r => `${r.name} ◆${r.pays}`).join(', ') || 'none'})`,
+bounty.count > 0 && bounty.real.every(r => r.alive && r.sameName && !r.mine && r.pays > 0)
+  && bounty.board === 'harbour');
+
+const paid = await G(() => {
+  const g = window.__game, port = g.PORTS[0];
+  const q = g.quests.find(x => x.kind === 'bounty' && !x.done);
+  if (!q) return { note: 'nothing posted' };
+  g.acceptQuest(q, port);
+  const target = g.ships.find(x => x.id === q.targetId);
+  if (!target) return { note: 'target vanished' };
+  const before = g.coin, prestige = g.prestige;
+  const standingBefore = g.standing[q.faction] || 0;
+  // sink her for real, through the damage path the guns use
+  while (target.alive) {
+    const res = target.damage(target.hullMax * 0.2, 'round', g.player);
+    g.onHit({ owner: g.player }, target, res);
+  }
+  g.update(1 / 30);
+  return { note: null, coin: g.coin - before, prestige: +(g.prestige - prestige).toFixed(1),
+    standing: (g.standing[q.faction] || 0) - standingBefore,
+    done: q.done, reward: q.reward };
+});
+ok(`sinking a bounty target pays the notice (${paid.note
+  || `◆${paid.coin} against a ◆${paid.reward} bounty, prestige +${paid.prestige}, standing +${paid.standing}`})`,
+!paid.note && paid.done === true && paid.coin >= paid.reward && paid.standing > 0);
+
+/* An untaken notice pays nothing: the board is not a bonus for existing. */
+const unclaimed = await G(() => {
+  const g = window.__game, port = g.PORTS[0];
+  const s = g.spawnNPC('pirate');
+  s.x = port.x + 260; s.z = port.z + 90; s.hostileToPlayer = false;
+  const posted = g.bountiesAt(port);
+  const q = posted.find(x => !x.active && !x.done && x.targetId === s.id) || posted.find(x => !x.active && !x.done);
+  if (!q) return { note: 'nothing fresh posted' };
+  const t = g.ships.find(x => x.id === q.targetId);
+  const before = g.coin;
+  while (t.alive) { const r = t.damage(t.hullMax * 0.25, 'round', g.player); g.onHit({ owner: g.player }, t, r); }
+  g.update(1 / 30);
+  // salvage still pays; the bounty does not
+  return { note: null, done: q.done, took: g.coin - before, reward: q.reward };
+});
+ok(`but a notice you never took pays no bounty (${unclaimed.note
+  || `settled ${unclaimed.done}, took ◆${unclaimed.took} against a ◆${unclaimed.reward} notice`})`,
+!unclaimed.note && unclaimed.done === false && unclaimed.took < unclaimed.reward);
+
+/* ---- chapter six tells you where to look ----
+   Reported: "you just sail around selecting every ship hoping the name
+   matches the one from the story." The quarry now reports through harbours. */
+const hunt = await G(() => {
+  const g = window.__game;
+  g.chapter = g.CHAPTERS ? g.CHAPTERS.length - 1 : 5;
+  g.storyOver = false; g.santDown = false;
+  g.spawnSant();
+  const sant = g.ships.find(s => s.isSant && s.alive);
+  if (!sant) return { note: 'no quarry on the water' };
+  /* Genuinely far: opposite corners of the region. Negating her position put
+     the player back inside sighting range whenever she happened to spawn near
+     the middle, and the check then measured the in-sight branch instead of
+     the one under test. */
+  sant.x = 1500; sant.z = 1500;
+  g.player.x = -1500; g.player.z = -1500;
+  g.quarryReport = null;
+  const blind = g.objectiveMarker();
+  const blindText = g.quarryHint();
+  // dock anywhere and word reaches you
+  g.refreshQuarryReport();
+  const told = g.objectiveMarker();
+  const toldText = g.quarryHint();
+  const off = told ? Math.round(Math.hypot(told.x - sant.x, told.z - sant.z)) : -1;
+  return { note: null,
+    blindLabel: blind && blind.label, blindText,
+    toldLabel: told && told.label, toldText, off,
+    near: g.quarryReport && g.quarryReport.near };
+});
+ok(`word in harbour points you at the story's quarry (${hunt.note
+  || `${hunt.toldLabel} — ${hunt.off}m from where she really is, off ${hunt.near}`})`,
+!hunt.note && !!hunt.toldLabel && /last seen/.test(hunt.toldLabel) && hunt.off < 400);
+ok(`and the objective says so in words (${hunt.note || hunt.toldText.replace(/<[^>]+>/g, '').trim()})`,
+  !hunt.note && /off /.test(hunt.toldText) && hunt.blindText !== hunt.toldText);
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

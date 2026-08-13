@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import {
   PORTS, POIS, ISLANDS, HULLS, FACTIONS, NAMES, GOODS, RANKS, WORLD_SIZE, EDGE_NODES,
 } from './data/gamedata.js';
-import { clamp, clamp01, lerp, dist, angDiff, makeRNG, rngInt, TAU, fmtCoin } from './core/util.js';
+import { clamp, clamp01, lerp, dist, angDiff, normAng, makeRNG, rngInt, TAU, fmtCoin } from './core/util.js';
 import { findRoute } from './core/route.js';
 import { bakeHeights, makeDepthTexture, buildTerrain, depthAt, PORT_SHORE } from './world/terrain.js';
 import { createWater, updateWater, waveHeight, setWaterQuality } from './world/water.js';
@@ -99,6 +99,7 @@ export class Game {
     this.officers = [];
     this.prizes = [];
     this.quests = [];
+    this.quarryReport = null;
     this.discovered = new Set();
     this.tavernSeed = 1;
     this.tavernCache = {};
@@ -131,6 +132,7 @@ export class Game {
     this.speed = 1;              // 0 paused, 1 normal, 2 or 4 fast-forward
     this.PORTS = PORTS;
     this.HULLS = HULLS;          // for the QA harnesses, like PORTS
+    this.CHAPTERS = CHAPTERS;    // likewise
 
     // ---- who you are, and how far into your own story ----
     this.origin = null;
@@ -1290,9 +1292,69 @@ export class Game {
   }
 
   /** Where the current objective is, for the on-screen pointer. */
+  /** The ship the story is currently about, if any is on the water. */
+  storyQuarry() {
+    const ch = CHAPTERS[this.chapter];
+    if (!ch) return null;
+    if (ch.id === 'sant') return this.ships.find(s => s.isSant && s.alive && !s.captured) || null;
+    if (ch.id === 'nemesis') return this.ships.find(s => s.nemesisId && s.alive && !s.captured) || null;
+    return null;
+  }
+
+  /**
+   * Word of where she was last seen.
+   *
+   * Chapter six used to name a brig and leave you to tap every sail in the
+   * Shoals hoping for the right one, which is not a hunt, it is a lottery.
+   * Harbours talk: dock anywhere and you hear roughly where she has been
+   * working. The report is deliberately *stale and approximate* — it is where
+   * she was when somebody last saw her, blurred by a few hundred metres —
+   * so it points you at the right water without sailing the ship for you.
+   * Inside sighting range the report gives way to the real thing.
+   */
+  refreshQuarryReport() {
+    const q = this.storyQuarry();
+    if (!q) { this.quarryReport = null; return; }
+    const blur = 260;
+    const a = Math.random() * TAU, r = Math.random() * blur;
+    this.quarryReport = {
+      name: q.name,
+      x: q.x + Math.sin(a) * r, z: q.z + Math.cos(a) * r,
+      at: this.time,
+      near: this.nearestPortName(q.x, q.z),
+    };
+  }
+  /** "12 leagues NE of Ilo Vantu" — how a harbour would actually put it. */
+  bearingWords(x, z) {
+    const p = this.player;
+    if (!p) return '';
+    const near = this.nearestPortName(x, z);
+    const d = Math.round(dist(p.x, p.z, x, z));
+    const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    const a = Math.atan2(x - p.x, z - p.z);
+    const dir = dirs[Math.round(normAng(a) / (TAU / 8)) % 8];
+    return `${dir}, ${d}m${near ? ` (off ${near})` : ''}`;
+  }
+  nearestPortName(x, z) {
+    let best = null, bd = 1e9;
+    for (const p of PORTS) { const d = dist(x, z, p.x, p.z); if (d < bd) { bd = d; best = p; } }
+    return best ? best.name : null;
+  }
+
   objectiveMarker() {
     const p = this.player;
     if (!p || !p.alive) return null;
+    /* The story's own quarry outranks the errands. Within sight, she is the
+       mark; beyond it, the last report is. */
+    const quarry = this.storyQuarry();
+    if (quarry) {
+      const d = dist(p.x, p.z, quarry.x, quarry.z);
+      if (d < 1100) return { x: quarry.x, z: quarry.z, label: quarry.name };
+      if (this.quarryReport) {
+        return { x: this.quarryReport.x, z: this.quarryReport.z,
+          label: `${this.quarryReport.name} · last seen` };
+      }
+    }
     const q = this.quests.find(x => x.active && !x.done);
     if (q && q.kind === 'cargo') {
       const port = PORTS.find(x => x.id === q.toPort);
@@ -1301,6 +1363,10 @@ export class Game {
     if (q && q.kind === 'hunt') {
       const sant = this.ships.find(s => s.isSant && s.alive);
       if (sant) return { x: sant.x, z: sant.z, label: sant.name };
+    }
+    if (q && q.kind === 'bounty') {
+      const t = this.ships.find(s => s.id === q.targetId && s.alive && !s.captured);
+      if (t) return { x: t.x, z: t.z, label: t.name };
     }
     if (this.prizes.length) {
       const yard = PORTS.find(x => x.services.includes('shipyard'));
@@ -1571,6 +1637,7 @@ export class Game {
       const got = this.gainCoin(value);
       toast(`${s.name} goes down. Prestige +${pres} · ◆${got} in salvage`, 'gold');
       this.progressQuest('hunt', s);
+      this.settleBounty(s, false);
       sfxCoin();
     } else {
       this.infamy += 5;
@@ -1729,6 +1796,8 @@ export class Game {
     if (this.player && this.player.recordHistory({ prize: 1 })) this.player.refitMesh(this.scene);
     this.markStoryTarget(prize);
     this.gainPrestige(10, prize.faction === 'pirate');
+    // taken, not sunk — worth a quarter more to whoever posted the notice
+    this.settleBounty(prize, true);
     if (prize.faction === 'pirate') { this.standing.admiralty += 4; this.progressQuest('hunt', prize); }
     else this.infamy += 6;
     for (const o of this.player.officers) addOfficerXP(o, 40);
@@ -1915,6 +1984,8 @@ export class Game {
     p.dest = null; p.headingCmd = p.yaw; p.throttle = 0; p.speed = 0;
     this.inPort = port;
     this.paused = false;
+    // harbours talk: this is where you hear where she has been working
+    this.refreshQuarryReport();
     // the first time she raises this particular harbour is worth two bars
     if (!this.hintState['port_' + port.id]) {
       this.hintState['port_' + port.id] = 1;
@@ -2122,8 +2193,89 @@ export class Game {
       const nq = makeQuest(id, this.market);
       if (nq) { this.quests.push(nq); out.push(nq); }
     }
+    /* And the bounty board.
+     *
+     * Cargo work is the honest half of a harbour's noticeboard; this is the
+     * other half. Every port here sits under somebody's guns and every one of
+     * them has a name it would pay to stop hearing — so a bounty names a
+     * *real ship already sailing in this world*, not a spawn made up when you
+     * accept it. Take her or sink her and the port pays, and the power that
+     * posted it thinks better of you.
+     *
+     * Posted against live hulls only, and cleaned up when the hull is gone,
+     * because a board advertising a ship that is already on the bottom is a
+     * board nobody believes.
+     */
+    for (const b of this.bountiesAt(port)) out.push(b);
     return out;
   }
+
+  /** The named hulls this port would pay to be rid of. */
+  bountiesAt(port) {
+    const out = [];
+    // whatever is already posted here and still standing
+    for (const q of this.quests) {
+      if (q.kind !== 'bounty' || q.done || q.portId !== port.id) continue;
+      const alive = this.ships.some(s => s.id === q.targetId && s.alive && !s.captured);
+      if (!alive && !q.active) continue;      // she is gone; the notice comes down
+      out.push(q);
+    }
+    const posted = out.filter(q => !q.done).length;
+    if (posted >= 2) return out;
+
+    /* Who this port objects to. A harbour posts against whoever its own power
+       is at war with — the Tally for everyone, and the rival powers besides —
+       so the board reads differently in different water, and taking Admiralty
+       work is a way of choosing a side. */
+    const fa = FACTIONS[port.faction];
+    const enemies = new Set(['pirate', ...(fa ? fa.hostileTo : [])]);
+    enemies.delete('player');
+    const seen = new Set(this.quests.filter(q => q.kind === 'bounty' && !q.done).map(q => q.targetId));
+    const cands = this.ships.filter(s => s.alive && !s.captured && !s.isPlayer
+      && !this.fleet.includes(s) && enemies.has(s.faction) && !seen.has(s.id)
+      && dist(s.x, s.z, port.x, port.z) < 2600);
+    // the worst of them first: a bounty should name someone worth naming
+    cands.sort((a, b) => strength(b) - strength(a));
+    for (const s of cands.slice(0, 2 - posted)) {
+      const q = makeBounty(this, port, s);
+      this.quests.push(q);
+      out.push(q);
+    }
+    return out;
+  }
+
+  /** Pay off any bounty this hull was carrying. Sunk or taken, both count. */
+  settleBounty(ship, taken) {
+    let paid = 0;
+    for (const q of this.quests) {
+      if (q.kind !== 'bounty' || q.done || !q.active) continue;
+      if (q.targetId !== ship.id) continue;
+      q.done = true; q.progress = 1;
+      const reward = taken ? Math.round(q.reward * 1.25) : q.reward;
+      const got = this.gainCoin(reward);
+      const pres = this.gainPrestige(q.prestige, ship.faction === 'pirate');
+      if (q.faction) this.standing[q.faction] = (this.standing[q.faction] || 0) + 4;
+      paid += got;
+      toast(`Bounty settled on ${ship.name} — ◆${got}, prestige +${pres}.`, 'gold', 4600);
+      sfxCoin();
+    }
+    if (paid) this.save();
+    return paid;
+  }
+  /** A sentence of guidance appended to the story objective, when there is a
+      quarry on the water and word to give about her. */
+  quarryHint() {
+    const q = this.storyQuarry();
+    if (!q) return '';
+    const p = this.player;
+    if (p && dist(p.x, p.z, q.x, q.z) < 1100) return ' <em>She is in sight of you now.</em>';
+    const r = this.quarryReport;
+    if (!r) return ' <em>Make port and ask after her.</em>';
+    const mins = Math.max(0, Math.round((this.time - r.at) / 60));
+    const where = r.near ? ` off <b>${r.near}</b>` : '';
+    return ` <em>Word in harbour puts her${where}${mins > 0 ? `, ${mins} minutes ago` : ''}.</em>`;
+  }
+
   rumoursAt(port) {
     const out = [];
     const huntQ = this.quests.find(q => q.id === 'hunt_sant');
@@ -2134,7 +2286,11 @@ export class Game {
         quest: huntQ,
       });
     } else if (huntQ && huntQ.active) {
-      out.push({ title: 'The Long Answer', text: 'Last seen standing east of the Thimbles. She does not run.' });
+      const r = this.quarryReport;
+      out.push({ title: 'The Long Answer',
+        text: r && r.near
+          ? `Working the water off ${r.near}, they say, and in no hurry to leave it. She does not run.`
+          : 'Last seen standing east of the Thimbles. She does not run.' });
     }
     if (!this.discovered.has('bellcove')) {
       out.push({ title: 'A Bell Under Water', text: 'Old hands talk about a chapel bell you can hear through the hull off Bellcurrent, away to the north-west. Nobody has ever gone and looked.' });
@@ -2173,6 +2329,11 @@ export class Game {
       return `Carry <b>${q.amount} ${GOODS[q.good].name}</b> to <b>${p.name}</b>.`;
     }
     if (q.kind === 'hunt') return `Sink or take <b>${q.targetName}</b>. ${q.progress || 0}/${q.count}`;
+    if (q.kind === 'bounty') {
+      const t = this.ships.find(x => x.id === q.targetId && x.alive && !x.captured);
+      if (!t) return `<b>${q.targetName}</b> is off the water. Report to ${(PORTS.find(pp => pp.id === q.portId) || {}).name || 'the port'}.`;
+      return `Bounty on <b>${q.targetName}</b> — ${this.bearingWords(t.x, t.z)}. Sink her or take her.`;
+    }
     return q.brief;
   }
   canCompleteHere(q, port) {
@@ -2284,7 +2445,7 @@ export class Game {
     if (ch) {
       // the chapter's name over its task, so the objective chip reads as a
       // place in the story rather than an instruction from nowhere
-      setObjective(this.chapterText(ch, 'obj'),
+      setObjective(this.chapterText(ch, 'obj') + this.quarryHint(),
         `Chapter ${this.chapter + 1} of ${CHAPTERS.length} · ${this.chapterText(ch, 'title')}`);
       return;
     }
@@ -2447,6 +2608,30 @@ function makeCargoQuest(id, market) {
     reward: fee, advance, prestige: 4,
     active: false, done: false, progress: 0, loaded: 0,
     doneText: 'Delivered and signed for.',
+  };
+}
+
+/* A bounty on a hull that is already out there.
+ *
+ * The reward is her own weight — a fat raider with a full battery is worth
+ * more than a tired lugger — and the port's own coin, so a major harbour with
+ * something to lose pays better than a fishing village that merely disapproves.
+ */
+function makeBounty(g, port, ship) {
+  const worth = Math.round(strength(ship) * 1.5 + ship.cls.guns * 22 + 120);
+  const purse = Math.round(worth * (port.size === 'major' ? 1.25 : 0.9));
+  const who = ship.captainName ? `${ship.captainName} of the <i>${ship.name}</i>` : `the <i>${ship.name}</i>`;
+  return {
+    id: `bounty:${port.id}:${ship.id}`,
+    kind: 'bounty', board: 'harbour', portId: port.id,
+    targetId: ship.id, targetName: ship.name, faction: port.faction,
+    title: `Bounty: ${ship.name}`,
+    brief: `${port.name} will pay for ${who} — a ${ship.cls.name} of `
+      + `${ship.gunsPort + ship.gunsStb} guns, ${FACTIONS[ship.faction] ? FACTIONS[ship.faction].name : ship.faction}. `
+      + `Sink her or take her; taking her pays a quarter more.`,
+    reward: purse, prestige: 6 + Math.round(ship.cls.guns * 0.4),
+    active: false, done: false, progress: 0,
+    doneText: 'The notice comes down.',
   };
 }
 

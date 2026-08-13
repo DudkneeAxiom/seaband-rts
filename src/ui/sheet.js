@@ -162,9 +162,38 @@ function harbourTab(n, port) {
   }
 
   const contracts = G.contractsAt(port);
+  const carrying = contracts.filter(q => q.kind !== 'bounty');
+  const bounties = contracts.filter(q => q.kind === 'bounty');
   n.appendChild(el('div', 'sec-title', 'HARBOURMASTER'));
-  if (!contracts.length) n.appendChild(el('div', 'note', 'No work on the board today. Try the tavern.'));
-  for (const q of contracts) n.appendChild(questRow(q, port));
+  if (!carrying.length) n.appendChild(el('div', 'note', 'No work on the board today. Try the tavern.'));
+  for (const q of carrying) n.appendChild(questRow(q, port));
+
+  /* The other half of the board. A bounty names a ship already out there, so
+     the row says who and how heavy — enough to judge whether she is worth the
+     powder before you sail. */
+  if (bounties.length) {
+    n.appendChild(el('div', 'sec-title', 'NOTICES POSTED'));
+    for (const q of bounties) {
+      const t = G.ships.find(x => x.id === q.targetId);
+      const gone = !t || !t.alive || t.captured;
+      const r = el('div', 'row');
+      const bearing = t && !gone ? G.bearingWords(t.x, t.z) : null;
+      r.appendChild(el('div', 'rmain',
+        `<div class="rtitle">${q.title}${q.active ? ' <span class="pill">TAKEN</span>' : ''}</div>
+         <div class="rsub">${q.brief}</div>
+         <div class="statline">
+           <span>pays <b>◆${q.reward}</b></span>
+           <span>prestige <b>${q.prestige}</b></span>
+           ${bearing ? `<span>last word <b>${bearing}</b></span>` : '<span>no word of her</span>'}
+         </div>`));
+      if (!q.active && !gone) {
+        const b = el('button', 'btn gold', 'TAKE IT');
+        onTap(b, () => { G.acceptQuest(q, port); refresh(); });
+        r.appendChild(b);
+      }
+      n.appendChild(r);
+    }
+  }
 
   const activeQ = G.quests.filter(q => q.active);
   if (activeQ.length) {

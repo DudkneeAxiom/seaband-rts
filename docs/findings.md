@@ -62,6 +62,43 @@ finding 5 be deleted. Two copies of a rule is one rule and one bug.
 deliberately stranded on 0.4m of water under a 3.4m draft claws off with 85%
 of her hull.
 
+## 13. Two things play asked for: bounties, and a hunt you can actually hunt
+
+**Bounties.** Ports now post notices against named ships — the other half of a
+harbourmaster's board, beside the cargo runs. The design rule that makes it
+worth having: **a bounty names a hull already sailing in this world**, chosen
+from live traffic near that port, not a target conjured when you accept it. So
+the notice can quote her class, her battery and a real bearing, and the ship
+you go and find is the ship the notice meant.
+
+Who a port objects to comes from its own power's `hostileTo` list plus the
+Tally, so the board reads differently in different water and taking Admiralty
+work is a way of choosing a side. Reward scales with the target's own weight
+and the port's means. Taking her pays a quarter more than sinking her, which
+points at the game's better verb. Notices come down when the hull is gone,
+because a board advertising a ship already on the bottom is a board nobody
+believes. A notice you never accepted pays nothing.
+
+**Chapter six.** Reported: "you just sail around selecting every ship hoping
+the name matches the one from the story." True — `objectiveMarker()` only
+pointed at Mireya Sant if a *hunt quest* existed, and the chapter never
+created one, so the story named a brig and left you to a lottery.
+
+Harbours talk now. Docking anywhere refreshes word of where the story's quarry
+was last working; the objective chip carries it in words ("Word in harbour
+puts her off Tideglass"), the compass points at the report, and the tavern
+rumour says the same. The report is deliberately **stale and blurred by a few
+hundred metres** — it is where she *was*, not a satellite fix — so it sends you
+to the right water and leaves the finding to you. Inside 1100m the report
+gives way to the real thing.
+
+**Verification.** `systems`: a harbour posts against ships that really exist
+and are not yours; sinking a taken bounty pays the notice, the prestige and
+the standing; an untaken notice pays salvage but no bounty; word in harbour
+puts the objective within 400m of where the quarry actually is and says so in
+prose. Plus a look at the board itself, which is how I know it reads like a
+noticeboard rather than a table of numbers.
+
 ## 12. A gunnery measurement balanced on a knife edge  (harness)
 
 **Symptom.** "Round shot is for sinking her" read 6/6, then 4/6, then 1/6 from
