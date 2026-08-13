@@ -214,8 +214,12 @@ const wind = await G(() => {
   const beam = p.windFactor(g.windAng, g.windAng + Math.PI / 2);
   return { running: +running.toFixed(2), beam: +beam.toFixed(2), beating: +beating.toFixed(2) };
 });
-ok(`wind changes speed a lot (running ${wind.running}, beam ${wind.beam}, beating ${wind.beating})`,
-  wind.running > wind.beam && wind.beam > wind.beating && wind.beating < 0.5);
+/* The polar's promise: a square rig is at her best with the wind abaft the
+   beam, still good running dead before it (the sails blanket a little), and
+   near-helpless in the eye. The old cosine put running first; the new curve
+   is the reason a mark dead downwind is no longer the only good errand. */
+ok(`wind changes speed a lot (beam ${wind.beam} > running ${wind.running} > beating ${wind.beating})`,
+  wind.beam > wind.running && wind.running > wind.beating && wind.beating < 0.3);
 
 /* ---- time controls ---- */
 const time = await G(async () => {
@@ -227,7 +231,15 @@ const time = await G(async () => {
      encounter layer working — but a run measured across one of those reads as
      "2x is slower than 1x", and the thing under test here is only how much
      simulation a frame buys. So put her where nobody is closing. */
-  p.x = 0; p.z = -260; p.speed = 0;
+  /* The surveyed east-west corridor, on a beam reach pinned for the test.
+     She used to run dead downwind from wherever the wind pointed — and once
+     the opening wind stopped being a constant, some captains' winds ran her
+     across a reef mid-measurement, where shoal drag read as "2x buys less
+     sea than 1x". The thing under test is the clock, so the water is made
+     boring on purpose. */
+  p.x = -1600; p.z = 200; p.speed = 0;
+  g.windAng = g.windTargetAng = g.world.windAng = Math.PI;
+  g.windTimer = 9999;
   for (const s of g.ships) {
     if (s.isPlayer || g.fleet.includes(s)) continue;
     s.hostileToPlayer = false; s.target = null; s.chaseHold = 900;
@@ -240,7 +252,7 @@ const time = await G(async () => {
     for (let i = 0; i < 120; i++) for (let k = 0; k < steps; k++) g.update(1 / 60);
     return { secs: +(g.time - t0).toFixed(2), moved: +Math.hypot(p.x - x0, p.z - z0).toFixed(1) };
   };
-  p.setHeading(g.windAng);
+  p.setHeading(Math.PI / 2);                           // due east, wind on the beam
   for (let i = 0; i < 240; i++) g.update(1 / 60);      // come up to speed
   const a = run(1), b = run(2), c = run(0);
   return { s1: a.secs, s2: b.secs, s0: c.secs, m1: a.moved, m2: b.moved, m0: c.moved };
@@ -410,7 +422,19 @@ ok('a corrupt save does not brick the game', recovered);
 
 /* ---- the clock's fourth notch ---- */
 /* One fast button, cycling 2x/4x, with pause and 1x their own buttons. Driven
-   through the real strip, because the wiring is the thing under test. */
+   through the real strip, because the wiring is the thing under test.
+   The strip lives on the campaign layer, so first buy sea room: an encounter
+   opening mid-section drops its card over the buttons and every click after
+   that hits the card instead — which is how this section once took the whole
+   suite down with it. */
+await G(() => {
+  const g = window.__game;
+  g.encounterCooling = 900;                 // longer than everything below
+  for (const s of g.ships) {
+    if (s.isPlayer || g.fleet.includes(s)) continue;
+    s.hostileToPlayer = false; s.target = null; s.chaseHold = 900;
+  }
+});
 await page.click('.spd.fast');
 const at2 = await waitFor(page, () => window.__game.speed === 2, 4000);
 await page.click('.spd.fast');
@@ -435,6 +459,7 @@ const beat = await G(() => {
   let tacks = 0, last = 0, widest = 0;
   for (let i = 0; i < 60 * 260; i++) {
     g.update(1 / 60);
+    if (g.mode !== 'campaign') break;      // the grace above should make this unreachable
     if (p.tack && last && p.tack !== last) tacks++;
     if (p.tack) last = p.tack;
     widest = Math.max(widest, Math.abs(p.z - 200));

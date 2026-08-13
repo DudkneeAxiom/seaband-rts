@@ -226,19 +226,22 @@ ok(`1 loads round shot, and the strip shows it (${ammoUi.strip} buttons, lit: ${
    test has to be in one: sail into contact, take the encounter, clear for
    action, and then try the key. */
 const foe = await intoBattle(page);
-await G(() => {
+/* Pose, press and read in one breath. The enemy keeps her own station between
+   evaluates — a frame or two of her sailing was enough, on the wrong wind, to
+   carry her out of the arc after the pose and before the key landed. The
+   dispatched event still walks the real keydown listener; the CDP keyboard
+   path is exercised by every other key on this page. */
+const spaceFire = await G(() => {
   const g = window.__game, p = g.player, t = g.target;
   if (t) { t.x = p.x + 90; t.z = p.z; t.speed = 0; p.yaw = 0; p.speed = 0; }
   p.reload.stb = 0; p.reload.port = 0;
-  g.update(0.05);
+  g.update(0.05);                       // fireSide settles from the pose
+  const before = p.shot, side = g.fireSide;
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+  return { before, after: p.shot, side };
 });
-await waitFor(page, () => !!window.__game.fireSide, 5000);
-const beforeShot = await G(() => window.__game.player.shot);
-await page.keyboard.press(' ');
-await sleep(400);
-const afterShot = await G(() => ({ shot: window.__game.player.shot, side: window.__game.fireSide }));
-ok(`Space fires the battery that bears in action (${foe && foe.name}: ${beforeShot} -> ${afterShot.shot} shot, ${afterShot.side})`,
-  afterShot.shot < beforeShot);
+ok(`Space fires the battery that bears in action (${foe && foe.name}: ${spaceFire.before} -> ${spaceFire.after} shot, ${spaceFire.side})`,
+  spaceFire.after < spaceFire.before);
 
 await page.keyboard.press('Escape');
 await sleep(250);
