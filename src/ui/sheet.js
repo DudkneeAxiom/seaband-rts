@@ -14,6 +14,9 @@ import { sfxCoin, toggleMute, audio, getMix, setMixLevel, mixDefaults } from '..
 let G = null;
 let current = null;     // {tabs, tab, port}
 let qtyMult = 1;
+/* Which deck new hands join. Reset when a port opens, so it can never point
+   at a ship you sold or a prize in another harbour. */
+let recruitTo = null;
 
 export function initSheet(game) {
   G = game;
@@ -70,6 +73,7 @@ function refresh() { renderTab(true); }
    ========================================================= */
 export function openPort(port) {
   current = { port };
+  recruitTo = null;   // this harbour's fleet, not the last one's
   const svc = port.services;
   const tabs = [];
   tabs.push({ id: 'harbour', label: 'HARBOUR', icon: '⚓', render: n => harbourTab(n, port) });
@@ -288,11 +292,32 @@ function crewTab(n, port) {
   n.appendChild(el('div', 'note', `Sea time earned: <em>${xp}</em>. Crew are rated up between voyages — every fight and every league sailed counts.`));
 
   n.appendChild(el('div', 'sec-title', 'RECRUITING'));
+  /* Hands can be signed straight onto any ship in the fleet that is in this
+     harbour with you. A prize goes out with a thin prize crew, and this is
+     how she is manned properly afterwards — without it, the only berths you
+     could ever fill were your own, and a big ship you had captured stayed
+     unusable no matter how much coin you had. */
+  const berths = G.fleet.filter(s => s.alive && !s.captured);
+  if (!recruitTo || !berths.includes(recruitTo)) recruitTo = G.player;
+  if (berths.length > 1) {
+    const pickRow = el('div', 'row');
+    pickRow.appendChild(el('div', 'rmain',
+      `<div class="rtitle">Sign them aboard</div><div class="rsub">Which deck these hands join.</div>`));
+    const wrap = el('div', 'fwrap');
+    for (const s of berths) {
+      const b = el('button', 'btn' + (s === recruitTo ? ' gold' : ' dim'),
+        `${s.isPlayer ? '⚑ ' : ''}${s.name.split(' ')[0]} ${s.crewTotal}/${s.cls.crewMax}`);
+      onTap(b, () => { recruitTo = s; refresh(); });
+      wrap.appendChild(b);
+    }
+    pickRow.appendChild(wrap);
+    n.appendChild(pickRow);
+  }
   const avail = port.size === 'major' ? ['deckhand', 'sailor', 'gunner', 'marine', 'rigger'] : ['deckhand', 'sailor'];
   for (const rid of avail) {
     const rk = RANKS[rid];
     const cost = recruitCost(rid, port.id);
-    const full = p.crewTotal >= p.cls.crewMax;
+    const full = recruitTo.crewTotal >= recruitTo.cls.crewMax;
     const r = el('div', 'row');
     r.appendChild(el('div', 'rmain',
       `<div class="rtitle">${rk.name}</div>
@@ -300,15 +325,18 @@ function crewTab(n, port) {
     const b = el('button', 'btn gold', `◆${cost}`);
     b.disabled = full || G.coin < cost;
     onTap(b, () => {
-      if (full) return toast('No berths left aboard.', 'bad');
+      if (full) return toast(`No berths left aboard ${recruitTo.name}.`, 'bad');
       if (G.coin < cost) return toast('Not enough coin.', 'bad');
-      G.coin -= cost; p.crew[rid]++;
+      G.coin -= cost; recruitTo.crew[rid]++;
       sfxCoin(); G.save(); refresh();
     });
     r.appendChild(b);
     n.appendChild(r);
   }
-  if (p.crewTotal >= p.cls.crewMax) n.appendChild(el('div', 'note', 'Every berth is taken. A bigger hull would take more hands.'));
+  if (recruitTo.crewTotal >= recruitTo.cls.crewMax) {
+    n.appendChild(el('div', 'note',
+      `Every berth aboard ${recruitTo.name} is taken. A bigger hull would take more hands.`));
+  }
 }
 function describeRank(id) {
   return {
@@ -333,7 +361,7 @@ function yardTab(n, port) {
       const r = el('div', 'row');
       r.appendChild(el('div', 'rmain',
         `<div class="rtitle">${pr.name}</div>
-         <div class="rsub">${cls.name} · hull ${Math.round(pr.hull)}/${cls.hull} · ${pr.guns} guns · needs ${cls.crewMin} hands and a captain</div>`));
+         <div class="rsub">${cls.name} · hull ${Math.round(pr.hull)}/${cls.hull} · ${pr.guns} guns · a prize crew of ${G.prizeCrewFor(cls)} and a captain; ${cls.crewMin} hands to work her properly</div>`));
       const b = el('button', 'btn', 'SELL ◆' + Math.round(cls.value * 0.55 * (pr.hull / cls.hull)));
       onTap(b, () => {
         G.coin += Math.round(cls.value * 0.55 * (pr.hull / cls.hull));
@@ -380,6 +408,27 @@ function fleetRow(s, port) {
     const b = el('button', 'btn dim', 'CREW');
     onTap(b, () => transferFlow(s));
     r.appendChild(b);
+    /* Take her yourself. A captain who has just taken a ship worth ten of her
+       own should not have to keep sailing the cutter — that was most of the
+       point of taking it. Only in harbour, and only if she can be worked:
+       the hull carries the hands, but the captain carries the skill. */
+    const cmd = el('button', 'btn gold', 'COMMAND');
+    const short = s.crewTotal < s.cls.crewMin;
+    cmd.disabled = short;
+    if (short) cmd.title = `${s.name} needs ${s.cls.crewMin} hands to work; she has ${s.crewTotal}.`;
+    onTap(cmd, () => {
+      if (short) return toast(`${s.name} wants ${s.cls.crewMin} hands before she will answer.`, 'bad', 3400);
+      modal({
+        title: `Shift your flag?`,
+        text: `You will command <b>${s.name}</b>, and <b>${G.player.name}</b> falls in`
+          + ` as a consort. Your own skill goes with you.`,
+        actions: [
+          { label: 'SHIFT MY FLAG', cls: 'gold', fn: () => { G.takeCommand(s); refresh(); } },
+          { label: 'STAY WHERE I AM', cls: 'dim', fn: () => { } },
+        ],
+      });
+    });
+    r.appendChild(cmd);
   }
   void port;
   return r;

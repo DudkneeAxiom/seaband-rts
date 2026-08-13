@@ -687,6 +687,91 @@ ok(`an action at 4x opens at 1x (clock read ${clockInAction.speed}x on the `
 clockInAction.mode === 'battle' && clockInAction.speed === 1 && !!gotAction && strip);
 await leaveBattle(page);
 
+/* ---- a prize you can never man is a dead end ----
+   Reported: "I captured one of the main flagships which had 64 crew slots,
+   however I could never get it to join my fleet because the max I could
+   recruit was 22 and that vessel required 26." That was arithmetic, not bad
+   luck — the gate read `crewTotal - cls.crewMin < p.cls.crewMin`, and a
+   cutter holds 22 against a frigate's minimum of 26, so 22-26 < 5 for every
+   captain in every save. She goes out with a prize crew now. */
+const bigPrize = await G(() => {
+  const g = window.__game, p = g.player;
+  // the heaviest hull in the game — the worst case for the arithmetic
+  const heavy = Object.entries(g.HULLS).sort((a, b) => b[1].crewMin - a[1].crewMin)[0];
+  const classId = heavy[0], cls = heavy[1];
+  g.prizes.length = 0;
+  g.prizes.push({ name: 'Test Prize', classId, hull: cls.hull, guns: cls.guns });
+  // the flagship filled to her own cap: the most crew any player can ever hold
+  for (const k in p.crew) p.crew[k] = 0;
+  p.crew.sailor = p.cls.crewMax;
+  // a real officer, from the tavern books this port actually offers
+  const offered = g.tavernPool(g.PORTS[0]);
+  const officer = (offered && offered[0]) || g.officers[0];
+  if (!officer) return { note: 'no officer to command her' };
+  const before = { crew: p.crewTotal, cap: p.cls.crewMax, need: cls.crewMin,
+    prizeCrew: g.prizeCrewFor(cls), classId };
+  g.commissionPrize(g.prizes[0], officer, g.PORTS[0]);
+  const she = g.fleet.find(s => s.name === 'Test Prize');
+  return { note: null, before, commissioned: !!she, herCrew: she ? she.crewTotal : 0,
+    mine: p.crewTotal, fleet: g.fleet.length };
+});
+ok(`the heaviest prize in the game can be commissioned at all `
+  + `(${bigPrize.note || `${bigPrize.before.classId}: wants ${bigPrize.before.need} to work, `
+  + `prize crew ${bigPrize.before.prizeCrew}, flagship caps at ${bigPrize.before.cap}) `
+  + `-> ${bigPrize.commissioned ? `she sails with ${bigPrize.herCrew}` : 'REFUSED'}`})`,
+!bigPrize.note && bigPrize.commissioned && bigPrize.herCrew > 0 && bigPrize.mine >= 5);
+
+/* ---- and the captain can step across to her ---- */
+const flag = await G(() => {
+  const g = window.__game;
+  const she = g.fleet.find(s => s.name === 'Test Prize');
+  if (!she) return { note: 'no prize to command' };
+  const wasFlag = g.player.name, wasCapt = !!g.player.capt;
+  // she must be worked before she will answer: man her from the quay
+  she.crew.sailor = she.cls.crewMin;
+  const outOfPort = g.takeCommand(she);          // at sea: refused
+  g.inPort = g.PORTS[0];
+  const inPort = g.takeCommand(she);
+  const now = g.player;
+  g.inPort = null;
+  return { note: null, outOfPort, inPort, wasFlag, wasCapt,
+    flagNow: now.name, flagIsHer: now === she, sheIsPlayer: she.isPlayer,
+    oldIsConsort: g.fleet.some(s => s.name === wasFlag && !s.isPlayer && s.role === 'consort'),
+    skillCameAcross: !!now.capt === wasCapt, worldPlayer: g.world.player === she };
+});
+ok(`the flag shifts to a ship you took (${flag.note
+  || `${flag.wasFlag} -> ${flag.flagNow}, old ship a consort: ${flag.oldIsConsort}`})`,
+!flag.note && flag.inPort === true && flag.flagIsHer && flag.sheIsPlayer
+  && flag.oldIsConsort && flag.worldPlayer);
+/* And she is still your flagship after a reload. The save records isPlayer
+   per hull and the load resolves the flag from it, but "should" is not the
+   standard here — a captain who shifts her flag and comes back to find
+   herself in the cutter again has lost the ship she took. */
+const flagSaved = await G(() => {
+  const g = window.__game;
+  const she = g.fleet.find(s => s.name === 'Test Prize');
+  if (!she || g.player !== she) return { note: 'flag was not shifted' };
+  const wasName = g.player.name, wasClass = g.player.classId, hadCapt = !!g.player.capt;
+  g.mode = 'campaign';
+  g.save();
+  if (!g.load()) return { note: 'save would not load' };
+  const now = g.player;
+  return { note: null, wasName, wasClass, hadCapt,
+    name: now.name, classId: now.classId, capt: !!now.capt,
+    isFlag: now.isPlayer, world: g.world.player === now,
+    fleet: g.fleet.length, consorts: g.fleet.filter(s => !s.isPlayer).length };
+});
+ok(`and she is still your flagship after a reload (${flagSaved.note
+  || `${flagSaved.name} the ${flagSaved.classId}, skill ${flagSaved.capt}, `
+    + `${flagSaved.consorts} consort(s)`})`,
+!flagSaved.note && flagSaved.name === flagSaved.wasName
+  && flagSaved.classId === flagSaved.wasClass && flagSaved.isFlag && flagSaved.world
+  && flagSaved.capt === flagSaved.hadCapt && flagSaved.consorts >= 1);
+
+ok(`and your own skill goes with you, but not in open water `
+  + `(skill carried ${flag.skillCameAcross}, refused at sea ${flag.outOfPort === false})`,
+!flag.note && flag.skillCameAcross && flag.outOfPort === false);
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

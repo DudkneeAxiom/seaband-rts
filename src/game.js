@@ -130,6 +130,7 @@ export class Game {
     this.combatHeat = 0;
     this.speed = 1;              // 0 paused, 1 normal, 2 or 4 fast-forward
     this.PORTS = PORTS;
+    this.HULLS = HULLS;          // for the QA harnesses, like PORTS
 
     // ---- who you are, and how far into your own story ----
     this.origin = null;
@@ -1782,6 +1783,65 @@ export class Game {
     this.mark('fleet');
   }
 
+  /**
+   * Step across and take command of another ship in your fleet.
+   *
+   * The captain is the player, not the hull: her skills, her story and the
+   * camera all follow her across, and the ship she leaves becomes a consort
+   * under whichever officer is aboard. Without this a captain who takes a
+   * flagship worth ten of her cutter has no way to sail it, which is most of
+   * the point of taking it.
+   *
+   * Only in harbour. Swapping flags in open water — never mind mid-action —
+   * is not a thing a boat's crew can do, and the battle instance holds
+   * references to the player ship that must not change under it.
+   */
+  takeCommand(ship) {
+    if (!ship || ship === this.player) return false;
+    if (this.mode !== 'campaign' || !this.inPort) {
+      toast('You can only shift your flag in harbour.', 'bad', 3000);
+      return false;
+    }
+    if (!this.fleet.includes(ship) || !ship.alive || ship.captured) return false;
+    const old = this.player;
+
+    // the officer who was sailing her stands aside; the one you leave takes yours
+    const herCaptain = ship.captain;
+    old.captain = herCaptain || old.captain;
+    if (herCaptain) herCaptain.ship = old;
+    ship.captain = null;
+
+    old.isPlayer = false; old.role = 'consort';
+    old.fleetOrder = this.fleetOrder;
+    old.officers = old.officers || [];
+
+    ship.isPlayer = true; ship.role = 'player';
+    ship.fleetOrder = 'follow';
+    ship.dest = null; ship.route = null; ship.headingCmd = ship.yaw; ship.throttle = 0;
+    ship.tack = 0;
+
+    /* Skill belongs to the captain, not the timber. */
+    ship.capt = old.capt; old.capt = null;
+    ship.shoalwise = old.shoalwise; old.shoalwise = false;
+
+    this.player = ship;
+    this.world.player = ship;
+
+    // formation slots renumber around the new flag
+    let slot = 1;
+    for (const s of this.fleet) { if (s !== ship) s.formSlot = slot++; }
+    ship.formSlot = 0;
+
+    // she is where you are: put your new deck under the camera
+    if (this.rig) this.rig.focus.set(ship.x, 0, ship.z);
+    this.clearTarget();
+    sfxHorn();
+    toast(`Your flag is shifted to ${ship.name}.`, 'gold', 4000);
+    this.mark('flagship');
+    this.save();
+    return true;
+  }
+
   sendPrizeHome(prize, loot) {
     this.applyLoot(loot);
     this.prizes.push({
@@ -1924,11 +1984,25 @@ export class Game {
     this.save();
     void port;
   }
+  /** The hands a prize needs to be worked out of harbour under your colours.
+      Not her full complement — a prize crew is famously thin, and she sails
+      undermanned until you hire her up, which the crew-skill curve already
+      models as slower reloads and a heavier helm. */
+  prizeCrewFor(cls) { return Math.max(4, Math.min(cls.crewMin, 8)); }
+
   commissionPrize(prizeRec, officer, port) {
     const p = this.player;
     const cls = HULLS[prizeRec.classId];
-    if (p.crewTotal - cls.crewMin < p.cls.crewMin) {
-      toast('Not enough hands to man her. Recruit first.', 'bad', 3200);
+    /* This used to demand her full minimum out of the flagship's own company,
+       which for anything above a lugger was arithmetically impossible: a
+       frigate wants 26 hands and a cutter holds 22, so the gate read
+       22 − 26 < 5 and no captain in any save could ever have passed it. A
+       prize you cannot ever commission is a dead end, and this game does not
+       have those. She goes out with a prize crew and you man her properly at
+       the rail afterwards. */
+    const need = this.prizeCrewFor(cls);
+    if (p.crewTotal - need < p.cls.crewMin) {
+      toast(`Not enough hands to spare her a prize crew — ${need} needed.`, 'bad', 3200);
       return;
     }
     // moor her in the harbour on the seaward side of the town, in water she
@@ -1947,7 +2021,7 @@ export class Game {
     s.fleetOrder = this.fleetOrder;
     this.addShip(s);
     this.fleet.push(s);
-    this.transferCrew(p, s, cls.crewMin + 2, true);
+    this.transferCrew(p, s, need, true);
     const idx = this.prizes.indexOf(prizeRec);
     if (idx >= 0) this.prizes.splice(idx, 1);
     sfxHorn();

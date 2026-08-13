@@ -38,6 +38,49 @@ screens was taken and read.
 - *Officers.* Not audited this session.
 
 
+## 10. A prize nobody could ever commission, and no way to sail it  (P0, reported)
+
+**Symptom.** "I captured one of the main flagships which had 64 crew slots,
+however I could never get it to join my fleet because the max I could recruit
+was 22 and that vessel required 26." And separately: the player is stuck
+commanding the starting cutter for the whole campaign.
+
+**Root cause — the dead end.** Not bad luck: arithmetic. The gate read
+`p.crewTotal - cls.crewMin < p.cls.crewMin`. A cutter's `crewMax` is 22; the
+heaviest hull's `crewMin` is 26. So the sum was `22 - 26 = -4 < 5` for every
+captain in every save that ever existed. No player could have commissioned a
+frigate or above, ever, by any route. The prize was permanently unusable and
+the game gave no reason why — the row simply said "needs 26 hands".
+
+**Root cause — the ceiling.** Recruiting could only ever fill the flagship's
+own berths, so even holding coin the player could not man a captured hull.
+And there was no way to command a fleet ship, so a better ship could only be
+sold or towed around.
+
+**Change.** Three parts, and each removes a different half of the trap:
+- A prize goes out with a *prize crew* (4–8 hands), not her full complement.
+  She sails undermanned — the crew-skill curve already models that as slower
+  reloads and a heavier helm — and you man her up afterwards. Historically
+  this is what prize crews were.
+- Hands can be signed onto any ship in the fleet that is in harbour with you,
+  chosen with a picker in the crew screen. That is how an undermanned prize
+  becomes a working ship.
+- `takeCommand(ship)` shifts your flag to any ship you own, in harbour only.
+  Your skill, your story and the camera go across; the ship you leave becomes
+  a consort under whichever officer was aboard. Formation slots renumber
+  around the new flag.
+
+**Why harbour only.** Swapping flags under way is not a thing a crew can do,
+and the battle instance holds references to the player ship that must not
+change beneath it.
+
+**Verification.** `systems`: the heaviest hull in the game is commissioned
+from a flagship filled to its own cap — the exact reported situation — and
+sails with 8; the flag shifts to her and the cutter becomes a consort; the
+shift is refused at sea and accepted in port; the captain's skill travels
+with the captain; and the whole thing survives a save/load round trip, since
+a flag that reverts on reload loses the ship you took.
+
 ## 9. Two measurements that drifted, and one that read a frame too early  (harness)
 
 **Round shot, 2/6 then 4/6 then 6/6 from identical staging.** The trial pins
