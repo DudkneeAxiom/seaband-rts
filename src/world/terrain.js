@@ -340,13 +340,131 @@ function scatterProps(isl, group) {
 const WALLS = [0xe8ddc6, 0xdcc9a8, 0xcbb896, 0xe3d2b0];
 const ROOFS = [0xa8503a, 0x8c4331, 0x7a5a3a, 0xb35f42, 0x5d6b6e];
 
-function building(rng, w, h, d) {
+/* ---- buildings that say what they are ----
+
+   Every building in the Shoals used to be one shape: a tapered box under a
+   four-sided cone. That is a perfectly good house, and it was also the
+   shipyard, the tavern, the market and the harbourmaster's office. Now that
+   the port screen frames a *particular* building and calls it The Tavern, the
+   picture has to earn the caption.
+
+   Each kind is built from the same handful of primitives in the same style —
+   nothing here is a new art pipeline — but the silhouettes are distinct
+   enough to read at a glance and from a distance: a chimney and a hanging
+   sign, an open awning over crates, a hull on a slipway inside a timber
+   frame, a signal mast over a tall narrow office.
+
+   The `y` of every part is measured from the ground under the building, and
+   the caller places the whole lot. */
+const TIMBER = 0x6b4a2c, DARKWOOD = 0x4e3722, CANVAS = 0xdfd3ba, STONE = 0x9a9384;
+
+function roofCone(w, d, h, roof, y) {
+  const rg = new THREE.ConeGeometry(Math.max(w, d) * 0.79, h * 0.62, 4);
+  return prep(xf(rg, { y: y + h * 0.31, ry: Math.PI / 4 }), roof, 0.09);
+}
+/** A pitched roof — a long ridge rather than a pyramid. Reads as "hall". */
+function roofGable(w, d, h, roof, y) {
+  const g = new THREE.CylinderGeometry(d * 0.62, d * 0.62, w * 1.04, 3, 1);
+  return prep(xf(g, { y: y + h * 0.22, rz: Math.PI / 2, ry: Math.PI / 2 }), roof, 0.08);
+}
+function post(x, z, h, y, col = TIMBER, r = 0.5) {
+  return prep(xf(new THREE.CylinderGeometry(r, r, h, 5), { x, y: y + h / 2, z }), col, 0.06);
+}
+
+function building(rng, w, h, d, kind = 'house') {
   const parts = [];
   const wall = WALLS[(rng() * WALLS.length) | 0];
   const roof = ROOFS[(rng() * ROOFS.length) | 0];
+
+  if (kind === 'tavern') {
+    /* Low, broad, gabled, with a chimney and a sign on a bracket. The two
+       barrels by the door are what actually sells it at a distance. */
+    const bw = w * 1.25, bh = h * 0.82, bd = d * 1.1;
+    parts.push(prep(xf(taperedBox(bw, bh, bd, 0.99, 0.99), { y: bh / 2 }), wall, 0.07));
+    parts.push(roofGable(bw, bd, bh, roof, bh));
+    parts.push(prep(xf(new THREE.BoxGeometry(1.7, bh * 0.55, 1.7),
+      { x: bw * 0.3, y: bh + bh * 0.3, z: bd * 0.22 }), STONE, 0.06));   // chimney
+    // sign: a bracket off the front wall and a board hanging from it
+    const fz = bd * 0.5 + 0.5;
+    parts.push(prep(xf(new THREE.BoxGeometry(0.35, 0.35, 2.6), { x: -bw * 0.28, y: bh * 0.78, z: fz + 0.9 }), DARKWOOD, 0));
+    parts.push(prep(xf(new THREE.BoxGeometry(2.4, 1.7, 0.25), { x: -bw * 0.28, y: bh * 0.55, z: fz + 1.9 }), 0x8c5a2b, 0.05));
+    for (const bx of [bw * 0.22, bw * 0.34]) {
+      parts.push(prep(xf(new THREE.CylinderGeometry(0.85, 0.85, 1.7, 7), { x: bx, y: 0.85, z: fz + 0.7 }), 0x7a5a3a, 0.08));
+    }
+    return parts;
+  }
+
+  if (kind === 'market') {
+    /* Barely a building: a low stall block under wide canvas awnings, with
+       crates stacked around it. Open, busy, and unmistakably not a house. */
+    const bw = w * 1.15, bh = h * 0.42, bd = d * 0.95;
+    parts.push(prep(xf(taperedBox(bw, bh, bd, 1, 1), { y: bh / 2 }), wall, 0.06));
+    for (const side of [-1, 1]) {
+      const aw = bw * 0.62;
+      parts.push(prep(xf(new THREE.BoxGeometry(aw, 0.3, bd * 0.9),
+        { x: side * bw * 0.44, y: bh + 1.9, z: 0, rz: side * 0.22 }), CANVAS, 0.05));
+      parts.push(post(side * (bw * 0.44 + aw * 0.34), bd * 0.34, bh + 1.7, 0));
+      parts.push(post(side * (bw * 0.44 + aw * 0.34), -bd * 0.34, bh + 1.7, 0));
+    }
+    for (let i = 0; i < 4; i++) {
+      const cs = 1.1 + rng() * 0.7;
+      parts.push(prep(xf(new THREE.BoxGeometry(cs, cs, cs), {
+        x: rngRange(rng, -bw * 0.4, bw * 0.4), y: cs / 2, z: bd * 0.55 + rng() * 1.6,
+        ry: rng() * 1.5,
+      }), 0x9c7546, 0.08));
+    }
+    return parts;
+  }
+
+  if (kind === 'yard') {
+    /* A shipyard is a frame, not a wall: uprights, a crossbeam, a half-built
+       hull on the slipway and stacked timber. Skeletal on purpose. */
+    const bw = w * 1.3, bd = d * 1.2, fh = h * 1.15;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) parts.push(post(sx * bw * 0.45, sz * bd * 0.4, fh, 0, TIMBER, 0.72));
+    for (const sz of [-1, 1]) {
+      parts.push(prep(xf(new THREE.BoxGeometry(bw, 0.7, 0.7), { y: fh, z: sz * bd * 0.4 }), TIMBER, 0.05));
+    }
+    parts.push(prep(xf(new THREE.BoxGeometry(bw * 1.05, 0.5, bd * 0.95), { y: fh + 0.5 }), DARKWOOD, 0.05));
+    // the hull under construction: a tapered box with ribs over it
+    const hl = bw * 0.82, hh = h * 0.44;
+    parts.push(prep(xf(taperedBox(hl, hh, bd * 0.44, 0.72, 0.55), { y: hh * 0.62 + 0.6, ry: Math.PI / 2 }), 0x8a6a4a, 0.07));
+    for (let i = -2; i <= 2; i++) {
+      parts.push(prep(xf(new THREE.BoxGeometry(0.4, hh * 1.15, bd * 0.5),
+        { x: i * hl * 0.19, y: hh * 0.66 + 0.6 }), DARKWOOD, 0.05));
+    }
+    for (let i = 0; i < 3; i++) {
+      parts.push(prep(xf(new THREE.BoxGeometry(bw * 0.7, 0.55, 0.85),
+        { x: -bw * 0.1, y: 0.3 + i * 0.6, z: -bd * 0.62 }), 0x9c7546, 0.07));
+    }
+    return parts;
+  }
+
+  if (kind === 'harbour') {
+    /* The office: taller than its neighbours, narrow, stone-based, with a
+       signal mast and a lantern. It should look official and slightly smug. */
+    const bw = w * 0.85, bh = h * 1.45, bd = d * 0.85;
+    parts.push(prep(xf(taperedBox(bw * 1.12, bh * 0.22, bd * 1.12, 1, 1), { y: bh * 0.11 }), STONE, 0.05));
+    parts.push(prep(xf(taperedBox(bw, bh, bd, 0.95, 0.95), { y: bh * 0.22 + bh / 2 }), wall, 0.06));
+    parts.push(roofCone(bw, bd, bh * 0.72, roof, bh * 1.22 - bh * 0.36 * 0.62 + 0.2));
+    parts.push(post(0, -bd * 0.2, bh * 0.95, bh * 1.2, DARKWOOD, 0.34));      // signal mast
+    parts.push(prep(xf(new THREE.BoxGeometry(2.2, 1.3, 0.2), { x: 1.1, y: bh * 1.95, z: -bd * 0.2 }), 0xc94f2f, 0.05));
+    parts.push(prep(xf(new THREE.BoxGeometry(0.9, 1.1, 0.9), { x: bw * 0.42, y: bh * 0.95, z: bd * 0.5 }), 0xe8c96a, 0.04));
+    return parts;
+  }
+
+  if (kind === 'warehouse') {
+    // long, blank, big doors: storage, and a good foil for everything else
+    const bw = w * 1.5, bh = h * 0.72, bd = d * 1.05;
+    parts.push(prep(xf(taperedBox(bw, bh, bd, 1, 1), { y: bh / 2 }), wall, 0.05));
+    parts.push(roofGable(bw, bd, bh, roof, bh));
+    parts.push(prep(xf(new THREE.BoxGeometry(bw * 0.3, bh * 0.62, 0.3),
+      { y: bh * 0.31, z: bd * 0.5 + 0.15 }), DARKWOOD, 0.05));
+    return parts;
+  }
+
+  // a house, which is what most of a town is
   parts.push(prep(xf(taperedBox(w, h, d, 0.98, 0.98), { y: h / 2 }), wall, 0.07));
-  const rg = new THREE.ConeGeometry(Math.max(w, d) * 0.79, h * 0.62, 4);
-  parts.push(prep(xf(rg, { y: h + h * 0.31, ry: Math.PI / 4 }), roof, 0.09));
+  parts.push(roofCone(w, d, h, roof, h));
   return parts;
 }
 
@@ -467,6 +585,18 @@ function buildSettlement(port, group) {
      candidates are tried until enough of them stand on ground a builder would
      accept. That keeps the terracing where the coast allows it and lets the
      town bend around the parts where it does not, which is what real ones do. */
+  /* Who gets the waterfront.
+     A harbour town puts its public buildings where the boats are, so the
+     front row is dealt the named ones first — and only the services this
+     port actually has, because a fishing hamlet with a shipyard in the
+     picture and no shipyard on the tabs is a lie the screen tells. */
+  const civic = ['harbour', 'tavern', 'market', 'yard']
+    .filter(k => k === 'harbour'
+      || (k === 'tavern' && port.services.includes('tavern'))
+      || (k === 'market' && port.services.includes('market'))
+      || (k === 'yard' && port.services.includes('shipyard')));
+  let civicNext = 0;
+
   let placed = 0;
   for (let r = 0; r < rows.length && placed < count; r++) {
     const nearWater = 1 - r / rows.length;
@@ -474,7 +604,19 @@ function buildSettlement(port, group) {
     const inRow = Math.max(2, Math.round((isMajor ? 7 : 4) * (0.45 + nearWater * 0.75)));
     let inThisRow = 0;
     for (let attempt = 0; attempt < inRow * 14 && inThisRow < inRow && placed < count; attempt++) {
-      const along = rngRange(rng, -1, 1) * spread * (0.55 + nearWater * 0.45);
+      /* The named buildings get elbow room: dealt across the front in their
+         own slots rather than dropped at random, so a close-up of the yard is
+         the yard and not the market's awnings leaning into frame. */
+      const civicSlot = (r === 0 && civicNext < civic.length);
+      /* A preference, not a decree. Dealt across the front they get elbow
+         room — but the extremes of a row on this coast are underwater at one
+         end and up a cliff at the other, and insisting on the slot built no
+         public buildings at all. After half the attempts the preference is
+         dropped and the building takes whatever ground the row can offer. */
+      const insist = attempt < inRow * 7;
+      const along = (civicSlot && insist)
+        ? ((civicNext / Math.max(1, civic.length - 1)) * 2 - 1) * spread * 0.55 + rngRange(rng, -12, 12)
+        : rngRange(rng, -1, 1) * spread * (0.55 + nearWater * 0.45);
       const into = rows[r] + rngRange(rng, -9, 9);
       const x = base.x + inland.x * into + perpG.x * along;
       const z = base.y + inland.y * into + perpG.y * along;
@@ -495,8 +637,17 @@ function buildSettlement(port, group) {
       }
       if (clash) continue;
       const ry = facing + rngRange(rng, -0.21, 0.21);
-      for (const part of building(rng, w, bh, d)) parts.push(xf(part, { x, y: g.lo - 1, z, ry }));
-      shoreRec.spots.push({ x, z, y: g.lo, w, h: bh, front: r === 0 });
+      /* The named buildings take the front row; a couple of warehouses stand
+         behind them, and everything above that is somebody's house. */
+      let kind = 'house';
+      if (civicSlot) kind = civic[civicNext++];
+      else if (r <= 1 && rng() < 0.3) kind = 'warehouse';
+      // a public building is bigger than the houses either side of it
+      const k = kind === 'house' || kind === 'warehouse' ? 1 : 1.28;
+      for (const part of building(rng, w * k, bh * k, d * k, kind)) {
+        parts.push(xf(part, { x, y: g.lo - 1, z, ry }));
+      }
+      shoreRec.spots.push({ x, z, y: g.lo, w: w * k, h: bh * k, front: r === 0, kind });
       placed++; inThisRow++;
     }
   }

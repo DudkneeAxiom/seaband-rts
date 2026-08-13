@@ -103,6 +103,42 @@ the tabs, and the sheet's content pane made the flexible one. The sheet's foot
 also gained `env(safe-area-inset-bottom)` — the last row of a long list was
 ending flush with the bottom of the glass.
 
+## 20. Every building was the same building  (P2)
+
+**Symptom.** "A tavern should look like one, not just a cone building."
+
+**Root cause.** `building()` made exactly one shape — a tapered box under a
+four-sided cone — and that shape was the house, the tavern, the market, the
+shipyard and the harbourmaster's office alike. Fine at two hundred metres.
+Not fine once the port screen frames one of them and captions it THE TAVERN.
+
+**Change.** Buildings are typed, built from the same primitives in the same
+style — no new art pipeline — but with silhouettes that read at a glance:
+
+- **tavern** — low and broad, gabled, chimney, a sign hanging off a bracket,
+  two barrels by the door
+- **market** — barely a building: a low stall block under wide canvas awnings
+  with crates stacked around it
+- **yard** — a frame rather than a wall: uprights, a crossbeam, a half-planked
+  hull on the slipway with its ribs showing, stacked timber
+- **harbour** — taller and narrower on a stone base, signal mast, lantern
+- **warehouse** — long, blank, big doors, a foil for the rest
+- **house** — the original, which is what most of a town is
+
+The town deals its public buildings to the waterfront, and only the ones the
+port actually has: a hamlet with no shipyard does not get a shipyard in the
+picture. The spot record carries the kind, so THE TAVERN frames *the tavern*
+rather than whichever house hashed to that slot.
+
+**Two mistakes on the way, both caught by printing the result.** Giving civic
+buildings fixed slots across the front row built none at all — the extremes of
+a row on this coast are underwater at one end and cliff at the other, the same
+trap as finding 19, one layer up. The slot is a preference now that gives way
+to buildable ground after half the attempts. And before that, framing a
+skeletal shipyard at 78m let the neighbouring market's awnings dominate the
+shot; a known building gets elbow room on the front and the lens comes in to
+54m.
+
 ## 19. The town was a scatter, and a stricter rule built one shed  (P2)
 
 **Symptom.** With the port screen framing individual buildings, the settlement

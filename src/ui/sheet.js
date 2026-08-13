@@ -188,20 +188,23 @@ const PORTRAITS = {};
 function spotFor(port, place) {
   const shore = (window.__shore || {})[port.id];
   if (!shore) return null;
-  if (place === 'harbour' && shore.piers && shore.piers.length) {
+  if ((place === 'harbour' || place === 'crew') && shore.piers && shore.piers.length) {
     return { ...shore.piers[0], quay: true };
   }
   const spots = shore.spots || [];
   if (!spots.length) return null;
+  /* The actual building. The town builds a real tavern, a real market stall
+     and a real shipyard frame on its waterfront and records which is which,
+     so THE TAVERN frames the thing with the sign and the barrels outside it
+     rather than a house that happened to hash to that slot. */
+  const named = spots.find(s => s.kind === place);
+  if (named) return named;
   let h = 0x9e37;
   for (let i = 0; i < place.length; i++) h = Math.imul(h ^ place.charCodeAt(i), 0x01000193) >>> 0;
-  /* The waterfront row first — that is where a town's public buildings are,
-     and where a picture of one has the harbour behind it. Fall back to the
-     biggest of whatever the town managed to build. */
   const front = spots.filter(s => s.front);
   const rank = (front.length >= 3 ? front : spots)
     .slice().sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, 8);
-  return rank[h % rank.length];
+  return rank.length ? rank[h % rank.length] : null;
 }
 /** The angle each harbour actually looks best from — chosen by eye, not by
     formula: a town wants to be seen from the water it is entered from. */
@@ -225,11 +228,15 @@ function portPortrait(port, place = 'town') {
          building rather than at the grass beside it. At fifty metres the lens
          was inside the hedge; at ninety it was looking downhill past the roof. */
       const top = (spot.y || 0) + (spot.h || 10);
+      /* Closer for a building we actually know the identity of: it has been
+         given elbow room on the waterfront, so the lens can come in and let
+         it fill the frame instead of hedging against its neighbours. */
+      const known = !!spot.kind && spot.kind !== 'house' && spot.kind !== 'warehouse';
       PORTRAITS[key] = window.__portrait(spot.x, spot.z, {
         w: 720, h: 220, ang,
-        dist: spot.quay ? 110 : 78,
-        high: spot.quay ? 34 : top + 16,
-        lookY: spot.quay ? 4 : (spot.y || 0) + (spot.h || 10) * 0.45,
+        dist: spot.quay ? 110 : (known ? 54 : 78),
+        high: spot.quay ? 34 : top + (known ? 6 : 16),
+        lookY: spot.quay ? 4 : (spot.y || 0) + (spot.h || 10) * 0.5,
       });
       return PORTRAITS[key];
     }
