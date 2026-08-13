@@ -18,6 +18,7 @@ const SUITES = [
   ['systems', 'rules: contracts, discoveries, shoals, weight, time'],
   ['trade', 'the merchant road, upkeep and the way back from nothing'],
   ['shore', 'harbours built on land, and credit for shared kills'],
+  ['social', 'ports as places: notables, relationships, memory'],
   ['helm', 'the compass against the real projection, and every key'],
   ['audio', 'the mixer under abuse: nothing clips, nothing goes NaN'],
   ['touch', 'taps, drags and pinches on the real canvas'],

@@ -28,6 +28,10 @@ import {
   duesFor, chartFor,
 } from './sim/encounter.js';
 import { Battle } from './sim/battle.js';
+import { Social, tierOf, atLeast } from './sim/social.js';
+import {
+  PORT_IDENTITY, NOTABLES, NOTABLE_BY_ID, NAMED_OFFICERS, notablesAt, tiesFor,
+} from './data/notables.js';
 import { openPort, closeSheet, isSheetOpen } from './ui/sheet.js';
 import {
   sfxCannon, sfxWood, sfxSplash, sfxClash, sfxBell, sfxHorn, sfxCoin, sfxClick, updateAudio,
@@ -100,6 +104,8 @@ export class Game {
     this.prizes = [];
     this.quests = [];
     this.quarryReport = null;
+    this.social = new Social();
+    this.namedTaken = [];
     this.discovered = new Set();
     this.tavernSeed = 1;
     this.tavernCache = {};
@@ -190,6 +196,9 @@ export class Game {
     this.discovered = new Set();
     this.tavernCache = {};
     this.contractEpoch = {};
+    this.social = new Social();      // a new voyage: nobody in the Shoals knows you
+    this.namedTaken = [];
+    this.quarryReport = null;
     this.market = new Market();
     this.world.market = this.market;
     this.gameOver = false;
@@ -373,6 +382,11 @@ export class Game {
         })),
         contractEpoch: this.contractEpoch,
         discovered: [...this.discovered],
+        /* The people layer, versioned on its own. A save written before any
+           of this existed simply has no `social` key and loads into a world
+           where nobody has met you — which is the truth about that save. */
+        social: this.social.serialize(),
+        namedTaken: this.namedTaken || [],
         market: this.market.save(),
         hintState: this.hintState,
         fleetOrder: this.fleetOrder,
@@ -414,6 +428,11 @@ export class Game {
       this.windAng = data.windAng ?? 2.1; this.windTargetAng = this.windAng;
       this._chEarned = false; this._storyCool = 0;   // re-earned from state, not remembered
       this.discovered = new Set(data.discovered || []);
+      /* Migration, not a wipe: an older save has no `social` and gets a world
+         where nobody has met the captain yet. Social.load tolerates anything,
+         including a key full of nonsense. */
+      this.social = Social.load(data.social);
+      this.namedTaken = Array.isArray(data.namedTaken) ? data.namedTaken.slice() : [];
       this.market = new Market(data.market);
       this.world.market = this.market;
       this.hintState = data.hintState || {};
@@ -697,7 +716,16 @@ export class Game {
     // ---- the campaign layer ----
     this.encounterCooling = Math.max(0, this.encounterCooling - dt);
     if (this.mode === 'battle' && this.battle) this.battle.update(dt);
-    else { this.updateChase(dt); this.updatePursuit(dt); this.checkContact(); }
+    else {
+      this.updateChase(dt); this.updatePursuit(dt); this.checkContact();
+      /* Somebody you know, in trouble, close enough to see. Cheap: only when
+         she is actually near you and only once. */
+      if (p) {
+        for (const s of this.ships) {
+          if (s.notableId && s.alive && dist(p.x, p.z, s.x, s.z) < 520) { this.notableAtSea(s); break; }
+        }
+      }
+    }
 
     // ---- contextual state ----
     this.updateContext(dt);
@@ -858,6 +886,91 @@ export class Game {
   markStoryTarget(s) {
     if (s.nemesisId && s.nemesisId === this.origin.nemesis) this.nemesisDown = true;
     if (s.isSant) this.santDown = true;
+  }
+
+  /**
+   * Put a named townsperson on the water.
+   *
+   * The point of this whole pass is that these are people, not menu entries —
+   * so at least one of them has to be findable at sea, doing the thing she
+   * told you she does. Sar runs cargo between Ilo Vantu and the Reach; meet
+   * her out there and she is the same person, with the same relationship,
+   * and Escarra's customs officer would still very much like a word.
+   */
+  spawnWorldCaptain(id = 'sar') {
+    const who = NOTABLE_BY_ID[id];
+    if (!who || !who.sails) return null;
+    if (this.ships.some(s => s.notableId === id)) return null;
+    const home = PORTS.find(p => p.id === who.port) || PORTS[0];
+    const a = Math.random() * TAU;
+    const s = new Ship({
+      classId: who.sails.classId, faction: who.faction, name: who.sails.ship, role: 'merchant',
+      x: clamp(home.x + Math.cos(a) * 700, -this.limit * 0.8, this.limit * 0.8),
+      z: clamp(home.z + Math.sin(a) * 700, -this.limit * 0.8, this.limit * 0.8),
+      yaw: Math.random() * TAU,
+    });
+    s.notableId = id;
+    s.captainName = who.name;
+    this.addShip(s);
+    return s;
+  }
+
+  /**
+   * Meeting somebody you know, out where the menus are not.
+   *
+   * She is under her own colours and she is being chased. What you do here is
+   * a relationship, not a battle: stand by her and she remembers it, sail on
+   * and she remembers that too, and the customs officer who wants her would
+   * rather you had done neither.
+   */
+  notableAtSea(ship) {
+    const who = NOTABLE_BY_ID[ship.notableId];
+    if (!who || this.mode !== 'campaign') return;
+    const S = this.social;
+    if (!S.hasMet(who.id)) return;                 // a stranger's hull is just a hull
+    if (S.hasFlag(`met_at_sea_${who.id}`)) return; // once is a scene; every time is a chore
+    const hunted = this.ships.some(o => o.alive && o.faction === 'pirate'
+      && dist(o.x, o.z, ship.x, ship.z) < 420);
+    if (!hunted) return;
+    S.flag(`met_at_sea_${who.id}`);
+    this.paused = true;
+    modal({
+      title: who.name,
+      text: `<p class="npc-say">The <i>${ship.name}</i> is running, and she is not running well. `
+        + `There is Tally canvas astern of her.</p>`
+        + `<p class="npc-mem">You know this ship. You know who is aboard.</p>`,
+      actions: [
+        {
+          label: 'STAND BY HER', cls: 'gold',
+          fn: () => {
+            this.paused = false;
+            S.bumpWithTies(who.id, 20, 'helped');
+            S.remember(who.id, 'stood_by', 'You put yourself between her and the Tally.', this.time);
+            for (const o of this.ships) {
+              if (o.alive && o.faction === 'pirate' && dist(o.x, o.z, ship.x, ship.z) < 420) {
+                o.hostileToPlayer = true; o.target = this.player;
+              }
+            }
+            toast(`${who.name} will remember this.`, 'gold', 4200);
+          },
+        },
+        {
+          label: 'SAIL ON',
+          fn: () => {
+            this.paused = false;
+            S.bump(who.id, -12, 'slighted');
+            S.remember(who.id, 'sailed_on', 'You saw her hunted and held your course.', this.time);
+            /* Her enemies are quietly pleased, which is the other half of a
+               relationship system: doing nothing is also a choice somebody
+               notices. */
+            for (const t of tiesFor(who.id)) {
+              const other = t.a === who.id ? t.b : t.a;
+              if (t.kind === 'hunts' || t.kind === 'suspects') S.bump(other, 6, 'helped');
+            }
+          },
+        },
+      ],
+    });
   }
 
   /** Put the person you are owed an answer by into the world. */
@@ -1986,6 +2099,11 @@ export class Game {
     this.paused = false;
     // harbours talk: this is where you hear where she has been working
     this.refreshQuarryReport();
+    /* People you have met start turning up. Sar sails a real route out of
+       here; once you know her, her hull exists in the world. */
+    if (this.social.hasMet('sar') && !this.ships.some(x => x.notableId === 'sar')) {
+      this.spawnWorldCaptain('sar');
+    }
     // the first time she raises this particular harbour is worth two bars
     if (!this.hintState['port_' + port.id]) {
       this.hintState['port_' + port.id] = 1;
@@ -2040,7 +2158,12 @@ export class Game {
   /* ---------- shops ---------- */
   tavernPool(port) {
     if (!this.tavernCache[port.id]) {
-      this.tavernCache[port.id] = rollTavernOfficers(port.id.length * 3301 + Math.floor(this.time / 600) * 17 + 5, 3, this.officers);
+      /* The port's own people first, then the room. `namedTaken` is every
+         authored officer already hired or already lost, so Mercer cannot be
+         standing at two bars at once. */
+      this.tavernCache[port.id] = rollTavernOfficers(
+        port.id.length * 3301 + Math.floor(this.time / 600) * 17 + 5, 3, this.officers,
+        port.id, this.namedTaken || []);
     }
     return this.tavernCache[port.id].filter(o => !this.officers.includes(o));
   }
@@ -2050,10 +2173,20 @@ export class Game {
     this.coin -= o.hire;
     this.officers.push(o);
     this.player.officers.push(o);
+    // an authored officer leaves the tavern rotation for good once signed
+    if (o.namedId && !this.namedTaken.includes(o.namedId)) this.namedTaken.push(o.namedId);
     sfxCoin();
     toast(`${o.name} signs on as ${officerLabel(o)}.`, 'good', 3200);
+    /* Hiring somebody's regular is a small courtesy to the house. */
+    if (port && this.social) {
+      this.social.bumpPort(port.id, 1, 'paid');
+      const keeper = notablesAt(port.id).find(w => w.at === 'tavern');
+      if (keeper && o.namedId) {
+        this.social.remember(keeper.id, `hired_${o.namedId}`,
+          `You took ${o.name} out of this room.`, this.time);
+      }
+    }
     this.save();
-    void port;
   }
   /** The hands a prize needs to be worked out of harbour under your colours.
       Not her full complement — a prize crew is famously thin, and she sails
@@ -2244,6 +2377,31 @@ export class Game {
     return out;
   }
 
+  /**
+   * The one thing a port can give you that coin cannot.
+   *
+   * Access, not a number — which is the point of a relationship system. The
+   * harbourmaster's book marks unwatched water on your chart; the Commodore's
+   * letter makes the Admiralty's quarrels into paid work.
+   */
+  grantBoon(boon, who) {
+    this.social.flag(boon.id);
+    if (boon.id === 'kesk_book') {
+      // his private pages: the discoveries he has been sitting on
+      for (const poi of POIS) this.discovered.add(poi.id);
+      this.hintState.keskBook = 1;
+      hint('Kesk’s pages mark water the Admiralty does not watch.', 6000);
+    } else if (boon.id === 'rouve_marque') {
+      this.standing.admiralty = (this.standing.admiralty || 0) + 25;
+      this.hintState.marque = 1;
+      hint('Your name is on Admiralty paper. Their enemies are your work now.', 6000);
+    }
+    if (who) {
+      this.social.remember(who.id, 'boon', `You were given ${boon.name.toLowerCase()}.`, this.time);
+    }
+    this.save();
+  }
+
   /** Pay off any bounty this hull was carrying. Sunk or taken, both count. */
   settleBounty(ship, taken) {
     let paid = 0;
@@ -2255,6 +2413,14 @@ export class Game {
       const got = this.gainCoin(reward);
       const pres = this.gainPrestige(q.prestige, ship.faction === 'pirate');
       if (q.faction) this.standing[q.faction] = (this.standing[q.faction] || 0) + 4;
+      /* The person who posted it feels it most, their enemies rather less. */
+      if (q.owner) {
+        this.social.bumpWithTies(q.owner, taken ? 14 : 11, 'helped');
+        this.social.remember(q.owner, `bounty_${ship.name}`,
+          taken ? `You brought in the ${ship.name} rather than sinking her.`
+            : `You put the ${ship.name} on the bottom for them.`, this.time);
+      }
+      this.social.bumpPort(q.portId, 2, 'helped');
       paid += got;
       toast(`Bounty settled on ${ship.name} — ◆${got}, prestige +${pres}.`, 'gold', 4600);
       sfxCoin();
@@ -2617,23 +2783,50 @@ function makeCargoQuest(id, market) {
  * more than a tired lugger — and the port's own coin, so a major harbour with
  * something to lose pays better than a fishing village that merely disapproves.
  */
+/* A notice belongs to whoever posted it.
+ *
+ * The mechanical objective is unchanged — find this hull, sink or take her —
+ * but it arrives as somebody's problem rather than a line item, and settling
+ * it moves your standing with that person and with whoever they are at odds
+ * with. "Destroy 3 raiders, ◆500" and "Marroq has lost four cargoes past the
+ * Thimbles and does not believe in luck" can be the same code and are not the
+ * same game.
+ */
 function makeBounty(g, port, ship) {
   const worth = Math.round(strength(ship) * 1.5 + ship.cls.guns * 22 + 120);
   const purse = Math.round(worth * (port.size === 'major' ? 1.25 : 0.9));
   const who = ship.captainName ? `${ship.captainName} of the <i>${ship.name}</i>` : `the <i>${ship.name}</i>`;
+  const hull = `a ${ship.cls.name} of ${ship.gunsPort + ship.gunsStb} guns, `
+    + `${FACTIONS[ship.faction] ? FACTIONS[ship.faction].name : ship.faction}`;
+  /* Whose problem this is: the person at this port who would actually care.
+     A merchant factor loses cargo; a commodore loses control of her water. */
+  const locals = notablesAt(port.id);
+  const owner = locals.find(n => n.traits.includes('ambitious') || n.title === 'Commodore')
+    || locals.find(n => n.at === 'harbour') || null;
+  const brief = owner
+    ? `${OWNER_BRIEF[owner.id] || `${owner.name} wants ${who} off this water`} — ${hull}. `
+      + `Sink her or take her; taking her pays a quarter more.`
+    : `${port.name} will pay for ${who} — ${hull}. Sink her or take her; taking her pays a quarter more.`;
   return {
     id: `bounty:${port.id}:${ship.id}`,
     kind: 'bounty', board: 'harbour', portId: port.id,
     targetId: ship.id, targetName: ship.name, faction: port.faction,
+    owner: owner ? owner.id : null,
     title: `Bounty: ${ship.name}`,
-    brief: `${port.name} will pay for ${who} — a ${ship.cls.name} of `
-      + `${ship.gunsPort + ship.gunsStb} guns, ${FACTIONS[ship.faction] ? FACTIONS[ship.faction].name : ship.faction}. `
-      + `Sink her or take her; taking her pays a quarter more.`,
+    brief,
     reward: purse, prestige: 6 + Math.round(ship.cls.guns * 0.4),
     active: false, done: false, progress: 0,
     doneText: 'The notice comes down.',
   };
 }
+
+/** How each notable puts it. Their voice, not the board's. */
+const OWNER_BRIEF = {
+  marroq: 'Ines Marroq has lost four cargoes past the Thimbles and does not believe in that much bad luck',
+  rouve: 'Commodore Rouve is four crews short and cannot spare a sloop for this',
+  kesk: 'Kesk would like this one to stop using his quay',
+  fell: 'Fell wants her stopped, and wants it done properly',
+};
 
 function makeQuest(id, market) {
   if (id.startsWith('cargo:')) return makeCargoQuest(id, market);

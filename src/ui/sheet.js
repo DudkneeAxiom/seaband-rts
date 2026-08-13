@@ -7,6 +7,8 @@ import { repairCost, recruitCost, PROVISION_PRICE, SHOT_PRICE } from '../sim/eco
 import { drawPortrait, officerLabel, officerEffect } from '../sim/officers.js';
 import { AMBITIONS, CHAPTERS } from '../data/origins.js';
 import { KEYMAP } from '../core/keys.js';
+import { PORT_IDENTITY, NOTABLES, notablesAt, tiesFor, NOTABLE_BY_ID } from '../data/notables.js';
+import { greetingFor, tierOf } from '../sim/social.js';
 import { COLOURS_STANDING, COLOURS_INFAMY } from '../sim/encounter.js';
 import { fmtCoin, clamp } from '../core/util.js';
 import { sfxCoin, toggleMute, audio, getMix, setMixLevel, mixDefaults } from '../core/audio.js';
@@ -52,6 +54,14 @@ function renderTabs() {
     box.appendChild(b);
   }
 }
+/** Walk to another part of the town. Used by the hub's WHERE TO GO rows. */
+function goTab(id) {
+  if (!current || !current.tabs.some(t => t.id === id)) return;
+  current.tab = id;
+  renderTabs();
+  renderTab();
+}
+
 function renderTab(keepScroll = false) {
   const c = $('sheet-content');
   /* Switching tabs starts at the top; redrawing the tab you are already on
@@ -76,13 +86,202 @@ export function openPort(port) {
   recruitTo = null;   // this harbour's fleet, not the last one's
   const svc = port.services;
   const tabs = [];
+  /* The town before the transactions.
+     A port used to open on a row of shop counters, which is how a place
+     becomes a dashboard. It opens on the place now — who is here, what they
+     are worried about, and where in the town you could go — and the counters
+     are still one tap away for anybody who just wants to buy shot. Only the
+     two ports authored with people get it; the rest open as they always did,
+     which is also how this scales without a half-finished town anywhere. */
+  if (PORT_IDENTITY[port.id]) {
+    tabs.push({ id: 'town', label: 'THE TOWN', icon: '⌂', render: n => townTab(n, port) });
+  }
   tabs.push({ id: 'harbour', label: 'HARBOUR', icon: '⚓', render: n => harbourTab(n, port) });
   if (svc.includes('market')) tabs.push({ id: 'market', label: 'MARKET', icon: '▣', render: n => marketTab(n, port) });
   if (svc.includes('crew')) tabs.push({ id: 'crew', label: 'CREW', icon: '☰', render: n => crewTab(n, port) });
   if (svc.includes('shipyard')) tabs.push({ id: 'yard', label: 'SHIPYARD', icon: '⚒', render: n => yardTab(n, port) });
   if (svc.includes('tavern')) tabs.push({ id: 'tavern', label: 'TAVERN', icon: '☕', render: n => tavernTab(n, port) });
   const fac = FACTIONS[port.faction];
-  openSheet(port.name, `${port.tagline.toUpperCase()} · ${fac.short}`, tabs, 'harbour');
+  openSheet(port.name, `${port.tagline.toUpperCase()} · ${fac.short}`, tabs,
+    PORT_IDENTITY[port.id] ? 'town' : 'harbour');
+}
+
+/* ---------------- the town ----------------
+   Place, then people, then opportunities — in that order, because that is the
+   order a person arriving somewhere actually takes it in. */
+function townTab(n, port) {
+  const idn = PORT_IDENTITY[port.id];
+  const S = G.social;
+
+  /* the place: a strip of harbour drawn from the port's own colours, so
+     Ilo Vantu and Escarra do not merely differ in text */
+  const scene = el('div', 'townscene');
+  scene.style.setProperty('--banner', idn.banner);
+  scene.innerHTML = `
+    <div class="ts-sky"></div>
+    <div class="ts-hill"></div>
+    <div class="ts-town">${townSilhouette(port.id)}</div>
+    <div class="ts-ships">${'<span class="ts-sail"></span>'.repeat(port.size === 'major' ? 5 : 3)}</div>
+    <div class="ts-water"></div>
+    <div class="ts-flag"></div>`;
+  n.appendChild(scene);
+  n.appendChild(el('div', 'town-role', `${idn.role.toUpperCase()} · ${idn.tone}`));
+  n.appendChild(el('div', 'note', idn.line));
+
+  // what the town is worried about — the reason there is work here at all
+  const prob = el('div', 'town-problem');
+  prob.innerHTML = `<span class="tp-k">TALK ON THE QUAY</span><span>${idn.problem}</span>`;
+  n.appendChild(prob);
+
+  /* the people, at the places they actually stand */
+  n.appendChild(el('div', 'sec-title', 'PEOPLE HERE'));
+  for (const who of notablesAt(port.id)) {
+    n.appendChild(notableRow(who, port));
+  }
+
+  /* and the ways further in, named for what they are rather than what they sell */
+  n.appendChild(el('div', 'sec-title', 'WHERE TO GO'));
+  const places = [
+    { tab: 'harbour', label: 'The Quay', sub: 'Repairs, stores, the harbourmaster’s board' },
+    { tab: 'market', label: 'The Market', sub: 'Cargo, bought and sold' },
+    { tab: 'crew', label: 'The Hiring Steps', sub: 'Hands for the fleet' },
+    { tab: 'yard', label: 'The Yard', sub: 'Prizes, refits, your fleet' },
+    { tab: 'tavern', label: 'The Tavern', sub: 'Officers, rumours, whoever is in' },
+  ];
+  for (const pl of places) {
+    if (!current.tabs.some(t => t.id === pl.tab)) continue;
+    const r = el('div', 'row place');
+    r.appendChild(el('div', 'rmain', `<div class="rtitle">${pl.label}</div><div class="rsub">${pl.sub}</div>`));
+    const b = el('button', 'btn', 'GO');
+    onTap(b, () => goTab(pl.tab), 500);
+    r.appendChild(b);
+    n.appendChild(r);
+  }
+  void S;
+}
+
+/** A row of rooftops that differs by town, so the two read apart at a glance. */
+function townSilhouette(id) {
+  const shapes = id === 'escarra'
+    ? [18, 46, 22, 64, 20, 30, 52, 24]      // a mole, a signal mast, low stone
+    : [26, 34, 44, 30, 52, 28, 38, 33, 46]; // a crowded free port
+  return shapes.map((h, i) =>
+    `<span class="ts-b" style="height:${h}px;left:${i * 11 + 2}%"></span>`).join('');
+}
+
+/** One person, as they would appear to somebody standing on the quay. */
+function notableRow(who, port) {
+  const S = G.social;
+  const v = S.of(who.id);
+  const t = tierOf(v);
+  const r = el('div', 'row notable');
+  const pc = document.createElement('canvas');
+  pc.className = 'npc-face';
+  drawPortrait(pc, { seed: who.seed }, 44);
+  r.appendChild(pc);
+  const known = S.hasMet(who.id);
+  r.appendChild(el('div', 'rmain',
+    `<div class="rtitle">${who.name}</div>
+     <div class="rsub">${who.title} · <span class="rel ${t.id}">${known ? t.name : 'Stranger'}</span></div>
+     <div class="statline"><span>${who.blurb}</span></div>`));
+  const b = el('button', 'btn' + (known ? '' : ' gold'), known ? 'SPEAK' : 'INTRODUCE');
+  onTap(b, () => openNotable(who, port), 520);
+  r.appendChild(b);
+  return r;
+}
+
+/* ---------------- a conversation ----------------
+   Restrained: a face, a name, what they think of you, one thing they say, and
+   a few things worth asking. Not every simulation variable — what they want is
+   theirs until you earn it. */
+function openNotable(who, port) {
+  const S = G.social;
+  const first = S.meet(who.id);
+  if (first) S.bump(who.id, 3, 'helped');
+  const g = greetingFor(who, S);
+  const t = tierOf(S.of(who.id));
+
+  const body = [];
+  body.push(`<div class="npc-card">
+      <canvas class="npc-face big" data-seed="${who.seed}"></canvas>
+      <div class="npc-id">
+        <div class="npc-name">${who.name}</div>
+        <div class="npc-title">${who.title} — ${port.name}</div>
+        <div class="npc-rel"><span class="rel ${t.id}">${t.name}</span></div>
+      </div>
+    </div>`);
+  body.push(`<p class="npc-say">“${g.line}”</p>`);
+  if (g.memory) body.push(`<p class="npc-mem">${g.memory}</p>`);
+
+  const acts = [];
+  // what they know about the town — always available, and how rumours travel
+  acts.push({
+    label: `Ask about ${port.name}`,
+    fn: () => {
+      const idn = PORT_IDENTITY[port.id];
+      S.bump(who.id, 1, 'helped');
+      modal({
+        title: who.name, dismissable: true,
+        text: `<p class="npc-say">“${idn.problem}”</p>`
+          + `<p class="npc-mem">${idn.line}</p>`,
+        actions: [{ label: 'BACK', fn: () => openNotable(who, port) }],
+      });
+    },
+  });
+  // who they cannot stand — earned, not given
+  if (S.atLeast(who.id, 'acquainted')) {
+    acts.push({
+      label: 'Ask about the others',
+      fn: () => {
+        const ties = tiesFor(who.id);
+        for (const ti of ties) S.learn(who.id, 'ties');
+        const txt = ties.length
+          ? ties.map(ti => `<p class="npc-mem">${ti.line}</p>`).join('')
+          : '<p class="npc-mem">“I keep to my own business.”</p>';
+        modal({
+          title: `${who.name} on the town`, dismissable: true, text: txt,
+          actions: [{ label: 'BACK', fn: () => openNotable(who, port) }],
+        });
+      },
+    });
+  }
+  // and what they actually want — only from someone they trust
+  if (S.atLeast(who.id, 'trusted') && who.hidden) {
+    acts.push({
+      label: 'Personal matters',
+      cls: 'gold',
+      fn: () => {
+        S.learn(who.id, 'ambition'); S.learn(who.id, 'problem');
+        modal({
+          title: who.name, dismissable: true,
+          text: `<p class="npc-say">“${who.hidden.problem}”</p>`
+            + `<p class="npc-mem">What they want: ${who.hidden.ambition}</p>`,
+          actions: [{ label: 'BACK', fn: () => openNotable(who, port) }],
+        });
+      },
+    });
+  }
+  // the one thing this port can give you, if the right person likes you
+  const boon = PORT_IDENTITY[port.id].boon;
+  if (boon && boon.from === who.id && S.atLeast(who.id, boon.need) && !S.hasFlag(boon.id)) {
+    acts.push({
+      label: boon.name.toUpperCase(), cls: 'gold',
+      fn: () => {
+        S.flag(boon.id);
+        G.grantBoon(boon, who);
+        toast(`${boon.name} — ${who.name} owes you nothing now.`, 'gold', 5200);
+      },
+    });
+  }
+  acts.push({ label: 'Leave', cls: 'dim', fn: () => { } });
+
+  modal({ title: null, dismissable: true, text: body.join(''), actions: acts });
+  // portraits draw after the modal exists
+  setTimeout(() => {
+    for (const c of document.querySelectorAll('canvas.npc-face[data-seed]')) {
+      drawPortrait(c, { seed: +c.dataset.seed }, 64);
+    }
+  }, 0);
 }
 
 /* ---------------- harbour ---------------- */
@@ -367,6 +566,13 @@ function crewTab(n, port) {
       `Every berth aboard ${recruitTo.name} is taken. A bigger hull would take more hands.`));
   }
 }
+/** Skill as something you read rather than parse. */
+function stars(n) {
+  // skill runs 1..3; a hand-picked veteran shows as four or five, not always five
+  const k = Math.max(1, Math.min(5, (n | 0) + 2));
+  return `<span class="stars">${'★'.repeat(k)}${'☆'.repeat(5 - k)}</span>`;
+}
+
 function describeRank(id) {
   return {
     deckhand: 'Willing, green, cheap. They learn.',
@@ -513,6 +719,14 @@ function commissionFlow(prize, port) {
 function tavernTab(n, port) {
   n.appendChild(el('div', 'note', 'Smoke, salt-fish stew, and every rumour in the Shoals — most of them wrong.'));
 
+  /* Who is in tonight. The tavern's own notables stand here, so the room has
+     faces in it before the hiring board does. */
+  const inRoom = notablesAt(port.id).filter(w => w.at === 'tavern');
+  if (inRoom.length) {
+    n.appendChild(el('div', 'sec-title', 'IN TONIGHT'));
+    for (const w of inRoom) n.appendChild(notableRow(w, port));
+  }
+
   n.appendChild(el('div', 'sec-title', 'OFFICERS SEEKING A BERTH'));
   const pool = G.tavernPool(port);
   if (!pool.length) n.appendChild(el('div', 'note', 'Nobody worth hiring tonight.'));
@@ -523,10 +737,18 @@ function tavernTab(n, port) {
     pt.appendChild(cv);
     drawPortrait(cv, o, 46);
     r.appendChild(pt);
-    r.appendChild(el('div', 'rmain',
-      `<div class="rtitle">${o.name}</div>
-       <div class="rsub">${officerLabel(o)} · <span class="pill">skill ${o.skill}</span> ${o.canCaptain ? '<span class="pill g">CAN COMMAND</span>' : ''}</div>
-       <div class="rsub">${officerEffect(o)} — <em style="color:var(--parch)">${o.trait.name}</em>, ${o.trait.tip}</div>`));
+    /* An authored officer is introduced as a person: what he is called, what
+       he is like, what he has done and what he is still after. The numbers are
+       underneath, where they belong — you recruit Mercer, not Navigator +8%. */
+    r.appendChild(el('div', 'rmain', o.namedId
+      ? `<div class="rtitle">${o.name}${o.epithet ? ` <span class="epithet">“${o.epithet}”</span>` : ''}</div>
+         <div class="rsub">${officerLabel(o)} · ${stars(o.skill)} ${o.canCaptain ? '<span class="pill g">CAN COMMAND</span>' : ''}</div>
+         <div class="rsub trait-line">${o.namedTraits.map(t => `<span class="tr">${t}</span>`).join('')}</div>
+         <div class="npc-mem">${o.bio}</div>
+         <div class="statline"><span>wants <b>${o.ambition}</b></span><span>wage <b>◆${o.wage}</b>/wk</span></div>`
+      : `<div class="rtitle">${o.name}</div>
+         <div class="rsub">${officerLabel(o)} · <span class="pill">skill ${o.skill}</span> ${o.canCaptain ? '<span class="pill g">CAN COMMAND</span>' : ''}</div>
+         <div class="rsub">${officerEffect(o)} — <em style="color:var(--parch)">${o.trait.name}</em>, ${o.trait.tip}</div>`));
     const b = el('button', 'btn gold', `◆${o.hire}`);
     b.disabled = G.coin < o.hire;
     onTap(b, () => { G.hireOfficer(o, port); refresh(); });
@@ -565,9 +787,48 @@ function tavernTab(n, port) {
 /* =========================================================
    LOG / MENU
    ========================================================= */
+/* ---------------- who you know ----------------
+   Once the Shoals contain named people, the player needs somewhere to ask
+   "who was that, and what did I do to them". Only people actually met are
+   listed — a roster of strangers is a spoiler, not a journal. */
+function peopleTab(n) {
+  const S = G.social;
+  const met = NOTABLES.filter(w => S.hasMet(w.id));
+  if (!met.length) {
+    n.appendChild(el('div', 'note',
+      'You have not stopped to speak to anyone yet. Dock somewhere and go into the town.'));
+    return;
+  }
+  // best-regarded first: the people who would actually take your call
+  met.sort((a, b) => S.of(b.id) - S.of(a.id));
+  for (const w of met) {
+    const t = tierOf(S.of(w.id));
+    const mem = S.memories(w.id);
+    const ties = tiesFor(w.id);
+    const r = el('div', 'row notable');
+    const pc = document.createElement('canvas');
+    pc.className = 'npc-face';
+    drawPortrait(pc, { seed: w.seed }, 44);
+    r.appendChild(pc);
+    const knownAmb = S.knows(w.id, 'ambition');
+    const knownTies = S.knows(w.id, 'ties');
+    r.appendChild(el('div', 'rmain',
+      `<div class="rtitle">${w.name}</div>
+       <div class="rsub">${w.title} · ${(G.PORTS.find(p => p.id === w.port) || {}).name || w.port}
+         · <span class="rel ${t.id}">${t.name}</span></div>
+       <div class="trait-line">${w.traits.map(x => `<span class="tr">${x}</span>`).join('')}</div>
+       ${knownTies && ties.length ? `<div class="npc-mem">${ties.map(x => x.line).join(' ')}</div>` : ''}
+       ${knownAmb && w.hidden ? `<div class="npc-mem">Wants: ${w.hidden.ambition}</div>` : ''}
+       ${mem.length ? mem.map(m => `<div class="statline"><span>${m.text}</span></div>`).join('') : ''}
+       ${!knownAmb ? '<div class="statline"><span class="dimtxt">You do not know what they are after.</span></div>' : ''}`));
+    n.appendChild(r);
+  }
+}
+
 export function openMenu() {
   const tabs = [
     { id: 'log', label: 'VOYAGE', icon: '✦', render: logTab },
+    { id: 'people', label: 'PEOPLE', icon: '☺', render: peopleTab },
     { id: 'help', label: 'HELM', icon: '⎈', render: helpTab },
     { id: 'set', label: 'SETTINGS', icon: '⚙', render: settingsTab },
   ];

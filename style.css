@@ -1263,3 +1263,89 @@ input.slider:focus-visible { outline: 2px solid var(--brass); outline-offset: 4p
 /* A hull that cannot be worked says so in her own line, not only when you
    press the button she will refuse. */
 .statline em.warn { color: var(--danger); font-style: normal; opacity: .95; }
+
+/* ---- the town, before the counters ----
+   A cheap harbour rather than a real one: sky, hill, rooftops, sails, water.
+   It exists so a port stops opening on a row of shop buttons — and because
+   two towns built from the same five bands still read apart when the
+   rooftops and the banner colour differ. */
+.townscene{
+  position:relative; height:132px; border-radius:12px; overflow:hidden;
+  margin:2px 0 10px; border:1px solid rgba(230,178,94,.22);
+  background:linear-gradient(#12303f,#0b2331);
+}
+.ts-sky{position:absolute; inset:0 0 42% 0; background:linear-gradient(#173d4e,#1d5163);}
+.ts-hill{
+  position:absolute; left:-6%; right:-6%; bottom:38%; height:52px;
+  background:#0f2a33; border-radius:50% 50% 0 0 / 100% 100% 0 0; opacity:.85;
+}
+.ts-town{position:absolute; left:0; right:0; bottom:36%; height:70px;}
+.ts-b{
+  position:absolute; bottom:0; width:9%; background:#0c2029;
+  border-top:2px solid rgba(230,178,94,.16);
+  box-shadow:inset 0 -6px 0 rgba(0,0,0,.25);
+}
+.ts-ships{position:absolute; left:0; right:0; bottom:26%; height:26px;}
+.ts-sail{
+  position:absolute; bottom:0; width:12px; height:16px; background:var(--parch-dim);
+  clip-path:polygon(50% 0,100% 100%,0 100%); opacity:.75;
+}
+.ts-sail:nth-child(1){left:12%;} .ts-sail:nth-child(2){left:29%; height:12px;}
+.ts-sail:nth-child(3){left:47%; height:19px;} .ts-sail:nth-child(4){left:66%; height:13px;}
+.ts-sail:nth-child(5){left:82%; height:15px;}
+.ts-water{
+  position:absolute; inset:auto 0 0 0; height:34%;
+  background:linear-gradient(rgba(20,74,92,.9),rgba(10,38,50,.95));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09);
+}
+.ts-flag{
+  position:absolute; top:10px; right:16px; width:26px; height:16px;
+  background:var(--banner,#2f9b8e); opacity:.9;
+  clip-path:polygon(0 0,100% 0,100% 100%,0 100%,10% 50%);
+  box-shadow:0 2px 6px rgba(0,0,0,.4);
+}
+.town-role{
+  font:600 11px/1.5 ui-sans-serif,system-ui; letter-spacing:.08em;
+  color:var(--brass); text-transform:uppercase; margin:0 0 4px;
+}
+.town-problem{
+  display:flex; gap:10px; align-items:flex-start; margin:10px 0 2px; padding:10px 12px;
+  border-radius:10px; background:rgba(230,178,94,.07); border:1px solid rgba(230,178,94,.18);
+  font-size:13px; line-height:1.5; color:var(--parch);
+}
+.tp-k{
+  flex:0 0 auto; font:700 10px/1.6 ui-sans-serif,system-ui; letter-spacing:.1em;
+  color:var(--brass-dim);
+}
+
+/* ---- people ---- */
+.row.notable{align-items:center; gap:10px;}
+canvas.npc-face{border-radius:8px; flex:0 0 auto; box-shadow:0 2px 8px rgba(0,0,0,.35);}
+canvas.npc-face.big{border-radius:10px;}
+.rel{font-weight:700;}
+.rel.hostile,.rel.resentful{color:var(--danger);}
+.rel.suspicious{color:#d3a05f;}
+.rel.neutral{color:var(--parch-dim);}
+.rel.acquainted{color:#a8c8b4;}
+.rel.friendly,.rel.trusted,.rel.devoted{color:#7fc8a9;}
+.npc-card{display:flex; gap:12px; align-items:center; margin-bottom:10px;}
+.npc-name{font:700 17px/1.2 Georgia,serif; color:var(--brass);}
+.npc-title{font-size:12px; color:var(--parch-dim); margin-top:2px;}
+.npc-rel{margin-top:4px; font-size:12px;}
+.npc-say{font-size:14px; line-height:1.6; margin:6px 0;}
+.npc-mem{
+  font-size:12.5px; line-height:1.55; color:var(--parch-dim);
+  border-left:2px solid rgba(230,178,94,.3); padding-left:10px; margin:8px 0;
+}
+.row.place .rtitle{font-family:Georgia,serif;}
+
+/* ---- officers as people ---- */
+.epithet{color:var(--parch-dim); font-weight:400; font-style:italic;}
+.stars{color:var(--brass); letter-spacing:1px;}
+.trait-line{display:flex; gap:6px; flex-wrap:wrap; margin:3px 0;}
+.tr{
+  font:600 10px/1.7 ui-sans-serif,system-ui; letter-spacing:.06em; text-transform:uppercase;
+  padding:0 7px; border-radius:999px; color:var(--parch-dim);
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09);
+}
+.dimtxt{color:var(--parch-dim); opacity:.75; font-style:italic;}

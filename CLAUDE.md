@@ -33,11 +33,12 @@ src/main.js           boot, render loop, input wiring, attract mode
 src/game.js           game state, world simulation, rules, save/load, markers
 src/data/gamedata.js  factions, hulls, goods, ports, crew — tuning lives here
 src/data/origins.js   the five questions, their effects, antagonists, chapters
+src/data/notables.js  the people of the two authored ports, and named officers
 src/core/             util, geometry, camera, pointer input, keys, procedural audio
 src/world/            terrain bake, water shader, sky
 src/ships/            procedural ship meshes, the Ship entity, NPC captains
 src/combat/           ballistics, broadsides, boarding
-src/sim/              market, officers, encounters, battle instances
+src/sim/              market, officers, encounters, battles, the social layer
 src/ui/               DOM helpers, HUD, bottom-sheet screens, the questionnaire
 tools/                QA harnesses, the static server, the build and the bundler
 vendor/               three.js r180, vendored — no CDN, no network at runtime
