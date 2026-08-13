@@ -358,14 +358,30 @@ const ROOFS = [0xa8503a, 0x8c4331, 0x7a5a3a, 0xb35f42, 0x5d6b6e];
    the caller places the whole lot. */
 const TIMBER = 0x6b4a2c, DARKWOOD = 0x4e3722, CANVAS = 0xdfd3ba, STONE = 0x9a9384;
 
-function roofCone(w, d, h, roof, y) {
-  const rg = new THREE.ConeGeometry(Math.max(w, d) * 0.79, h * 0.62, 4);
-  return prep(xf(rg, { y: y + h * 0.31, ry: Math.PI / 4 }), roof, 0.09);
+/* ---- roofs that fit the building under them ----
+
+   Both of these were wrong in a way that is invisible from two hundred metres
+   and obvious the moment a screen frames one building.
+
+   The hip roof was `ConeGeometry(max(w,d) * 0.79, …, 4)` turned 45°, which is
+   a *square* pyramid: on a house fifteen wide and seven deep it overhung the
+   short axis by nearly ten metres, clipping into whatever stood behind. The
+   gable was a three-segment cylinder, whose vertices sit where the geometry
+   puts them and not where a ridge belongs, so the pitch landed at an angle
+   nobody built.
+
+   Both are tapered boxes now — the same helper the hulls use. A hip is a box
+   whose top shrinks on both axes; a ridge is a box whose top shrinks on one.
+   They take the footprint they are given, with a hand's width of eave, and
+   they cannot overhang what they are not sitting on. */
+function roofHip(w, d, h, roof, y) {
+  const rh = Math.max(2.2, h * 0.5);
+  return prep(xf(taperedBox(w * 1.08, rh, d * 1.08, 0.16, 0.16), { y: y + rh / 2 }), roof, 0.08);
 }
-/** A pitched roof — a long ridge rather than a pyramid. Reads as "hall". */
+/** A long ridge rather than a peak: shrinks across the building, not along it. */
 function roofGable(w, d, h, roof, y) {
-  const g = new THREE.CylinderGeometry(d * 0.62, d * 0.62, w * 1.04, 3, 1);
-  return prep(xf(g, { y: y + h * 0.22, rz: Math.PI / 2, ry: Math.PI / 2 }), roof, 0.08);
+  const rh = Math.max(2, h * 0.42);
+  return prep(xf(taperedBox(w * 1.05, rh, d * 1.1, 1, 0.05), { y: y + rh / 2 }), roof, 0.07);
 }
 function post(x, z, h, y, col = TIMBER, r = 0.5) {
   return prep(xf(new THREE.CylinderGeometry(r, r, h, 5), { x, y: y + h / 2, z }), col, 0.06);
@@ -445,7 +461,7 @@ function building(rng, w, h, d, kind = 'house') {
     const bw = w * 0.85, bh = h * 1.45, bd = d * 0.85;
     parts.push(prep(xf(taperedBox(bw * 1.12, bh * 0.22, bd * 1.12, 1, 1), { y: bh * 0.11 }), STONE, 0.05));
     parts.push(prep(xf(taperedBox(bw, bh, bd, 0.95, 0.95), { y: bh * 0.22 + bh / 2 }), wall, 0.06));
-    parts.push(roofCone(bw, bd, bh * 0.72, roof, bh * 1.22 - bh * 0.36 * 0.62 + 0.2));
+    parts.push(roofHip(bw, bd, bh * 0.72, roof, bh * 1.22));
     parts.push(post(0, -bd * 0.2, bh * 0.95, bh * 1.2, DARKWOOD, 0.34));      // signal mast
     parts.push(prep(xf(new THREE.BoxGeometry(2.2, 1.3, 0.2), { x: 1.1, y: bh * 1.95, z: -bd * 0.2 }), 0xc94f2f, 0.05));
     parts.push(prep(xf(new THREE.BoxGeometry(0.9, 1.1, 0.9), { x: bw * 0.42, y: bh * 0.95, z: bd * 0.5 }), 0xe8c96a, 0.04));
@@ -464,7 +480,7 @@ function building(rng, w, h, d, kind = 'house') {
 
   // a house, which is what most of a town is
   parts.push(prep(xf(taperedBox(w, h, d, 0.98, 0.98), { y: h / 2 }), wall, 0.07));
-  parts.push(roofCone(w, d, h, roof, h));
+  parts.push(roofHip(w, d, h, roof, h));
   return parts;
 }
 
@@ -590,7 +606,21 @@ function buildSettlement(port, group) {
      front row is dealt the named ones first — and only the services this
      port actually has, because a fishing hamlet with a shipyard in the
      picture and no shipyard on the tabs is a lie the screen tells. */
-  const civic = ['harbour', 'tavern', 'market', 'yard']
+  /* The waterfront, dealt against the pier line.
+     A shipyard is a slipway and belongs beside the boats, so the civic slots
+     are the pier offsets rather than an even spread: the harbourmaster at the
+     middle pier, the yard out at the end where a hull can go down the ways.
+     Aiming at the piers also means these buildings are placed by the same
+     searched-band machinery as everything else — a separate hand-rolled
+     placement for the yard found no ground at all, twice, because it was
+     re-deriving a ground test that already existed here and working from the
+     wrong sign for height. */
+  const pierStep = isMajor ? 48 : 36;
+  /* The yard is dealt first and nearest the piers: it is the one that most
+     needs the water, and dealing it last left it taking whatever ground the
+     others had not used — which on this coast was none. */
+  const civicAlong = { yard: pierStep, harbour: 0, tavern: -pierStep, market: pierStep * 1.7 };
+  const civic = ['yard', 'harbour', 'tavern', 'market']
     .filter(k => k === 'harbour'
       || (k === 'tavern' && port.services.includes('tavern'))
       || (k === 'market' && port.services.includes('market'))
@@ -615,7 +645,7 @@ function buildSettlement(port, group) {
          dropped and the building takes whatever ground the row can offer. */
       const insist = attempt < inRow * 7;
       const along = (civicSlot && insist)
-        ? ((civicNext / Math.max(1, civic.length - 1)) * 2 - 1) * spread * 0.55 + rngRange(rng, -12, 12)
+        ? (civicAlong[civic[civicNext]] || 0) + rngRange(rng, -11, 11)
         : rngRange(rng, -1, 1) * spread * (0.55 + nearWater * 0.45);
       const into = rows[r] + rngRange(rng, -9, 9);
       const x = base.x + inland.x * into + perpG.x * along;

@@ -232,11 +232,19 @@ function portPortrait(port, place = 'town') {
          given elbow room on the waterfront, so the lens can come in and let
          it fill the frame instead of hedging against its neighbours. */
       const known = !!spot.kind && spot.kind !== 'house' && spot.kind !== 'warehouse';
+      /* A picture rather than an inspection.
+         Stand off and stay low: at fifty metres from above, a building filled
+         the frame and the harbour it belongs to was nowhere in it. From
+         eighty-odd metres at roughly its own roofline the water, the hulls
+         and the hills behind all come into the shot, and the building is
+         still plainly the subject. Swung a little off the square, too — a
+         three-quarter view has depth where a straight-on one has none. */
       PORTRAITS[key] = window.__portrait(spot.x, spot.z, {
-        w: 720, h: 220, ang,
-        dist: spot.quay ? 110 : (known ? 54 : 78),
-        high: spot.quay ? 34 : top + (known ? 6 : 16),
-        lookY: spot.quay ? 4 : (spot.y || 0) + (spot.h || 10) * 0.5,
+        w: 720, h: 240,
+        ang: ang + (known ? 0.34 : 0.2),
+        dist: spot.quay ? 130 : (known ? 86 : 96),
+        high: spot.quay ? 26 : top * 0.55 + 12,
+        lookY: spot.quay ? 3 : (spot.y || 0) + (spot.h || 10) * 0.42,
       });
       return PORTRAITS[key];
     }
