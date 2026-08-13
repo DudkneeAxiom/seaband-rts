@@ -38,6 +38,48 @@ screens was taken and read.
 - *Officers.* Not audited this session.
 
 
+## 8. The sea drowned the score, and buying scrolled you away  (P2, both reported)
+
+**Symptom A.** "The ambient sounds seem to overpower the music tracks."
+
+**Root cause.** They did, measurably: ambience shipped at 0.55 against music
+at 0.30 — the sea was nearly twice the score. A tune written to be listened to
+arrived as something happening behind the weather.
+
+**Change.** Defaults rebalanced (music 0.52, sea 0.40) and, more usefully, the
+mix is now the player's: four faders in Settings — music, sea and weather,
+guns and ship, overall — ramped rather than stepped so a drag does not click,
+persisted to localStorage, with a reset. One volume control could never have
+settled an argument between two buses.
+
+**Symptom B.** "On desktop, recruiting or purchasing from the bottom of the
+page pushes the view all the way back to the top."
+
+**Root cause.** `renderTab()` set `scrollTop = 0` unconditionally, and every
+purchase, recruitment and refit calls `refresh()`, which goes through it. The
+reset is right for a tab switch and wrong for redrawing the tab you are
+already reading.
+
+**Change.** `refresh()` keeps the scroll position (clamped, since the list can
+be shorter after a purchase); tab switches still start at the top.
+
+**Verification.** `audio`: the defaults put the score above the sea, a fader
+moves its bus and is written down, and no fader can be poisoned by garbage.
+`trade`: driven through the real market at a viewport where the list actually
+overflows — 214px before the purchase, 214px after — and a tab switch still
+lands at 0. The first version of that check reported `list too short to
+scroll` rather than passing on an empty measurement, which is the harness
+behaving exactly as it should.
+
+**Postscript, and the reason this entry was nearly lost.** The container
+rolled the working tree back mid-session while this was being written, which
+deleted `docs/findings.md`; the edit that should have added this section
+failed with `FileNotFoundError` inside a `git add -A && git commit` chain, so
+the commit went through carrying the code and none of the reasoning. The
+lesson is about the chain, not the rollback: `a && b && c` where `a` writes
+prose and `c` commits will happily commit without the prose. Verify the
+artefact, not the exit code.
+
 ## 7. One unguarded read took a whole suite down  (harness)
 
 **Symptom.** The campaign suite died outright — `TypeError: Cannot read
