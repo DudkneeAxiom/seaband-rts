@@ -71,12 +71,18 @@ await page.evaluate(() => {
 await ff(page, 0.3);
 /* She is under way, so her place on screen is only true for an instant —
    work it out again immediately before every tap. */
+/* Where she is on the glass — and whether she is on it at all.
+   `project` happily returns coordinates for a point *behind* the camera, and
+   they look like perfectly good numbers, so a tap would land on empty sea and
+   the failure would read as "tapping a hull does not mark her". Anything not
+   actually in front of the lens, or off the edge of it, returns null. */
 const aim = () => page.evaluate(() => {
   const g = window.__game;
   const s = g.ships.find(x => !x.isPlayer && x.alive && Math.hypot(x.x - g.player.x, x.z - g.player.z) < 200);
   if (!s) return null;
   const v = new (Object.getPrototypeOf(g.rig.cam.position).constructor)(s.x, 6, s.z);
   v.project(g.rig.cam);
+  if (v.z > 1 || Math.abs(v.x) > 0.92 || Math.abs(v.y) > 0.92) return null;
   const r = document.getElementById('scene').getBoundingClientRect();
   return { x: (v.x * 0.5 + 0.5) * r.width, y: (-v.y * 0.5 + 0.5) * r.height, name: s.name };
 });
@@ -89,9 +95,16 @@ const stage = async () => {
     const g = window.__game;
     const s = g.ships.find(x => !x.isPlayer && x.alive);
     if (!s) return;
-    if (Math.hypot(s.x - g.player.x, s.z - g.player.z) > 160) {
-      s.x = g.player.x + 90; s.z = g.player.z + 30;
-    }
+    /* Put her where the camera is actually looking, rather than at a fixed
+       offset in world space. The offset used to be +90x/+30z, which was on
+       screen only because the opening view happened to be pointed that way;
+       the moment a new voyage started facing the town instead, she was behind
+       the lens and every tap check failed. Staged off the camera's own
+       heading, this holds whichever way the view is turned. */
+    const az = g.rig.azimuth;
+    const fx = -Math.sin(az), fz = -Math.cos(az);       // the way the lens looks
+    s.x = g.player.x + fx * 105;
+    s.z = g.player.z + fz * 105;
     s.speed = 0;
   });
   await ff(page, 0.3);          // let her mesh catch up with her position

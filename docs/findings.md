@@ -103,6 +103,29 @@ the tabs, and the sheet's content pane made the flexible one. The sheet's foot
 also gained `env(safe-area-inset-bottom)` — the last row of a long list was
 ending flush with the bottom of the glass.
 
+## 18. A tap test that aimed behind the camera  (harness)
+
+**Symptom.** Turning the opening view to face the town broke four `touch`
+checks at once: "tapping a hull marks her as target (null)", and three that
+depend on it.
+
+**Root cause.** The suite staged its victim at a fixed world offset —
+`player + 90x + 30z` — which was visible only because the opening camera
+happened to point that way. Rotated to face Ilo Vantu, she was *behind the
+lens*. And `THREE.Vector3.project()` returns perfectly plausible-looking
+coordinates for a point behind the camera, so the harness tapped confidently
+on empty sea and reported that tapping a hull does not mark her.
+
+**Change.** She is staged along the camera's own heading, so it holds
+whichever way the view is turned; and `aim()` now returns null for anything
+behind the lens or near the edge of frame, so a bad aim fails as "no aim"
+rather than as a wrong claim about the game.
+
+**Why it matters beyond the fix:** this was the fourth failure this session
+where the harness measured something other than what it claimed. A test that
+can quietly point at the wrong place is worth less than no test, because it
+spends its failures on itself.
+
 ## 17. A drawn harbour beside a renderer that makes real ones  (P2)
 
 **Symptom.** "The town scenes look terrible."
