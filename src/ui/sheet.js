@@ -195,8 +195,12 @@ function spotFor(port, place) {
   if (!spots.length) return null;
   let h = 0x9e37;
   for (let i = 0; i < place.length; i++) h = Math.imul(h ^ place.charCodeAt(i), 0x01000193) >>> 0;
-  // biggest buildings first, so the tavern is a building and not a shed
-  const rank = spots.slice().sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, Math.min(8, spots.length));
+  /* The waterfront row first — that is where a town's public buildings are,
+     and where a picture of one has the harbour behind it. Fall back to the
+     biggest of whatever the town managed to build. */
+  const front = spots.filter(s => s.front);
+  const rank = (front.length >= 3 ? front : spots)
+    .slice().sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, 8);
   return rank[h % rank.length];
 }
 /** The angle each harbour actually looks best from — chosen by eye, not by

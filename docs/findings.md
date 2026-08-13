@@ -103,6 +103,38 @@ the tabs, and the sheet's content pane made the flexible one. The sheet's foot
 also gained `env(safe-area-inset-bottom)` — the last row of a long list was
 ending flush with the bottom of the glass.
 
+## 19. The town was a scatter, and a stricter rule built one shed  (P2)
+
+**Symptom.** With the port screen framing individual buildings, the settlement
+generator's output stopped surviving a close look: sheds dropped on a hillside
+at angles no builder would choose, some half-buried in a slope, some standing
+on one corner.
+
+**Root cause.** Placement was a pure scatter — random distance along the
+shore, random distance inland, and `ry: rng() * 6.28`, a full random circle.
+At two hundred metres from the deck that reads as a town. At eighty metres it
+reads as what it is.
+
+**Change.** The town grows from its waterfront: rows at increasing distance
+inland, every building square to the water ±12°, the ground sampled under the
+whole footprint rather than at its centre so nothing floats or buries, the
+front row larger and denser and thinning as it climbs, and no building on top
+of a neighbour. Buildings sit on the *lowest* corner of their footprint, so
+they dig into a slope instead of hovering over it.
+
+**And the mistake worth recording.** My first cut used a fixed set of
+positions per row and rejected any footprint with more than 5.5m of fall
+across it. That built **one building** for the whole of Ilo Vantu. Probing the
+actual terrain explained both halves: a normal footprint on that coast falls
+eight to nine metres across its own width, so the threshold rejected
+everything; and fixed positions along a row put one end twenty metres under
+water and the other up a cliff. The rows are searched bands now, with the
+limit set from the measurement rather than from taste — 24 buildings, 8 of
+them on the waterfront.
+
+I caught it because the probe printed `spots: 1` immediately after the change.
+A screenshot alone might have read as "sparse village".
+
 ## 18. A tap test that aimed behind the camera  (harness)
 
 **Symptom.** Turning the opening view to face the town broke four `touch`

@@ -418,22 +418,87 @@ function buildSettlement(port, group) {
   PORT_SHORE[port.id] = shoreRec;
   const perpG = new THREE.Vector2(-inland.y, inland.x);
 
-  let placed = 0, guard = 0;
-  while (placed < count && guard < count * 60) {
-    guard++;
-    const along = rngRange(rng, -1, 1) * (isMajor ? 130 : 72);
-    const into = rngRange(rng, 6, isMajor ? 140 : 84);
-    const perp = perpG;
-    const x = base.x + inland.x * into + perp.x * along;
-    const z = base.y + inland.y * into + perp.y * along;
-    const h = heightAtAnalytic(x, z);
-    if (h < 1.6 || h > 44) continue;
-    const w = rngRange(rng, 7, isMajor ? 15 : 11);
-    const d = rngRange(rng, 7, 13);
-    const bh = rngRange(rng, 6, isMajor ? 15 : 10);
-    for (const g of building(rng, w, bh, d)) parts.push(xf(g, { x, y: h - 1, z, ry: rng() * 6.28 }));
-    shoreRec.spots.push({ x, z, y: h, w, h: bh });
-    placed++;
+  /* ---- how a harbour town is laid out ----
+
+     This used to be a scatter: a random distance along the shore, a random
+     distance inland, and a random rotation through a full circle. From the
+     deck at two hundred metres that reads as a town. Framed close for the
+     port screen it reads as what it is — sheds dropped on a hillside at
+     angles no builder would choose, some of them half-buried in a slope and
+     some standing on one corner.
+
+     A real waterfront grows in terraces: a dense front row facing the water,
+     thinning as it climbs, everything square to the shore because that is
+     where the road and the boats are. So:
+
+       · rows at increasing distance inland, jittered so it is not a grid
+       · every building faces the water, ±12° so it is not a parade
+       · the ground under the whole footprint is sampled, not just its centre;
+         too steep and nothing is built there, and what is built sits on the
+         lowest corner so it digs in rather than floats
+       · the front row is bigger — warehouses and the harbourmaster — and it
+         thins and shrinks going up the hill
+
+     The visible result is a town with a waterfront, which is also what makes
+     a close-up of one of its buildings worth looking at. */
+  const facing = Math.atan2(-inland.x, -inland.y);      // square to the water
+  const rows = isMajor ? [22, 46, 72, 100, 132] : [20, 44, 70];
+  const spread = isMajor ? 130 : 74;
+
+  /** Is this footprint buildable, and how low does it sit? */
+  const ground = (x, z, w, d) => {
+    let lo = Infinity, hi = -Infinity;
+    for (const [ox, oz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0, 0]]) {
+      const gx = x + perpG.x * ox * w + inland.x * oz * d;
+      const gz = z + perpG.y * ox * w + inland.y * oz * d;
+      const h = heightAtAnalytic(gx, gz);
+      if (h < lo) lo = h;
+      if (h > hi) hi = h;
+    }
+    return { lo, hi, slope: hi - lo };
+  };
+
+  /* Bands, not a grid.
+
+     A fixed set of positions along each row does not survive real ground:
+     measured under Ilo Vantu, one end of a row is twenty metres under water
+     and the other is up a cliff, and a footprint there falls eight or nine
+     metres across its own width. So each row is a band that is *searched* —
+     candidates are tried until enough of them stand on ground a builder would
+     accept. That keeps the terracing where the coast allows it and lets the
+     town bend around the parts where it does not, which is what real ones do. */
+  let placed = 0;
+  for (let r = 0; r < rows.length && placed < count; r++) {
+    const nearWater = 1 - r / rows.length;
+    // dense at the front, thinning as it climbs
+    const inRow = Math.max(2, Math.round((isMajor ? 7 : 4) * (0.45 + nearWater * 0.75)));
+    let inThisRow = 0;
+    for (let attempt = 0; attempt < inRow * 14 && inThisRow < inRow && placed < count; attempt++) {
+      const along = rngRange(rng, -1, 1) * spread * (0.55 + nearWater * 0.45);
+      const into = rows[r] + rngRange(rng, -9, 9);
+      const x = base.x + inland.x * into + perpG.x * along;
+      const z = base.y + inland.y * into + perpG.y * along;
+      // bigger and squarer at the waterfront; cottages up the hill
+      const w = rngRange(rng, 7, isMajor ? 15 : 11) * (0.72 + nearWater * 0.42);
+      const d = rngRange(rng, 7, 13) * (0.72 + nearWater * 0.34);
+      const bh = rngRange(rng, 6, isMajor ? 15 : 10) * (0.7 + nearWater * 0.45);
+      const g = ground(x, z, w, d);
+      /* No building on water, on a cliff, or on ground that falls away under
+         it. Ten metres of fall across a footprint is the limit — measured,
+         not guessed: this coast runs eight to nine under a normal house, and
+         a stricter number built one shed and called it a town. */
+      if (g.lo < 1.6 || g.hi > 46 || g.slope > 10) continue;
+      // and not on top of a neighbour
+      let clash = false;
+      for (const o of shoreRec.spots) {
+        if ((o.x - x) * (o.x - x) + (o.z - z) * (o.z - z) < Math.pow((w + o.w) * 0.62, 2)) { clash = true; break; }
+      }
+      if (clash) continue;
+      const ry = facing + rngRange(rng, -0.21, 0.21);
+      for (const part of building(rng, w, bh, d)) parts.push(xf(part, { x, y: g.lo - 1, z, ry }));
+      shoreRec.spots.push({ x, z, y: g.lo, w, h: bh, front: r === 0 });
+      placed++; inThisRow++;
+    }
   }
 
   // piers: run from the waterfront out over the water
