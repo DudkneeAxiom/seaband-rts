@@ -73,7 +73,12 @@
     <div id="speedctl">
       <button class="spd" data-s="0" aria-label="Pause">❙❙</button>
       <button class="spd on" data-s="1" aria-label="Normal speed">1×</button>
-      <button class="spd" data-s="2" aria-label="Double speed">2×</button>
+      <!-- One fast button, not two. A fourth control would not fit beside the
+           other three on a phone, so this one carries both fast speeds and
+           cycles 2×→4×→2×; pause and 1× stay where the thumb left them. Its
+           data-s is the speed it will select next tap-through, so setSpeed()
+           can light it by the same rule as the others. -->
+      <button class="spd fast" data-s="2" aria-label="Fast forward">2×</button>
     </div>
     <div id="shipstatus">
       <div class="ship-name" id="flag-name">—</div>

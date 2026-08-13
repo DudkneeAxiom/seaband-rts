@@ -11,6 +11,10 @@ import { depthAt } from '../world/terrain.js';
 let NEXT_ID = 1;
 const _tilt = { x: 0, z: 0 };
 
+/** Half the no-go cone: ~47° either side of the wind's eye. Inside it a square
+    rig makes no useful way, so the helm beats across it rather than into it. */
+const NO_GO = 0.82;
+
 export function emptyCrew() {
   return { deckhand: 0, sailor: 0, gunner: 0, marine: 0, rigger: 0, veteran: 0 };
 }
@@ -46,6 +50,7 @@ export class Ship {
     this.route = null;                   // remaining waypoints, when one was needed
     this.headingCmd = null;              // radians, used when no dest
     this.throttle = 1;                   // 0..1 sail set
+    this.tack = 0;                       // -1/+1 while beating, 0 when she can fetch
 
     this.hullMax = this.cls.hull; this.hull = opts.hull ?? this.hullMax;
     this.sailMax = this.cls.sails; this.sails = opts.sails ?? this.sailMax;
@@ -198,23 +203,87 @@ export class Ship {
     if (this.hasOfficer('mate')) t *= 1.12;
     return t * Math.PI / 180;
   }
-  /** 0.38 (beating into it) .. 1.0 (running before it) */
+  /* A square-rigger's polar, not a cosine.
+
+     The cosine this used to be had exactly one good heading and one bad one,
+     which put 35% of all headings in the HUD's red band and — because a slow
+     leg eats more of the clock than a fast one — half of every voyage's
+     *minutes* under a red wind label. That is why an unbiased wind read as a
+     wind that was always against you: the compass was fair, the stopwatch
+     was not.
+
+     A real ship of this rig is quickest on a broad reach (TWA ~120°), a
+     little slower dead before the wind where the sails blanket each other,
+     good on a beam reach, and useless inside about 45° of the wind's eye.
+     That shape puts the punishment where it belongs — in a narrow no-go cone
+     you can tack out of — instead of spreading it over half the rose.
+
+     The mean over all headings is 0.689 against the old curve's 0.690, so
+     nothing else in the game got quicker or slower by this change alone. */
   windFactor(windAng, yaw = this.yaw) {
-    const a = Math.cos(angDiff(windAng, yaw));
-    return 0.38 + 0.62 * (0.5 + 0.5 * a);
+    // angle off the wind's eye: 0 = head to wind, π = dead run
+    const twa = Math.PI - Math.abs(angDiff(windAng, yaw));
+    const run = 0.5 - 0.5 * Math.cos(twa);          // 0 in irons .. 1 running
+    const reach = Math.pow(Math.sin(twa), 1.2);     // peaks on the beam
+    return 0.15 + 0.59 * Math.pow(run, 0.75) + 0.35 * reach;
+  }
+
+  /* Beating to windward.
+
+     A mark inside the no-go cone cannot be sailed at, so the helm lays the
+     nearest edge of the cone instead and crosses over when the mark has drawn
+     far enough onto the other bow. Because the crossing point is an *angle*,
+     the zig-zag converges on its own: every board brings the mark closer to
+     the bow until it falls outside the cone and she can fetch it straight.
+     The distance cap on top of that keeps a long leg from wandering half an
+     ocean off the rhumb line before she comes about.
+
+     Returns the heading to steer for a mark bearing `brg`, `d` away. */
+  beatTo(brg, d, windAng) {
+    const eye = windAng + Math.PI;          // where the wind is blowing from
+    const off = angDiff(eye, brg);          // signed: how far the mark sits off the eye
+    // outside the cone she fetches it; inside 90m there is nothing left to gain
+    if (Math.abs(off) >= NO_GO || d < 90) { this.tack = 0; return brg; }
+    if (!this.tack) {
+      /* Open on the making board — the one that points nearest the mark. Only
+         when the mark is dead in the eye is there nothing to choose between
+         them, and then the smaller turn from her present heading decides. */
+      if (Math.abs(off) > 0.09) this.tack = Math.sign(off);
+      else {
+        const a = angDiff(this.yaw, eye + NO_GO), b = angDiff(this.yaw, eye - NO_GO);
+        this.tack = Math.abs(a) <= Math.abs(b) ? 1 : -1;
+      }
+    } else if (Math.sign(off) === -this.tack &&
+               (Math.abs(off) > 0.34 || Math.abs(d * Math.sin(off)) > 150)) {
+      this.tack = -this.tack;               // she has run far enough: come about
+    }
+    /* She also comes about for the shore. A beat swings wide of the rhumb line
+       the route was plotted along, and no board is worth holding into the
+       ground — so sound ahead, and if the water goes thin, take the other
+       board early. Both thin means a cove the route should never have entered:
+       give the helm the plain bearing and let the lead line argue with it. */
+    const need = this.draft * 1.9 + 3;
+    const look = 64 + this.speed * 4;
+    const sound = a => depthAt(this.x + Math.sin(a) * look, this.z + Math.cos(a) * look);
+    if (sound(eye + NO_GO * this.tack) < need) {
+      if (sound(eye - NO_GO * this.tack) > need) this.tack = -this.tack;
+      else { this.tack = 0; return brg; }
+    }
+    return eye + NO_GO * this.tack;
   }
 
   /* ---------- orders ---------- */
-  setDestination(x, z) { this.dest = { x, z }; this.headingCmd = null; this.route = null; }
+  setDestination(x, z) { this.dest = { x, z }; this.headingCmd = null; this.route = null; this.tack = 0; }
   /** A course that works its way round the islands instead of into them. */
   setRoute(pts) {
     if (!pts || !pts.length) return;
     this.route = pts.slice();
     this.dest = this.route.shift();
     this.headingCmd = null;
+    this.tack = 0;
   }
-  setHeading(a) { this.headingCmd = a; this.dest = null; this.route = null; }
-  stop() { this.dest = null; this.route = null; this.headingCmd = this.yaw; this.throttle = 0; }
+  setHeading(a) { this.headingCmd = a; this.dest = null; this.route = null; this.tack = 0; }
+  stop() { this.dest = null; this.route = null; this.headingCmd = this.yaw; this.throttle = 0; this.tack = 0; }
 
   /* ---------- update ---------- */
   update(dt, world) {
@@ -238,7 +307,7 @@ export class Ship {
           if (this.isPlayer) this.throttle = 0.12;
         }
       }
-      else want = Math.atan2(dx, dz);
+      else want = this.beatTo(Math.atan2(dx, dz), d, world.windAng);
     } else if (this.headingCmd != null) want = this.headingCmd;
 
     const diff = angDiff(this.yaw, want);

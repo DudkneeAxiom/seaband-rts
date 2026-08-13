@@ -66,6 +66,33 @@ const floating = await G(() => {
 ok(`no building stands in open water (${floating.length} suspect points)`, floating.length === 0);
 if (floating.length) console.log('  floating at:', JSON.stringify(floating));
 
+/* ---------- Greywake's arms are masonry, not scenery ---------- */
+/* The stone arms used to exist only as a mesh, and a cutter could sail
+   through the middle of a 22-metre block. They are stamped into the depth
+   field now, so the same soundings the hull answers to must find them —
+   shallow on both flanks of the approach, while the mouth between the arm
+   heads still carries any hull in the game. */
+const gwArms = await G(() => {
+  const g = window.__game, H = window.__terrain.heightAt;
+  const p = g.PORTS.find(x => x.id === 'greywake');
+  const t = window.__shore.greywake;              // the waterfront the works run out from
+  const ax = Math.atan2(p.x - t.x, p.z - t.z);    // seaward, straight out the mouth
+  let mouth = 1e9, left = 1e9, right = 1e9;
+  for (let out = 60; out <= 300; out += 8) {
+    const cx = t.x + Math.sin(ax) * out, cz = t.z + Math.cos(ax) * out;
+    mouth = Math.min(mouth, -H(cx, cz));
+    for (let s = 30; s <= 140; s += 8) {
+      const dL = -H(cx + Math.cos(ax) * s, cz - Math.sin(ax) * s);
+      const dR = -H(cx - Math.cos(ax) * s, cz + Math.sin(ax) * s);
+      left = Math.min(left, dL); right = Math.min(right, dR);
+    }
+  }
+  return { mouth: +mouth.toFixed(1), left: +left.toFixed(1), right: +right.toFixed(1) };
+});
+ok(`the breakwater arms stand in the water itself (shallowest ${gwArms.left}m / ${gwArms.right}m either side)`,
+  gwArms.left < 1.5 && gwArms.right < 1.5);
+ok(`while the harbour mouth still carries a hull (${gwArms.mouth}m on the axis)`, gwArms.mouth > 6.5);
+
 /* ---------- a prize is berthed in water, not on the beach ---------- */
 const berths = await G(() => {
   const g = window.__game, H = window.__terrain.heightAt;

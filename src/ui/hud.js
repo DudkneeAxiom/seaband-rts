@@ -44,19 +44,32 @@ export class HUD {
     }
   }
 
-  /** Pause / 1× / 2×. Sailing a long leg should not mean waiting a long time. */
+  /** Pause / 1× / fast. Sailing a long leg should not mean waiting a long time. */
   bindSpeed() {
     const g = this.g;
     for (const b of document.querySelectorAll('.spd')) {
       onTap(b, () => {
-        g.speed = +b.dataset.s;
-        for (const o of document.querySelectorAll('.spd')) o.classList.toggle('on', o === b);
-        $('paused-badge').classList.toggle('hidden', g.speed !== 0);
+        /* The fast button is a cycle, not a setting: off it starts at 2×, and
+           each further tap flips 2×↔4×. Coming back from pause or 1× starts
+           at 2× again rather than dropping the player straight into 4×. */
+        this.setSpeed(b.classList.contains('fast') ? (g.speed === 2 ? 4 : 2) : +b.dataset.s);
       }, b.dataset.s === '0' ? 320 : 700);
     }
   }
   setSpeed(n) {
     this.g.speed = n;
+    this.syncSpeed();
+  }
+  /** Paint the strip from `g.speed`, wherever that was set — a battle forcing
+      1× has to move the buttons too, or they lie about the clock. */
+  syncSpeed() {
+    const n = this.g.speed;
+    const fast = document.querySelector('.spd.fast');
+    if (fast) {
+      // shows the speed it is at when lit, and the speed it will select when not
+      fast.dataset.s = n >= 2 ? String(n) : '2';
+      fast.textContent = `${fast.dataset.s}×`;
+    }
     for (const o of document.querySelectorAll('.spd')) o.classList.toggle('on', +o.dataset.s === n);
     $('paused-badge').classList.toggle('hidden', n !== 0);
   }
@@ -87,6 +100,7 @@ export class HUD {
       $('val-infamy').textContent = Math.round(g.infamy);
 
       this.updateCompass(p);
+      this.syncSpeed();
 
       if (p) {
         $('flag-name').textContent = p.name;

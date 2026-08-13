@@ -1,6 +1,6 @@
 /* Systems test: contracts, discoveries, shoal water, supplies, reputation,
    crew progression, and the awkward states players actually hit. */
-import { launch, sleep, ff, shot, newVoyage, waitFor, dismissModal } from './qa.mjs';
+import { launch, sleep, ff, shot, newVoyage, waitFor, dismissModal, intoBattle, leaveBattle } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -407,6 +407,53 @@ await sleep(1200);
 await newVoyage(page);
 const recovered = await page.evaluate(() => !!window.__game && !!window.__game.player);
 ok('a corrupt save does not brick the game', recovered);
+
+/* ---- the clock's fourth notch ---- */
+/* One fast button, cycling 2x/4x, with pause and 1x their own buttons. Driven
+   through the real strip, because the wiring is the thing under test. */
+await page.click('.spd.fast');
+const at2 = await waitFor(page, () => window.__game.speed === 2, 4000);
+await page.click('.spd.fast');
+const at4 = await waitFor(page, () => window.__game.speed === 4, 4000);
+const label4 = await waitFor(page, () => document.querySelector('.spd.fast').textContent === '4×', 4000);
+await page.click('.spd.fast');
+const back2 = await waitFor(page, () => window.__game.speed === 2, 4000);
+await page.click('.spd[data-s="1"]');
+const home1 = await waitFor(page, () => window.__game.speed === 1
+  && document.querySelector('.spd.fast').textContent === '2×', 4000);
+ok('the fast button cycles 2x -> 4x -> 2x and says which it is', at2 && at4 && label4 && back2 && home1);
+
+/* ---- a mark dead upwind is beaten up to, not crawled at ---- */
+const beat = await G(() => {
+  const g = window.__game, p = g.player;
+  // an east-west lane with sea room on both sides, surveyed clear of land
+  p.x = -1600; p.z = 200; p.yaw = Math.PI / 2; p.speed = 0;
+  g.windAng = g.windTargetAng = g.world.windAng = -Math.PI / 2;   // the eye is dead east
+  g.windTimer = 9999;
+  p.setDestination(-980, 200);
+  p.throttle = 1;
+  let tacks = 0, last = 0, widest = 0;
+  for (let i = 0; i < 60 * 260; i++) {
+    g.update(1 / 60);
+    if (p.tack && last && p.tack !== last) tacks++;
+    if (p.tack) last = p.tack;
+    widest = Math.max(widest, Math.abs(p.z - 200));
+    if (!p.dest) break;                    // arrived: the helm stands down
+  }
+  const left = Math.hypot(p.x + 980, p.z - 200);
+  return { left: Math.round(left), tacks, widest: Math.round(widest) };
+});
+ok(`she works 620m dead to windward in boards (${beat.left}m left, ${beat.tacks} tacks, ${beat.widest}m widest)`,
+  beat.left < 120 && beat.tacks >= 1 && beat.widest < 240);
+
+/* ---- being brought to takes the way off the clock ---- */
+await page.click('.spd.fast');
+await page.click('.spd.fast');
+await waitFor(page, () => window.__game.speed === 4, 4000);
+await intoBattle(page);
+const clockInAction = await G(() => window.__game.speed);
+ok(`an action at 4x opens at 1x (clock read ${clockInAction}x)`, clockInAction === 1);
+await leaveBattle(page);
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');

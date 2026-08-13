@@ -48,9 +48,26 @@ function avoidLand(ship, wantAng, dt) {
   void dt;
 }
 
+/* The wind this tick, cached at the top of updateAI so fifteen steerTo call
+   sites do not each have to carry the world on their backs. */
+let WIND = 0;
+
+/** A mark inside the no-go cone cannot be steered at. An NPC captain has no
+    tack state to beat with, so she lays the near edge of the cone and holds
+    it — the mark drifts out of the cone as she goes, and one long board with
+    a fetch at the end looks like a captain who knows her trade. Holding the
+    plain bearing looked like a ship becalmed in open water. */
+function layToWind(ship, want) {
+  const eye = WIND + Math.PI;
+  const off = angDiff(eye, want);
+  if (Math.abs(off) >= 0.82) return want;
+  const side = off !== 0 ? Math.sign(off) : (ship.id % 2 ? 1 : -1);
+  return eye + 0.82 * side;
+}
+
 function steerTo(ship, x, z, dt) {
   const want = Math.atan2(x - ship.x, z - ship.z);
-  const safe = avoidLand(ship, want, dt);
+  const safe = avoidLand(ship, layToWind(ship, want), dt);
   ship.headingCmd = safe;
   ship.dest = null;
   ship.throttle = 1;
@@ -179,6 +196,7 @@ function findEnemy(ship, ships, maxD = 760) {
 export function updateAI(ship, dt, world, ctx) {
   if (!ship.alive || ship.captured || ship.isPlayer) return;
   if (ship.boarding) return;
+  WIND = world.windAng;
   const b = ship.brain;
   b.t += dt;
   if (b.cooldown > 0) b.cooldown -= dt;

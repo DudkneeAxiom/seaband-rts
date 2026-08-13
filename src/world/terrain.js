@@ -82,6 +82,27 @@ export function bakeHeights() {
   return heightGrid;
 }
 
+/* Raise the baked field around a point — a rubble footing stamped in after the
+   bake, because harbour works are laid out from the shore search, which needs
+   the bake done first. Everything that reads heightAt (hulls, the AI's probes,
+   the route grid, the water shader's texture) then agrees the works are there.
+   The stones used to be scenery: a 22-metre block of League masonry a cutter
+   could sail through the middle of. */
+function raiseSeabed(x, z, r, top) {
+  const half = WORLD_SIZE * 0.5;
+  const i0 = Math.max(0, Math.floor((x - r + half) / CELL)), i1 = Math.min(GRID - 1, Math.ceil((x + r + half) / CELL));
+  const j0 = Math.max(0, Math.floor((z - r + half) / CELL)), j1 = Math.min(GRID - 1, Math.ceil((z + r + half) / CELL));
+  for (let j = j0; j <= j1; j++) {
+    for (let i = i0; i <= i1; i++) {
+      const d = Math.hypot(-half + i * CELL - x, -half + j * CELL - z);
+      if (d > r) continue;
+      const v = top - (d / r) * (d / r) * (top + 11);   // core awash, toes on the bottom
+      const o = j * GRID + i;
+      if (v > heightGrid[o]) heightGrid[o] = v;
+    }
+  }
+}
+
 /** Bilinear sample of the baked field. Fast enough to call per-ship per-frame. */
 export function heightAt(x, z) {
   const half = WORLD_SIZE * 0.5;
@@ -158,13 +179,47 @@ function shadeLand(h, slope, out, ground) {
   return out;
 }
 
-function islandMesh(isl) {
-  // bounds
+/* What this one island's own blobs raise at (x, z) — the same maths as the
+   island term in analyticHeight, so the comparison below is exact. */
+function islandContribution(isl, x, z) {
+  let best = -1e9;
+  for (const b of isl.blobs) {
+    const cx = isl.x + b.x, cz = isl.z + b.z;
+    const dx = x - cx, dz = z - cz;
+    let d = Math.hypot(dx, dz);
+    const a = Math.atan2(dz, dx);
+    d += fbm(Math.cos(a) * 2.1 + isl.seed, Math.sin(a) * 2.1 - isl.seed, 3) * b.r * 0.24;
+    if (d > b.r * 1.35) continue;
+    const t = smoothstep(b.r, b.r * 0.12, d);
+    const val = -24 + (b.h + 24) * Math.pow(t, 1.55);
+    if (val > best) best = val;
+  }
+  return best;
+}
+
+function islandBounds(isl) {
   let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
   for (const b of isl.blobs) {
     minX = Math.min(minX, isl.x + b.x - b.r * 1.6); maxX = Math.max(maxX, isl.x + b.x + b.r * 1.6);
     minZ = Math.min(minZ, isl.z + b.z - b.r * 1.6); maxZ = Math.max(maxZ, isl.z + b.z + b.r * 1.6);
   }
+  return { minX, maxX, minZ, maxZ };
+}
+
+function islandMesh(isl) {
+  const { minX, maxX, minZ, maxZ } = islandBounds(isl);
+
+  /* Neighbours whose bounding boxes cross ours. Where boxes overlap, both
+     meshes used to build the same shared ground — Bellcurrent's mesh rebuilt
+     Sable Head's mound in grass green on top of the iron original, and the
+     two copies z-fought as coloured shards up the hillside. Each patch of
+     ground now belongs to whichever island raises it highest, and only the
+     owner builds it. */
+  const rivals = ISLANDS.filter(o => {
+    if (o === isl) return false;
+    const b = islandBounds(o);
+    return b.minX < maxX && b.maxX > minX && b.minZ < maxZ && b.maxZ > minZ;
+  });
   const step = 11;
   const nx = Math.ceil((maxX - minX) / step), nz = Math.ceil((maxZ - minZ) / step);
   const sx = (maxX - minX) / nx, sz = (maxZ - minZ) / nz;
@@ -189,6 +244,13 @@ function islandMesh(isl) {
   const tri = (p0, p1, p2) => {
     const hMax = Math.max(p0[1], p1[1], p2[1]);
     if (hMax < CUT) return;
+    if (rivals.length) {
+      const mx = (p0[0] + p1[0] + p2[0]) / 3, mz = (p0[2] + p1[2] + p2[2]) / 3;
+      const mine = islandContribution(isl, mx, mz);
+      // strictly greater: where neither owns it (open reef, shelf), keep it —
+      // a hole is worse than the harmless double-build this used to be
+      for (const o of rivals) if (islandContribution(o, mx, mz) > mine) return;
+    }
     tmpN.set(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
       .cross(new THREE.Vector3(p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2])).normalize();
     const slope = 1 - Math.abs(tmpN.y);
@@ -444,12 +506,15 @@ function buildSettlement(port, group) {
         const h = 13 - t * 3;
         seaworks.push(prep(xf(new THREE.BoxGeometry(22, h, 26), { x: bx, y: h * 0.5 - 3, z: bz, ry: pierAng }),
           i % 3 === 0 ? stoneLit : stone, 0.05));
+        // and the rubble mound the masonry stands on — the part a hull answers to
+        raiseSeabed(bx, bz, 21, 1.6);
       }
       // a light on the head of each arm, where the mouth is
       const hx = base.x - inland.x * (46 + armLen) + perpG.x * side * 54;
       const hz = base.y - inland.y * (46 + armLen) + perpG.y * side * 54;
       seaworks.push(prep(xf(new THREE.CylinderGeometry(3.4, 4.6, 22, 7), { x: hx, y: 10, z: hz }), stoneLit, 0.04));
       seaworks.push(prep(xf(new THREE.BoxGeometry(5, 4, 5), { x: hx, y: 22, z: hz }), 0x8e2b28, 0.05));
+      raiseSeabed(hx, hz, 14, 1.2);
     }
     // signal towers along the waterfront, and a dry dock cut into it
     for (const off of [-96, 0, 96]) {
@@ -466,18 +531,42 @@ function buildSettlement(port, group) {
        gate, so what the approach shows is stakes — a marked channel through
        water that has drowned better captains — and light timber on stilts. */
     const teal = 0x2f8f86, pale = 0xd9d2c0;
-    const chLen = 300;
-    for (let i = 0; i < 12; i++) {
-      const t = i / 11;
+    /* A stake is driven into a reef flat, so a stake standing over deep water
+       is a lie about the bottom — and twelve of them in a row read as a jetty
+       marching into open ocean, which is exactly what this looked like. Each
+       pair now sounds its own spot: shallow enough to drive a stake, deep
+       enough that it is marking water and not standing on the beach — and the
+       stake is cut to length for the bottom it stands on. */
+    const chLen = 420;
+    for (let i = 0; i < 14; i++) {
+      const t = i / 13;
       const out = 40 + t * chLen;
-      // the channel narrows as it comes in, and the stakes mark both sides
-      const across = 34 + t * 46;
       for (const side of [1, -1]) {
-        const sx = base.x - inland.x * out + perpG.x * side * across;
-        const sz = base.y - inland.y * out + perpG.y * side * across;
-        seaworks.push(prep(xf(new THREE.CylinderGeometry(0.75, 0.95, 17, 5), { x: sx, y: 3.5, z: sz }), 0x9a8560, 0.06));
+        /* Each stake finds the reef for itself: walk out from the channel's
+           axis until the bottom comes up to a flat a stake can be driven
+           into, and stand it there — a metre inside the edge, the way a
+           channel is actually marked. Where the sweep meets no reef there is
+           no stake, because there is nothing there to warn anyone off. */
+        let sx = null, sz = null, bot = 0;
+        for (let s = 26; s <= 180; s += 6) {
+          const px = base.x - inland.x * out + perpG.x * side * s;
+          const pz = base.y - inland.y * out + perpG.y * side * s;
+          const h = heightAtAnalytic(px, pz);
+          if (h > -0.6) break;                    // the flat has become beach: stop short of it
+          if (h > -7.5) {
+            sx = base.x - inland.x * out + perpG.x * side * (s + 4);
+            sz = base.y - inland.y * out + perpG.y * side * (s + 4);
+            bot = heightAtAnalytic(sx, sz);
+            break;
+          }
+        }
+        if (sx === null || bot > -0.6) continue;
+        const top = 6.5 + (i % 3) * 0.5;
+        const len = top - bot + 1.5;
+        seaworks.push(prep(xf(new THREE.CylinderGeometry(0.75, 0.95, len, 5),
+          { x: sx, y: top - len / 2, z: sz }), 0x9a8560, 0.06));
         // a painted top, so the line of them reads from seaward
-        seaworks.push(prep(xf(new THREE.BoxGeometry(2.2, 2.2, 2.2), { x: sx, y: 12, z: sz }),
+        seaworks.push(prep(xf(new THREE.BoxGeometry(2.2, 2.2, 2.2), { x: sx, y: top + 1.6, z: sz }),
           side > 0 ? teal : 0xc4553a, 0.05));
       }
     }

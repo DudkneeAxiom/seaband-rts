@@ -33,6 +33,13 @@ import {
   sfxCannon, sfxWood, sfxSplash, sfxClash, sfxBell, sfxHorn, sfxCoin, sfxClick, updateAudio,
 } from './core/audio.js';
 
+/** A stream of its own for one named thing — see the note on seeds in CLAUDE.md. */
+function seedFrom(name) {
+  let h = 0x9e3779b9;
+  for (let i = 0; i < (name || '').length; i++) h = Math.imul(h ^ name.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
 const SAVE_KEY = 'salt-and-tally-v1';
 const TRAFFIC = { merchant: 4, fisher: 3, pirate: 3, patrol: 2, sable: 2, veyra: 2 };
 
@@ -60,14 +67,14 @@ export class Game {
 
     mark('sounding the bottom');
     bakeHeights();
-    mark('drawing the seabed');
-    this.depthTex = makeDepthTexture();
     mark('raising the sky');
     createSky(scene);
+    mark('making the islands');
+    buildTerrain(scene);          // harbour works stamp their footings into the field…
+    mark('drawing the seabed');
+    this.depthTex = makeDepthTexture();   // …so the seabed is read after they land
     mark('setting the sea');
     createWater(scene, this.depthTex, SKY);
-    mark('making the islands');
-    buildTerrain(scene);
     mark('rigging the world');
 
     this.wakes = new WakeField(scene);
@@ -120,7 +127,7 @@ export class Game {
     this.spawnTimer = 3;
     this.saveTimer = 0;
     this.combatHeat = 0;
-    this.speed = 1;              // 0 = paused, 1 = normal, 2 = double
+    this.speed = 1;              // 0 paused, 1 normal, 2 or 4 fast-forward
     this.PORTS = PORTS;
 
     // ---- who you are, and how far into your own story ----
@@ -198,15 +205,38 @@ export class Game {
     this.encounterCooling = 0;       // grace after one resolves
     this.target = null;
     this.chapter = 0;
+    this._chEarned = false; this._storyCool = 0;
     this.nemesisDown = false; this.santDown = false; this.storyOver = false;
 
     const fx = this.originFx;
     const crew = emptyCrew();
     crew.deckhand = 6; crew.sailor = 5; crew.gunner = 1; crew.marine = 1;
     for (const k in fx.crew) crew[k] = (crew[k] || 0) + fx.crew[k];
+
+    /* The opening leg, laid out rather than left to chance.
+
+       This used to start the ship at a fixed yaw of 2.5 with the wind fixed at
+       2.1 — which pointed her 170° away from Ilo Vantu, the one place the game
+       then told her to go, and put the bearing to it at 0.43 on the old wind
+       curve. Every single voyage opened facing the wrong way with a dead beat
+       to the first harbour, which is a poor first impression and reads as a
+       wind that has it in for you.
+
+       So: she starts bows-on to the first mark, and the wind is laid at a
+       broad reach off that bearing — seeded from the captain's own name, so
+       two captains get two different mornings and the same captain always
+       gets hers. */
+    const home = PORTS[0];
+    const openBrg = Math.atan2(home.x - -110, home.z - 236);
+    const wr = makeRNG(seedFrom(this.origin.captain));
+    this.windAng = openBrg + (wr() < 0.5 ? -1 : 1) * (0.85 + wr() * 0.35);
+    this.windTargetAng = this.windAng;
+    this.windTimer = 26 + wr() * 40;
+    this.world.windAng = this.windAng;   // before the first update, not after it
+
     const p = new Ship({
       classId: 'cutter', faction: 'player', name: NAMES.ship_player[0], isPlayer: true,
-      x: -110, z: 236, yaw: 2.5, crew, role: 'player',
+      x: -110, z: 236, yaw: openBrg, crew, role: 'player',
       colors: { hull: 0x7d5230, trim: 0xe6b25e, sail: 0xefe3c8, flag: 0xc94f2f },
     });
     p.provisions = 42 + fx.provisions; p.shot = 16 + fx.shot;
@@ -378,6 +408,7 @@ export class Game {
       this.crewXP = data.crewXP || 0;
       this.stats = Object.assign({ sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 }, data.stats);
       this.windAng = data.windAng ?? 2.1; this.windTargetAng = this.windAng;
+      this._chEarned = false; this._storyCool = 0;   // re-earned from state, not remembered
       this.discovered = new Set(data.discovered || []);
       this.market = new Market(data.market);
       this.world.market = this.market;
@@ -560,6 +591,7 @@ export class Game {
     this.windAng += angDiff(this.windAng, this.windTargetAng) * Math.min(1, dt * 0.06);
     this.world.windAng = this.windAng;
     this.world.playerTarget = this.target;
+    if (this._storyCool > 0) this._storyCool -= dt;   // the breath between chapter pages
 
     const p = this.player;
 
@@ -728,13 +760,29 @@ export class Game {
   updateStory() {
     const ch = this.currentChapter;
     if (!ch || this.gameOver) return;
+    /* The earning and the telling are two moments, and only the second one
+       waits. A busy hour ashore can finish two or three chapters at once —
+       take a prize on the way in, turn a contract in at the counter, give the
+       prize a captain — and when the cards all kept until open water they
+       arrived as a stack of three, which read as the game having only just
+       noticed. So: the tick lands the moment the thing is done, wherever you
+       are, and the full page still keeps until there is quiet to read it in —
+       with a breath between pages when more than one is owed. */
+    if (!this._chEarned && ch.done(this)) {
+      this._chEarned = true;
+      toast(`✓ ${this.chapterText(ch, 'title')} — done`);
+      sfxBell();
+    }
+    if (!this._chEarned) return;
     // a chapter scene does not open in the middle of a fleet action
     if (this.mode !== 'campaign') return;
     // never interrupt a harbour, a boarding, another dialog — or a fight.
     // The scene keeps until the guns are quiet; it reads better there anyway.
     if (isSheetOpen() || isModalOpen() || this.boardings.length || this.engaged) return;
-    if (!ch.done(this)) return;
+    if ((this._storyCool || 0) > 0) return;
 
+    this._chEarned = false;
+    this._storyCool = 8;
     const coin = ch.coin ? this.gainCoin(ch.coin) : 0;
     const pres = ch.prestige ? this.gainPrestige(ch.prestige) : 0;
     this.chapter++;
@@ -942,6 +990,11 @@ export class Game {
     this.encounter = buildEncounter(this, lead);
     this.mode = 'encounter';
     this.paused = true;
+    /* Fast-forward is for empty sea. Being brought to is the opposite of that,
+       so the clock comes back to 1× and stays there — the player picks the
+       speed up again when they are ready, rather than being handed back a
+       world already running at four times life. */
+    this.speed = Math.min(this.speed, 1);
     this.clearTarget();
     sfxHorn();
     if (this.onEncounter) this.onEncounter(this.encounter);
@@ -2124,7 +2177,14 @@ export class Game {
     const p = this.player;
     if (isSheetOpen()) return;
 
-    if (H.sailed && !H.windTip) {
+    /* The first time she declines to sail the course you set, say why — a ship
+       heading 40° off the line you tapped looks like a bug until you know she
+       is beating, and then it looks like sailing. */
+    if (H.sailed && !H.beatTip && p.tack && p.dest) {
+      H.beatTip = 1;
+      hint('She cannot sail into the wind’s eye — she is beating up to your mark in legs.', 5600);
+    }
+    if (H.sailed && !H.windTip && !p.tack) {
       if (p.windFactor(this.windAng) < 0.55 && p.speed > 1) {
         H.windTip = 1;
         hint('You are close to the wind and slow. The rose shows where it blows from.', 5200);
