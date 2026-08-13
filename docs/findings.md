@@ -85,6 +85,46 @@ encoded an assumption about navigation, the design deliberately changed it,
 and the tests said so instead of quietly still passing. Weakening them to
 match would have thrown away the only thing that noticed.
 
+## 16. A tab bar squashed to nineteen pixels, on every port  (P1)
+
+**Symptom.** Reported from play: "the navigation buttons seem to be getting
+clipped on the bottom of view."
+
+**Root cause.** `#sheet-tabs` is a flex row inside the sheet's flex column and
+had no `flex` of its own, so on a short screen the column took its space from
+the tabs: measured at **19px tall** holding 44px buttons, which clipped clean
+through. This was true of every port screen, not just the new ones — and the
+layout audit passed it every time, because that audit looks for *overlaps* and
+a clipped element does not overlap anything. Content that is cut off by its own
+container is a different failure, and nothing was looking for it.
+
+**Change.** `flex: 0 0 auto; min-height: 52px` on the row, `flex: 0 0 auto` on
+the tabs, and the sheet's content pane made the flexible one. The sheet's foot
+also gained `env(safe-area-inset-bottom)` — the last row of a long list was
+ending flush with the bottom of the glass.
+
+## 17. A drawn harbour beside a renderer that makes real ones  (P2)
+
+**Symptom.** "The town scenes look terrible."
+
+**Root cause.** Fair. I had built the settlement scene out of CSS bands — a
+sky, a hill, a row of identical dark rectangles for rooftops, three triangles
+for sails. Beside this game's actual low-poly harbours it read as placeholder
+art, and it was placeholder art.
+
+**Change.** The scene is now a *photograph of the real place*: a temporary
+camera is pointed at the harbour from the water, the real scene is rendered
+once, and the image is kept for the session. Same buildings, same water, same
+light the player just sailed past. Aimed between the port marker and its shore
+town — pointed at the marker alone the camera stares at open water with the
+buildings shoved into a corner, because the harbour is the water but a picture
+of a town should be about the town.
+
+The read happens in the same synchronous block as the draw, before the frame
+is presented, so it needs no `preserveDrawingBuffer` — which would have cost
+every frame of the game a buffer copy for the sake of two pictures. If it
+throws, the port gets a plain gradient and the game does not notice.
+
 ## 15. The documentation edit that failed inside its own chain  (process, again)
 
 Finding 8 recorded that a chain which writes prose and then commits will

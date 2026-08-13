@@ -113,19 +113,22 @@ function townTab(n, port) {
   const idn = PORT_IDENTITY[port.id];
   const S = G.social;
 
-  /* the place: a strip of harbour drawn from the port's own colours, so
-     Ilo Vantu and Escarra do not merely differ in text */
+  /* The place, photographed rather than drawn.
+     A real render of this harbour from the water — the same buildings and the
+     same light the player just sailed past — with the town's name and its
+     power's colour over it. Cached per port for the life of the session: the
+     view does not change while you are standing in it, and re-rendering the
+     world every time a tab redraws would be absurd. */
   const scene = el('div', 'townscene');
   scene.style.setProperty('--banner', idn.banner);
-  scene.innerHTML = `
-    <div class="ts-sky"></div>
-    <div class="ts-hill"></div>
-    <div class="ts-town">${townSilhouette(port.id)}</div>
-    <div class="ts-ships">${'<span class="ts-sail"></span>'.repeat(port.size === 'major' ? 5 : 3)}</div>
-    <div class="ts-water"></div>
+  const shot = portPortrait(port);
+  if (shot) scene.style.backgroundImage = `url(${shot})`;
+  else scene.classList.add('noshot');
+  scene.innerHTML = `<div class="ts-grade"></div>
+    <div class="ts-name">${port.name}<span>${idn.role}</span></div>
     <div class="ts-flag"></div>`;
   n.appendChild(scene);
-  n.appendChild(el('div', 'town-role', `${idn.role.toUpperCase()} · ${idn.tone}`));
+  n.appendChild(el('div', 'town-role', `${idn.tone}`));
   n.appendChild(el('div', 'note', idn.line));
 
   // what the town is worried about — the reason there is work here at all
@@ -160,13 +163,30 @@ function townTab(n, port) {
   void S;
 }
 
-/** A row of rooftops that differs by town, so the two read apart at a glance. */
-function townSilhouette(id) {
-  const shapes = id === 'escarra'
-    ? [18, 46, 22, 64, 20, 30, 52, 24]      // a mole, a signal mast, low stone
-    : [26, 34, 44, 30, 52, 28, 38, 33, 46]; // a crowded free port
-  return shapes.map((h, i) =>
-    `<span class="ts-b" style="height:${h}px;left:${i * 11 + 2}%"></span>`).join('');
+/* One render per port per session. */
+const PORTRAITS = {};
+/** The angle each harbour actually looks best from — chosen by eye, not by
+    formula: a town wants to be seen from the water it is entered from. */
+const PORTRAIT_VIEW = {
+  ilovantu: { dist: 165, high: 52 },
+  escarra: { dist: 130, high: 44 },
+};
+function portPortrait(port) {
+  if (PORTRAITS[port.id] !== undefined) return PORTRAITS[port.id];
+  const v = PORTRAIT_VIEW[port.id] || {};
+  if (typeof window === 'undefined' || !window.__portrait) { PORTRAITS[port.id] = null; return null; }
+  /* Aim between the harbour and the town it belongs to, and stand off on the
+     seaward side. Pointed at the port marker alone the camera looks at open
+     water with the buildings shoved into one corner — the harbour is the
+     water, but the *town* is what a picture of a town should be about. */
+  const shore = (window.__shore || {})[port.id];
+  const tx = shore ? port.x + (shore.x - port.x) * 0.45 : port.x;
+  const tz = shore ? port.z + (shore.z - port.z) * 0.45 : port.z;
+  const ang = shore ? Math.atan2(port.x - shore.x, port.z - shore.z) : (v.ang || 0);
+  PORTRAITS[port.id] = window.__portrait(tx, tz, {
+    w: 720, h: 260, dist: 250, high: 78, ...v, ang: v.ang ?? ang,
+  });
+  return PORTRAITS[port.id];
 }
 
 /** One person, as they would appear to somebody standing on the quay. */

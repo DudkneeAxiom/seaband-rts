@@ -238,6 +238,42 @@ function boot() {
     isBusy: () => isModalOpen() || isSheetOpen() || isOriginOpen() || isEncounterOpen() || game.gameOver,
     isSheetOpen, closeSheet, openMenu,
   });
+  /**
+   * A photograph of a real place.
+   *
+   * The town screen used to draw its harbour in CSS — flat boxes that looked
+   * like placeholder art beside a renderer that makes actual harbours. This
+   * borrows the renderer: point a temporary camera at the port from the
+   * water, render the real scene once, and hand back an image. Same water,
+   * same light, same buildings the player just sailed past.
+   *
+   * The read happens in the same synchronous block as the draw, before the
+   * frame is presented, so it works without preserveDrawingBuffer — which
+   * would otherwise cost every frame of the game a buffer copy.
+   */
+  window.__portrait = (x, z, opts = {}) => {
+    try {
+      const w = opts.w || 640, h = opts.h || 220;
+      const cam = new THREE.PerspectiveCamera(46, w / h, 1, 6000);
+      const ang = opts.ang ?? 0;
+      const dist = opts.dist ?? 230;
+      cam.position.set(x + Math.sin(ang) * dist, opts.high ?? 74, z + Math.cos(ang) * dist);
+      cam.lookAt(x, 6, z);
+      const before = renderer.getSize(new THREE.Vector2());
+      const dpr = renderer.getPixelRatio();
+      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+      renderer.setSize(w, h, false);
+      renderer.render(scene, cam);
+      const url = renderer.domElement.toDataURL('image/jpeg', 0.82);
+      renderer.setPixelRatio(dpr);
+      renderer.setSize(before.x, before.y, false);
+      return url;
+    } catch (e) {
+      // a port with no picture is a port with no picture, never a broken game
+      console.warn('port portrait failed', e);
+      return null;
+    }
+  };
   window.__terrain = { heightAt, depthAt };   // for the QA harnesses
   window.__shore = PORT_SHORE;
   window.__hud = hud;
