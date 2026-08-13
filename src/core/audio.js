@@ -1,13 +1,14 @@
 /* ===========================================================
    Procedural audio — no asset files.
    Layered ambience (swell, wind, gulls, hull creak), one-shot
-   effects, and a sparse generative score in D dorian.
+   effects, and the adaptive score that lives in music.js.
    =========================================================== */
+import { initMusic, musicUpdate, musicEvent, musicState } from './music.js';
 
 let ctx = null, master = null, ambBus = null, sfxBus = null, musBus = null;
 let started = false, muted = false;
 let waveLFO = null, windGain = null, waveGain = null;
-let gullTimer = 0, creakTimer = 0, musicTimer = 0, harbourGain = null;
+let gullTimer = 0, creakTimer = 0, harbourGain = null;
 let noiseBuf = null, echoIn = null, probe = null;
 
 /* A broadside is one call per gun, and a fleet action is several broadsides
@@ -149,6 +150,14 @@ export function initAudio() {
   started = true;
   ambBus.gain.setTargetAtTime(0.55, ctx.currentTime, 2.5);
   musBus.gain.setTargetAtTime(0.30, ctx.currentTime, 4);
+
+  /* The score gets the graph on loan — the context, its bus, the shared echo
+     line, and the same guards every param here goes through. Music can never
+     be the reason the game fails to load: if anything in there throws, the
+     mixer keeps running and the world stays playable. */
+  try {
+    initMusic({ ctx, musBus, echoIn, num, gainOf, noiseSrc: src });
+  } catch (e) { console.warn('music controller failed to start', e); }
 }
 
 export function resumeAudio() {
@@ -185,9 +194,17 @@ export function updateAudio(dt, st) {
   creakTimer -= step;
   if (creakTimer <= 0) { creakTimer = 3 + Math.random() * 7; if (speedN > 0.15) creak(); }
 
-  musicTimer -= step;
-  if (musicTimer <= 0) { musicTimer = musicStep(st); }
+  /* The score reads the same state bag, in its own module, behind the same
+     rule: a music bug may cost the music, never the frame. */
+  try { musicUpdate(step, st); } catch (e) { void e; }
 }
+
+/** Gameplay's only other door into the score: victory, defeat, discovery. */
+export function sfxMusicEvent(name) {
+  if (!started) return;
+  try { musicEvent(name); } catch (e) { void e; }
+}
+export { musicState };
 
 /**
  * What is actually coming out of the end of the chain.
@@ -404,49 +421,6 @@ function creak() {
   f.connect(g); g.connect(ambBus); o.start(); o.stop(t + 1.2);
 }
 
-/* ---------------- generative score ---------------- */
-const SCALE = [0, 2, 3, 5, 7, 9, 10];    // D dorian degrees
-const ROOT = 146.83;                      // D3
-let musIdx = 0;
-function midiToF(semi) { return ROOT * Math.pow(2, semi / 12); }
-
-function pad(semi, dur, vol) {
-  const t = ctx.currentTime;
-  for (const det of [-0.06, 0.06]) {
-    const o = ctx.createOscillator(); o.type = 'triangle';
-    o.frequency.value = midiToF(semi) * (1 + det * 0.02);
-    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700; f.Q.value = 0.4;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.35);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(f); f.connect(g); g.connect(musBus);
-    o.start(); o.stop(t + dur + 0.1);
-  }
-}
-function pluck(semi, vol) {
-  const t = ctx.currentTime;
-  const o = ctx.createOscillator(); o.type = 'triangle';
-  o.frequency.value = midiToF(semi);
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
-  o.connect(g); g.connect(musBus); g.connect(echoIn);
-  o.start(); o.stop(t + 2.0);
-  o.onended = () => { o.disconnect(); g.disconnect(); };
-}
-function musicStep(st) {
-  const tense = st.combat ? 1 : 0;
-  musIdx++;
-  if (musIdx % 4 === 1) {
-    const chords = tense ? [[0, 3, 7], [-2, 3, 5]] : [[0, 3, 7], [5, 9, 12], [-2, 2, 5], [3, 7, 10]];
-    const ch = chords[(musIdx / 4 | 0) % chords.length];
-    for (const s of ch) pad(s - 12, tense ? 5 : 9, tense ? 0.055 : 0.04);
-  }
-  if (Math.random() < (tense ? 0.75 : 0.42)) {
-    const deg = SCALE[(Math.random() * SCALE.length) | 0] + (Math.random() < 0.35 ? 12 : 0);
-    pluck(deg, tense ? 0.07 : 0.05);
-  }
-  return tense ? 1.15 + Math.random() * 0.9 : 2.2 + Math.random() * 2.6;
-}
+/* The generative score that used to live here — random D-dorian plucks with a
+   "tense" coin-flip — is superseded by the adaptive controller in music.js,
+   which plays an actual tune and knows where the player is. */

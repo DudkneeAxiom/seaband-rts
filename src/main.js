@@ -14,7 +14,7 @@ import { initEncounter, openEncounter, closeEncounter, isEncounterOpen, showBatt
 import { fleeChance, talkChance, buildEncounter, CONTACT_R } from './sim/encounter.js';
 import { bindKeys, applyHeld } from './core/keys.js';
 import {
-  initAudio, resumeAudio, updateAudio, audioStats, audioSolo,
+  initAudio, resumeAudio, updateAudio, audioStats, audioSolo, musicState, sfxMusicEvent,
   sfxCannon, sfxWood, sfxSplash, sfxClash, sfxClick, sfxBell, sfxHorn, sfxCoin,
 } from './core/audio.js';
 import { clamp } from './core/util.js';
@@ -212,6 +212,8 @@ function boot() {
   window.__audio = {
     stats: audioStats,
     solo: audioSolo,
+    music: musicState,
+    musicEvent: sfxMusicEvent,
     update: updateAudio,
     cannon: sfxCannon, wood: sfxWood, splash: sfxSplash, clash: sfxClash,
     click: sfxClick, bell: sfxBell, horn: sfxHorn, coin: sfxCoin,

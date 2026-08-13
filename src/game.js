@@ -31,6 +31,7 @@ import { Battle } from './sim/battle.js';
 import { openPort, closeSheet, isSheetOpen } from './ui/sheet.js';
 import {
   sfxCannon, sfxWood, sfxSplash, sfxClash, sfxBell, sfxHorn, sfxCoin, sfxClick, updateAudio,
+  sfxMusicEvent,
 } from './core/audio.js';
 
 /** A stream of its own for one named thing — see the note on seeds in CLAUDE.md. */
@@ -703,12 +704,33 @@ export class Game {
 
     this.combatHeat = Math.max(0, this.combatHeat - dt);
     const shoreD = this.nearestShoreDist(p);
+    /* One state bag for ambience and score alike. The music controller is the
+       only thing that decides what plays; this is the only place the game
+       tells it what is true. */
+    let nearPortObj = null, nearPortD = 1e9;
+    for (const port of PORTS) {
+      const d = dist(p.x, p.z, port.x, port.z);
+      if (d < nearPortD) { nearPortD = d; nearPortObj = port; }
+    }
+    /* Danger, graded: a pursuer gaining is the knife at your back; one merely
+       out there, or powder smoke still in the air, is the low unease. */
+    const tension = this.mode === 'battle' ? 0
+      : this.pursuit ? (this.pursuit.gaining ? 2 : 1)
+        : (this.combatHeat > 0 ? 1 : 0);
     updateAudio(dt, {
       speedN: clamp01(p.speed / p.cls.speed),
       shallow: clamp01(1 - depthAt(p.x, p.z) / 40),
       nearShore: clamp01(1 - shoreD / 420),
-      nearPort: this.dockablePort ? 1 : clamp01(1 - this.nearestPortDist(p) / 420),
+      nearPort: this.dockablePort ? 1 : clamp01(1 - nearPortD / 420),
       combat: this.combatHeat > 0 ? 1 : 0,
+      mode: this.mode,
+      portId: this.inPort ? this.inPort.id : null,
+      portFaction: this.inPort ? this.inPort.faction : null,
+      nearPortId: nearPortD < 460 ? nearPortObj.id : null,
+      nearPortFaction: nearPortD < 460 ? nearPortObj.faction : null,
+      tension,
+      battlePhase: this.mode === 'battle' ? this.battleMusicPhase() : null,
+      boarding: this.boardings.some(b => b.a === p || b.d === p),
     });
 
     /* Never mid-action. save() writes this.ships, and during a battle that
@@ -1148,6 +1170,24 @@ export class Game {
     return this.battle;
   }
 
+  /** Which movement of the battle music this moment is. The score hears the
+      fight the way the player reads it: closing, trading iron, sinking, or
+      winning — and it hears the turn before the reckoning card says so. */
+  battleMusicPhase() {
+    const b = this.battle, p = this.player;
+    if (!b || !p) return 'b';
+    if (p.hullFrac < 0.38) return 'c';                      // your own ship failing outranks all
+    const foes = b.enemies.filter(s => s.alive && !s.captured);
+    if (!foes.length) return 'd';
+    const meanHull = foes.reduce((a, s) => a + s.hullFrac, 0) / foes.length;
+    const allRunning = foes.every(s => s.fleeing);
+    if (meanHull < 0.4 || allRunning) return 'd';           // theirs collapsing: advantage
+    let nearest = 1e9;
+    for (const s of foes) nearest = Math.min(nearest, dist(p.x, p.z, s.x, s.z));
+    if (nearest > GUN_RANGE * 0.95 && this.combatHeat < 16) return 'a';  // still closing
+    return 'b';
+  }
+
   endBattle(battle) {
     this.ctx.combatLive = false;
     this.mode = 'campaign';
@@ -1167,6 +1207,9 @@ export class Game {
     this.boardable = false;
     /** What the last action cost the other side, for the record and the tests. */
     this.battleLastSunk = battle.result.sunk;
+    /* A won fight resolves musically — a few seconds of the tune in the clear.
+       A fled or broken-off one just hands the mix back to the sea. */
+    if (battle.result.outcome === 'won') sfxMusicEvent('victory');
     if (this.onBattleEnd) this.onBattleEnd(battle.result);
     // a lost flagship is still a lost flagship
     if (battle.result.outcome === 'lost') this.checkGameOver();
@@ -1759,6 +1802,7 @@ export class Game {
   playerLost(reason) {
     if (this.gameOver) return;
     this.gameOver = true;
+    sfxMusicEvent('defeat');
     this.paused = true;
     modal({
       title: 'The Sea Keeps Her Books',
@@ -1785,6 +1829,11 @@ export class Game {
     p.dest = null; p.headingCmd = p.yaw; p.throttle = 0; p.speed = 0;
     this.inPort = port;
     this.paused = false;
+    // the first time she raises this particular harbour is worth two bars
+    if (!this.hintState['port_' + port.id]) {
+      this.hintState['port_' + port.id] = 1;
+      sfxMusicEvent('discovery');
+    }
     sfxHorn();
     this.promoteCrew();
     this.restockPrizes(port);
@@ -2102,6 +2151,7 @@ export class Game {
 
   discoverPOI(poi) {
     this.discovered.add(poi.id);
+    sfxMusicEvent('discovery');
     this.paused = true;
     let reward = 0, extra = '';
     if (poi.id === 'bellcove') {

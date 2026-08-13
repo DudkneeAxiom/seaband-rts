@@ -125,6 +125,98 @@ const settled = await G(async () => {
 ok(`the score does not pile up behind itself (quiet peak ${settled.peak})`, settled.peak < 0.75);
 ok(`and nothing has gone bad by the end (${settled.bad})`, settled.bad === 0);
 
+/* ---- the adaptive score knows where the player is ----
+   The real game loop feeds the controller every frame, so these checks stage
+   real conditions and wait for the music to believe them — the debounce is
+   part of what is being tested. Combat is staged with synthetic feeds, which
+   interleave with the real ones exactly the way a real battle's would. */
+const seen = [];
+const believe = async (want, secs) => {
+  const got = await waitFor(page, w => window.__audio.music().state === w, secs * 1000, want);
+  seen.push(await G(() => window.__audio.music().state));
+  return got;
+};
+await G(() => {
+  const g = window.__game, p = g.player;
+  p.x = -1600; p.z = 200; g.combatHeat = 0; g.pursuit = null;   // open water, nobody near
+  for (const s of g.ships) { if (!s.isPlayer) { s.hostileToPlayer = false; s.chaseHold = 900; } }
+  g.encounterCooling = 900;
+});
+const gotSea = await believe('sea', 16);
+await G(() => { window.__game.combatHeat = 40; });               // powder smoke: low unease
+const gotTension = await believe('tension_low', 12);
+const battle = await G(async () => {
+  const a = window.__audio;
+  window.__game.combatHeat = 0;
+  const until = Date.now() + 2500;
+  while (Date.now() < until) {
+    a.update(1 / 30, { mode: 'battle', battlePhase: 'b' });
+    await new Promise(r => setTimeout(r, 30));
+  }
+  const inBattle = a.music().state;
+  const until2 = Date.now() + 2500;
+  while (Date.now() < until2) {
+    a.update(1 / 30, { mode: 'battle', battlePhase: 'c', boarding: true });
+    await new Promise(r => setTimeout(r, 30));
+  }
+  const inBoarding = a.music().state;
+  a.musicEvent('victory');
+  return { inBattle, inBoarding, sting: a.music().stinger };
+});
+seen.push(battle.inBattle, battle.inBoarding);
+const backOut = await believe('sea', 18);
+ok(`the score rides the states with the player (${seen.join(' -> ')})`,
+  gotSea && gotTension && battle.inBattle === 'battle'
+  && battle.inBoarding === 'boarding' && backOut);
+ok(`and a won fight resolves as a stinger (${battle.sting})`, battle.sting === 'victory');
+
+/* ---- flapping cannot thrash it ----
+   A raider skirting detection range flips tension on and off every second.
+   Debounce means the mix holds course instead of restarting on each flap. */
+const flap = await G(async () => {
+  const a = window.__audio;
+  const changes = [];
+  let last = a.music().state;
+  for (let i = 0; i < 60; i++) {
+    a.update(1 / 30, { mode: 'campaign', tension: i % 2 ? 2 : 0 });
+    await new Promise(r => setTimeout(r, 50));
+    const s = a.music().state;
+    if (s !== last) { changes.push(s); last = s; }
+  }
+  return { changes: changes.length, peak: a.stats().peak, bad: a.stats().bad };
+});
+ok(`a flapping threat cannot thrash the mix (${flap.changes} changes in 3s of flapping)`, flap.changes <= 1);
+
+/* ---- a long battle neither clips nor stacks ---- */
+const war = await G(async () => {
+  const a = window.__audio;
+  let peak = 0, bad = 0;
+  for (let i = 0; i < 90; i++) {
+    a.update(1 / 30, { mode: 'battle', battlePhase: ['a', 'b', 'c', 'd'][i / 24 | 0] || 'd', combat: 1 });
+    if (i % 6 === 0) a.cannon(80);
+    await new Promise(r => setTimeout(r, 40));
+    const s = a.stats();
+    peak = Math.max(peak, s.peak); bad += s.bad;
+  }
+  return { peak: +peak.toFixed(3), bad };
+});
+ok(`a whole battle through all four movements stays clean (peak ${war.peak})`, war.peak < 1 && war.bad === 0);
+
+/* ---- and garbage cannot reach the controller either ---- */
+const musPoison = await G(async () => {
+  const a = window.__audio;
+  let threw = 0;
+  for (const v of [NaN, Infinity, null, 'x', {}, -1e9]) {
+    try { a.update(0.03, { mode: v, tension: v, battlePhase: v, portId: v, nearPort: v, boarding: v }); } catch (e) { threw++; }
+    try { a.musicEvent(v); } catch (e) { threw++; }
+  }
+  await new Promise(r => setTimeout(r, 500));
+  const s = a.stats();
+  return { threw, bad: s.bad };
+});
+ok(`the controller shrugs off garbage state (${musPoison.threw} exceptions, ${musPoison.bad} bad samples)`,
+  musPoison.threw === 0 && musPoison.bad === 0);
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;
