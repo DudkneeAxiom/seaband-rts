@@ -38,6 +38,25 @@ screens was taken and read.
 - *Officers.* Not audited this session.
 
 
+## 7. One unguarded read took a whole suite down  (harness)
+
+**Symptom.** The campaign suite died outright — `TypeError: Cannot read
+properties of null (reading 'allies')` — rather than reporting a failed check.
+
+**Root cause.** The fleet-action check polled for `mode === 'battle'` and then
+read `game.battle.allies` in a separate evaluate. A short action against one
+beaten raider can finish in between, leaving `battle` null. The throw killed
+the run, so the other twelve checks after it never happened and the report
+explained nothing.
+
+**Change.** The read is guarded and reports what it found instead
+(`no action to read: mode campaign`). A check that cannot reach its subject
+fails alone and says why.
+
+**Note.** This is the same class of fault as the two staging flakes in finding
+5, and worth stating as a rule: a harness that crashes is worse than a harness
+that fails, because it takes the evidence with it.
+
 ## 6. The objective chevron sat on the fleet bar  (P2)
 
 **Symptom.** Layout audit, viewport B: `#objptr` overlapping `#leftstack`

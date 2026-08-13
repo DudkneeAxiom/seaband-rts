@@ -441,12 +441,18 @@ await stage({ dist: 150 });
 await untilContact();
 await G(() => { const g = window.__game; if (g.mode === 'encounter') g.chooseEncounter('fight'); });
 await waitFor(page, () => window.__game.mode === 'battle', 6000);
+/* Guarded. A battle can finish between the poll above and this read — a
+   short action against one beaten raider does — and an unguarded b.allies
+   then threw, which took the whole suite down and explained nothing. A check
+   that cannot reach its subject should say so and fail alone. */
 const fb = await G(() => {
   const g = window.__game, b = g.battle;
+  if (!b) return { none: true, mode: g.mode, fleet: g.fleet.length, order: g.fleetOrder };
   return { allies: b.allies.length, ships: g.ships.length, fleet: g.fleet.length, order: g.fleetOrder };
 });
-ok(`a fleet of ${fleetN} goes into action together (${fb.allies} under your flag on the water)`,
-  fleetN < 2 || fb.allies === fleetN);
+ok(`a fleet of ${fleetN} goes into action together (${fb.none
+  ? `no action to read: mode ${fb.mode}` : `${fb.allies} under your flag on the water`})`,
+fleetN < 2 || (!fb.none && fb.allies === fleetN));
 ok('and the consorts are told to engage', fleetN < 2 || fb.order === 'engage');
 await shot(page, `cm-fleet-${vp}`);
 
