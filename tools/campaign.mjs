@@ -311,6 +311,10 @@ const stuck = broke ? null : await G(() => {
     nearestEnemy: Math.round(Math.min(...b.enemies.map(e => Math.hypot(e.x - p.x, e.z - p.z)))),
     armed: b.escapeArmed, speed: +p.speed.toFixed(1), sails: +p.sailFrac.toFixed(2),
     boarding: !!p.boarding, throttle: p.throttle,
+    /* Aground is the one that reads as "she simply will not move", and it is
+       invisible from every other number here. */
+    depth: +window.__terrain.heightAt(p.x, p.z).toFixed(1), draft: +p.draft.toFixed(1),
+    wind: +p.windFactor(g.windAng).toFixed(2),
   };
 });
 const outcome = await G(() => ({

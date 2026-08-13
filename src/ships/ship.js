@@ -338,7 +338,20 @@ export class Ship {
     const dep = depthAt(this.x, this.z);
     if (dep < this.draft) {
       const over = clamp01((this.draft - dep) / Math.max(1, this.draft));
-      targetSpeed *= (1 - over * 0.92);
+      /* Aground, but not condemned to it.
+
+         The drag alone took a hull to eight per cent of her speed, and a ship
+         that slow cannot always steer herself off — a battle fought over a
+         reef could pin the player on it with full sail set and no way out
+         while the shoal ate her hull. Nothing in this game is allowed to
+         block the player permanently.
+
+         So: sound ahead, and if her head is toward deeper water the drag
+         eases. Steering off works; steering on does not. The hazard is
+         entirely intact for a captain who ignores it. */
+      const ahead = depthAt(this.x + Math.sin(this.yaw) * 26, this.z + Math.cos(this.yaw) * 26);
+      if (ahead > dep + 0.5) targetSpeed *= (1 - over * 0.55);
+      else targetSpeed *= (1 - over * 0.92);
       this.groundedT += dt;
       if (this.groundedT > 0.55) {
         this.groundedT = 0;

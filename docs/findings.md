@@ -38,6 +38,38 @@ screens was taken and read.
 - *Officers.* Not audited this session.
 
 
+## 5. A battle over a reef could pin the player on it  (P0)
+
+**Symptom.** A full-suite run failed the battle-escape check with the player
+stuck 245 m from an arena she needed to be 640 m clear of, after 165 seconds
+of trying: `speed 0.2, throttle 1, sails 0.74`. Two further campaign checks
+failed behind it, and a trade docking check failed the same way.
+
+**Root cause.** Aground. Shoal drag multiplies target speed by `1 − over×0.92`,
+which is eight per cent — and a hull that slow cannot always steer herself off,
+so a fight that drifted over a reef could pin the player there with full sail
+set while the shoal ate her hull. `Nothing blocks the player permanently` is an
+explicit principle of this codebase and this broke it. It was invisible from
+every number the check printed, which is why the diagnostic now includes depth,
+draft and wind.
+
+**Change.** A grounded hull sounds 26 m ahead: with her head toward deeper
+water the drag eases to `1 − over×0.55`. Steering off works, steering on does
+not, and the hazard is entirely intact for a captain who ignores it.
+
+**Verification.** `systems` strands her on real shoal water — 0.4 m under a
+3.4 m draft — points her at the deepest cast within 90 m, and requires her to
+float again with her hull better than 40%. She claws off in 4 m with 84%.
+
+**Two harness faults found alongside it.** The far-war staging let its two
+ships sail themselves, and they drifted out of arc or ran for harbour — so the
+check sometimes observed no war at all and reported it honestly (0 shots) by
+failing rather than passing vacuously. They are now held broadside to
+broadside while their real guns and the real hit callback do the work. And the
+shot-type measurement inherited a starved crew from the section above it;
+hunger is gunnery skill, which is how round shot read 2 sinks out of 6 on one
+run and 6 out of 6 on the next from the same guns at the same range.
+
 ## 4. The chapter chip sat over every battle  (P2)
 
 **Symptom.** A sweep screenshot of a fleet action had "CHAPTER 1 OF 6 ·

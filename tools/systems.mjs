@@ -443,6 +443,11 @@ const shotWork = await G(async (plans) => {
       const p = g.player;
       p.x = -1500; p.z = 1400; p.hull = p.hullMax; p.sails = p.sailMax; p.shot = 300;
       p.crew.deckhand = 6; p.crew.sailor = 5; p.crew.gunner = 1; p.crew.marine = 1;
+      /* Fed and rested. The starvation section above leaves her company worn
+         down, and hunger is gunnery skill — which is how this measurement
+         once read 2 sinks out of 6 for round shot and 6 out of 6 the next
+         run, from the same guns at the same range. */
+      p.hungry = 0; p.provisions = 200; p.morale = 1;
       let foe = g.ships.find(s => s.faction === 'pirate' && s.alive && s.classId === 'cutter'
         && !g.fleet.includes(s));
       for (let k = 0; k < 40 && !foe; k++) {
@@ -521,13 +526,21 @@ const farWar = await G(async () => {
   g.combatHeat = 0;
   // two strangers, an ocean away, going at each other in earnest
   const a = g.spawnNPC('pirate'), b = g.spawnNPC('patrol');
-  a.x = 1500; a.z = 1500; b.x = a.x + 60; b.z = a.z;
+  if (!a || !b) return null;
   a.hostileToPlayer = false; b.hostileToPlayer = false;
-  a.target = b; b.target = a; a.chaseHold = 0; b.chaseHold = 0;
-  a.shot = 200; b.shot = 200;
+  a.chaseHold = 0; b.chaseHold = 0; a.fleeing = false; b.fleeing = false;
+  a.shot = 400; b.shot = 400; a.hull = a.hullMax; b.hull = b.hullMax;
   g.encounterCooling = 900;
+  /* Hold them broadside to broadside in deep water an ocean away and re-pin
+     them every frame. Left to sail themselves they drifted, lost the arc, ran
+     for a harbour or simply never came to grips — and the check then passed
+     for the wrong reason, having watched no war at all. Their guns and the
+     hit callback are entirely real; only their station is held. */
   let sawShots = 0;
   for (let i = 0; i < 60 * 30; i++) {
+    a.x = 1500; a.z = 1500; a.yaw = 0; a.speed = 0;
+    b.x = 1560; b.z = 1500; b.yaw = 0; b.speed = 0;
+    a.target = b; b.target = a; a.hull = a.hullMax; b.hull = b.hullMax;
     const before = g.projectiles.list.length + g.projectiles.pending.length;
     g.update(1 / 60);
     sawShots += Math.max(0, (g.projectiles.list.length + g.projectiles.pending.length) - before);
@@ -543,10 +556,53 @@ const farWar = await G(async () => {
   g.onHit({ owner: a }, b, res);
   return { sawShots, heatFar: +heatFar.toFixed(1), engagedFar, heatNear: +g.combatHeat.toFixed(1) };
 });
-ok(`a war over the horizon is not your action (${farWar.sawShots} shots fired out there, `
-  + `your heat ${farWar.heatFar}, engaged ${farWar.engagedFar})`,
-farWar.sawShots > 0 && farWar.heatFar === 0 && farWar.engagedFar === false);
-ok(`but the same guns alongside you are (heat ${farWar.heatNear})`, farWar.heatNear > 0);
+ok(`a war over the horizon is not your action (${farWar && farWar.sawShots} shots fired out there, `
+  + `your heat ${farWar && farWar.heatFar}, engaged ${farWar && farWar.engagedFar})`,
+!!farWar && farWar.sawShots > 0 && farWar.heatFar === 0 && farWar.engagedFar === false);
+ok(`but the same guns alongside you are (heat ${farWar && farWar.heatNear})`,
+  !!farWar && farWar.heatNear > 0);
+
+/* ---- and a hull on a shoal can always get herself off ----
+   'Nothing blocks the player permanently.' A battle fought over a reef put
+   the player aground with full sail set and no way out: the drag alone left
+   her at eight per cent of her speed while the shoal ate her hull, and the
+   escape check timed out with her pinned 245m from an arena she needed to be
+   640m clear of. Steering toward deep water now eases the drag. */
+const aground = await G(async () => {
+  const g = window.__game, p = g.player, H = window.__terrain.heightAt;
+  // find real shoal water: shallower than she draws, with deep water nearby
+  let spot = null;
+  for (let r = 200; r < 1800 && !spot; r += 40) {
+    for (let a = 0; a < 32; a++) {
+      const x = Math.cos(a / 32 * Math.PI * 2) * r, z = Math.sin(a / 32 * Math.PI * 2) * r;
+      const d = -H(x, z);
+      if (d > 0.3 && d < p.draft * 0.55) { spot = { x, z, d: +d.toFixed(1) }; break; }
+    }
+  }
+  if (!spot) return null;
+  p.x = spot.x; p.z = spot.z; p.hull = p.hullMax; p.sails = p.sailMax;
+  p.speed = 0; p.throttle = 1; g.paused = false; g.encounterCooling = 900;
+  // point her at the deepest water within a short cast, as a captain would
+  let best = -1e9, bestA = 0;
+  for (let a = 0; a < 24; a++) {
+    const ang = a / 24 * Math.PI * 2;
+    const d = -H(p.x + Math.sin(ang) * 90, p.z + Math.cos(ang) * 90);
+    if (d > best) { best = d; bestA = ang; }
+  }
+  p.yaw = bestA; p.setHeading(bestA);
+  const x0 = p.x, z0 = p.z;
+  for (let i = 0; i < 60 * 45; i++) { g.update(1 / 60); if (-H(p.x, p.z) > p.draft) break; }
+  return { start: spot, draft: +p.draft.toFixed(1),
+    moved: Math.round(Math.hypot(p.x - x0, p.z - z0)),
+    afloat: -H(p.x, p.z) > p.draft, hull: +p.hullFrac.toFixed(2) };
+});
+/* What matters is that she gets off and survives it — not how far she runs.
+   A hull that claws clear in three metres has done exactly what was asked. */
+ok(`a ship aground can steer herself off (${aground
+  ? `${aground.start.d}m of water under a ${aground.draft}m draft, `
+    + `moved ${aground.moved}m, afloat ${aground.afloat}, hull ${aground.hull}`
+  : 'no shoal found to strand her on'})`,
+!!aground && aground.afloat && aground.moved > 0 && aground.hull > 0.4);
 
 /* ---- the clock's fourth notch ---- */
 /* One fast button, cycling 2x/4x, with pause and 1x their own buttons. Driven
