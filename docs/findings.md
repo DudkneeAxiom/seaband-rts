@@ -38,6 +38,32 @@ screens was taken and read.
 - *Officers.* Not audited this session.
 
 
+## 9. Two measurements that drifted, and one that read a frame too early  (harness)
+
+**Round shot, 2/6 then 4/6 then 6/6 from identical staging.** The trial pins
+the hull class, both crews, the range and the hull condition — but not the
+player's battery. The foe shoots back, and a gun knocked out in trial two is
+still missing in trial six, so a six-trial run drifted downward as it went.
+The question is about ammunition; everything that is not the ammunition is now
+held still, including both batteries. Reads 6/6 and 4/6 across runs against a
+threshold of 3.
+
+**Hunger was the first half of the same fault** — the starvation section above
+it leaves the company worn down, and hunger is gunnery skill. Fixed earlier in
+the session; the battery was what remained.
+
+**"An action at 4× opens at 1×" read the strip a frame too early.** The rule
+worked — speed 1 on the battle layer — but the assertion also read the button,
+and `ff()` advances the simulation without rendering, so the strip still said
+4×. The check now waits for the paint. This is the third time this session
+that `ff()`-without-a-frame has produced a confidently wrong reading; it is
+written into CLAUDE.md but is worth restating: **`ff()` moves the world, not
+the HUD.**
+
+**And the failure message was ambiguous.** "clock read 4x" is equally what you
+get when the rule fails and when no action ever opened — different bugs. It
+now reports the layer and the lit button alongside the speed.
+
 ## 8. The sea drowned the score, and buying scrolled you away  (P2, both reported)
 
 **Symptom A.** "The ambient sounds seem to overpower the music tracks."

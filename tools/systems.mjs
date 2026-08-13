@@ -448,6 +448,12 @@ const shotWork = await G(async (plans) => {
          once read 2 sinks out of 6 for round shot and 6 out of 6 the next
          run, from the same guns at the same range. */
       p.hungry = 0; p.provisions = 200; p.morale = 1;
+      /* And a full battery. The foe shoots back, and a gun knocked out in
+         trial two is still missing in trial six — so the run drifted downward
+         as it went and the same measurement read 2, 4 or 6 sinks depending on
+         where her guns happened to be. This is a question about ammunition;
+         everything that is not the ammunition is held still. */
+      p.gunsPort = p.gunsMax; p.gunsStb = p.gunsMax;
       let foe = g.ships.find(s => s.faction === 'pirate' && s.alive && s.classId === 'cutter'
         && !g.fleet.includes(s));
       for (let k = 0; k < 40 && !foe; k++) {
@@ -458,6 +464,7 @@ const shotWork = await G(async (plans) => {
       foe.hull = foe.hullMax; foe.sails = foe.sailMax; foe.alive = true; foe.captured = false;
       foe.crew.deckhand = 6; foe.crew.sailor = 4; foe.crew.marine = 2;
       foe.crew.gunner = 0; foe.crew.rigger = 0; foe.crew.veteran = 0; foe.morale = 1;
+      foe.gunsPort = foe.gunsMax; foe.gunsStb = foe.gunsMax;
       foe.x = p.x + 70; foe.z = p.z; foe.speed = 0; p.yaw = 0; p.speed = 0;
       g.target = foe; g.ctx.combatLive = true; g.mode = 'battle';
       for (let v = 0; v < 12 && foe.alive; v++) {
@@ -659,9 +666,25 @@ ok(`she works 620m dead to windward in boards (${beat.left}m left, ${beat.tacks}
 await page.click('.spd.fast');
 await page.click('.spd.fast');
 await waitFor(page, () => window.__game.speed === 4, 4000);
-await intoBattle(page);
-const clockInAction = await G(() => window.__game.speed);
-ok(`an action at 4x opens at 1x (clock read ${clockInAction}x)`, clockInAction === 1);
+const gotAction = await intoBattle(page);
+/* Report the layer too. "clock read 4x" is also what you get when no action
+   ever opened, and those are different bugs — one is the rule failing, the
+   other is the staging failing. */
+/* The strip redraws on a real frame, and ff() runs the simulation without
+   one — so the button can still read 4x for a moment after the rule has
+   already taken the clock to 1x. Wait for the paint rather than asserting on
+   a frame that has not happened yet. */
+const strip = await waitFor(page, () => {
+  const on = document.querySelector('.spd.on');
+  return !!on && on.textContent.trim() === '1×';
+}, 6000);
+const clockInAction = await G(() => ({
+  speed: window.__game.speed, mode: window.__game.mode,
+  lit: (document.querySelector('.spd.on') || {}).textContent,
+}));
+ok(`an action at 4x opens at 1x (clock read ${clockInAction.speed}x on the `
+  + `${clockInAction.mode} layer, strip lit "${clockInAction.lit}")`,
+clockInAction.mode === 'battle' && clockInAction.speed === 1 && !!gotAction && strip);
 await leaveBattle(page);
 
 console.log(log.join('\n'));
