@@ -57,6 +57,15 @@ fails alone and says why.
 5, and worth stating as a rule: a harness that crashes is worse than a harness
 that fails, because it takes the evidence with it.
 
+**And it had siblings.** CI then died on the same shape one section further
+down — `g.battle.finish('fled')` in a teardown, on an action that had already
+finished by itself. Fixing the one the local run happened to hit was treating
+the instance, not the class. Every `g.battle.*` in the suite is now guarded,
+including the loop that presses the attack: mode saying `battle` with no
+battle object means there is nothing left to press, so it stops rather than
+spinning. Local runs are green either way — this only ever shows up when the
+timing is different, which is exactly what CI is for.
+
 ## 6. The objective chevron sat on the fleet bar  (P2)
 
 **Symptom.** Layout audit, viewport B: `#objptr` overlapping `#leftstack`

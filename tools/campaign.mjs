@@ -200,7 +200,7 @@ for (let attempt = 0; attempt < 5 && !escaped; attempt++) {
   });
   if (r && r.escaped) escaped = true;
   if (await G(() => window.__game.mode) === 'battle') {
-    await G(() => { const g = window.__game; g.battle.finish('fled'); });
+    await G(() => { const g = window.__game; if (g.battle) g.battle.finish('fled'); });
     await sleep(200);
     await G(() => { const g = window.__game; g.paused = false; });
   }
@@ -361,6 +361,8 @@ for (let i = 0; i < 200 && !ended; i++) {
   ended = await G(() => {
     const g = window.__game;
     if (g.mode !== 'battle') return true;
+    // mode says battle but there is no battle: nothing left to press, stop
+    if (!g.battle) return true;
     const t = g.battle.enemies[0];
     if (t) {
       /* Beaten and running: let her go. Chasing a routed ship keeps her inside
@@ -505,7 +507,9 @@ ok(`a battle cannot overwrite the save with a benched world (${saveGuard.shipsIn
 /* ---------------------------------------------------------------
    12 · out of the battle, and a save/load round trip still works
    --------------------------------------------------------------- */
-await G(() => { const g = window.__game; g.battle.finish('fled'); });
+/* Guarded like the rest: a fleet action can end on its own between the
+   check above and this teardown, and a throw here takes the suite down. */
+await G(() => { const g = window.__game; if (g.battle) g.battle.finish('fled'); });
 await sleep(400);
 await G(() => { const g = window.__game; g.paused = false; g.save(); });
 const pre = await G(() => {
