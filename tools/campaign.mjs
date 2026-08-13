@@ -582,6 +582,123 @@ brought && !!how && !how.hunting && !how.flagged);
 await G(() => { const g = window.__game; if (g.mode === 'encounter') g.closeEncounter(); g.paused = false; });
 
 
+/* ---------------------------------------------------------------
+   14 · a fleet fights beside you, not in front of you
+   --------------------------------------------------------------- */
+/* Get to a real battle with a consort in company: convert an NPC the way the
+   consort-gunnery check does, mark a raider, sail to contact, clear for action. */
+await G(() => {
+  const g = window.__game, p = g.player;
+  if (g.mode === 'encounter') g.closeEncounter();
+  if (g.mode === 'battle') g.battle.finish('fled');
+  g.paused = false; g.clearTarget();
+  /* The surveyed corridor, so the battle is fought over water every pose in
+     this section can trust. The foe starts already aboard us — contact is a
+     range, and a chase would drag the arena wherever her flight ended. */
+  p.x = -1450; p.z = 200; p.hull = p.hullMax; p.speed = 0; p.dest = null; p.shot = 200;
+  let con = g.ships.find(s => !s.isPlayer && s.alive && !g.fleet.includes(s) && s.faction !== 'pirate');
+  for (let i = 0; i < 20 && !con; i++) con = g.spawnNPC('merchant');
+  con.faction = 'player'; con.role = 'consort'; con.isPlayer = false;
+  con.hostileToPlayer = false; con.fleeing = false; con.chaseHold = 0;
+  con.formSlot = 1; con.shot = 90; con.hull = con.hullMax;
+  con.x = p.x - 40; con.z = p.z - 30; con.name = 'CONSORT-14';
+  if (!g.fleet.includes(con)) g.fleet.push(con);
+  g.setFleetOrder('engage', true);
+  let foe = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+  for (let i = 0; i < 20 && !foe; i++) foe = g.spawnNPC('pirate');
+  foe.x = p.x + 60; foe.z = p.z; foe.hull = foe.hullMax; foe.speed = 0;
+  foe.hostileToPlayer = true; foe.target = p; foe.chaseHold = 0; foe.fleeing = false; foe.name = 'FOE-14';
+  /* A full complement, or the consort simply grapples her and the fight is
+     over before there is any sailing to watch. Boarding has its own checks —
+     this one is about where she puts her hull. */
+  foe.crew.sailor += 40; foe.crew.marine += 10;
+  g.encounterCooling = 0;
+});
+const inAction = await untilContact(20);
+await G(() => { const g = window.__game; if (g.mode === 'encounter') g.chooseEncounter('fight'); });
+ok('the fleet action for section 14 opened at all',
+  inAction && (await G(() => window.__game.mode === 'battle')));
+
+/* Your ball passes your own hull. Pose the consort square between muzzle and
+   mark, fire a real broadside through her, and ask both hulls afterwards. */
+const crossfire = await G(() => {
+  const g = window.__game, p = g.player;
+  const con = g.ships.find(s => s.name === 'CONSORT-14');
+  const foe = g.ships.find(s => s.name === 'FOE-14');
+  if (!con || !foe || g.mode !== 'battle') return null;
+  g.target = foe;                                   // assignment, not selectTarget: that one toggles
+  p.yaw = 0; p.speed = 0; p.reload.stb = 0; p.reload.port = 0; p.ammo = 'round';
+  foe.x = p.x + 96; foe.z = p.z; foe.speed = 0;
+  /* Only OUR guns speak during the measurement. The enemy is entitled to hit
+     the consort — that is not team damage — so her answering broadside would
+     muddy exactly the number this check exists to read. */
+  foe.reload.stb = 99; foe.reload.port = 99;
+  con.x = p.x + 48; con.z = p.z; con.speed = 0; con.yaw = 0;   // dead on the gun line
+  const conHull = con.hull;
+  g.update(0.03);                                   // fireSide settles on stb
+  if (!g.fireSide) return { fired: 0 };
+  g.playerFire();
+  /* balls fly ~150 u/s: a second of small steps settles every one of them.
+     The consort is frozen on the line the whole way — anything that can hit
+     her, will. */
+  for (let i = 0; i < 40; i++) { con.x = p.x + 48; con.z = p.z; con.speed = 0; g.update(0.03); }
+  return { fired: 1, conLost: +(conHull - con.hull).toFixed(2), foeHull: +foe.hullFrac.toFixed(2) };
+});
+ok(`your broadside passes your own consort on its way to the enemy `
+  + `(she lost ${crossfire ? crossfire.conLost : '?'} hull standing on the gun line)`,
+!!crossfire && crossfire.fired === 1 && crossfire.conLost === 0);
+
+/* And she works round to the disengaged side rather than orbiting through
+   your line of fire. Watch the live battle and take the widest separation
+   she manages: flag on one beam, consort working toward the other. */
+const farSide = await G(() => {
+  const g = window.__game, p = g.player;
+  const con = g.ships.find(s => s.name === 'CONSORT-14');
+  const foe = g.ships.find(s => s.name === 'FOE-14');
+  if (!con || !foe || g.mode !== 'battle') {
+    return { why: { con: !!con, foe: !!foe, foeAlive: foe && foe.alive, mode: g.mode } };
+  }
+  /* The tap on ENGAGE, as the fleet bar would send it: clearing for action
+     put the standing order back to FOLLOW, which is its own bug-shaped fact —
+     the commands the player reaches for mid-fight are exactly these. */
+  g.setFleetOrder('engage', true);
+  const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
+  /* The thing measured is where she SAILS, so the mark has to live long
+     enough to be sailed around — the crossfire above already put a broadside
+     into her. Propping her hull is a pose for the camera, not a rule change:
+     nothing in the steering under test reads hull. */
+  foe.hull = foe.hullMax;
+  let widest = 0;
+  for (let s = 0; s < 45 * 30 && foe.alive && con.alive; s++) {
+    if (foe.hull < foe.hullMax * 0.25) foe.hull = foe.hullMax * 0.25;
+    g.update(1 / 30);
+    if (s % 15 === 0 && foe.alive) {
+      const toCon = Math.atan2(con.x - foe.x, con.z - foe.z);
+      const toFlag = Math.atan2(p.x - foe.x, p.z - foe.z);
+      widest = Math.max(widest, Math.abs(angDiff(toCon, toFlag)));
+    }
+  }
+  return { widest: +widest.toFixed(2), foeAlive: foe.alive, conAlive: con.alive };
+});
+/* The flank steer pushes until she is 1.1 rad clear of the flagship's bearing;
+   past that the ordinary duel takes over. So "she got well beyond 1.3" is the
+   mechanism having worked, and how much further she swings belongs to the
+   enemy's own sailing, which no assertion should be hostage to. */
+ok(`and she takes the enemy's far side (${farSide && farSide.why
+  ? 'no battle to watch: ' + JSON.stringify(farSide.why)
+  : 'widest separation ' + (farSide ? farSide.widest : '?') + ' rad'})`,
+!!farSide && farSide.widest > 1.3);
+
+await G(() => {
+  const g = window.__game;
+  if (g.mode === 'battle') g.battle.finish('fled');
+  if (g.mode === 'encounter') g.closeEncounter();
+  const con = g.ships.find(s => s.name === 'CONSORT-14');
+  if (con) { const i = g.fleet.indexOf(con); if (i >= 0) g.fleet.splice(i, 1); con.faction = 'trader'; con.role = 'merchant'; }
+  g.setFleetOrder('follow', true);
+  g.paused = false;
+});
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

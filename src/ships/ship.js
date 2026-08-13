@@ -214,18 +214,22 @@ export class Ship {
 
      A real ship of this rig is quickest on a broad reach (TWA ~120°), a
      little slower dead before the wind where the sails blanket each other,
-     good on a beam reach, and useless inside about 45° of the wind's eye.
+     good on a beam reach, and pinched inside about 47° of the wind's eye.
      That shape puts the punishment where it belongs — in a narrow no-go cone
      you can tack out of — instead of spreading it over half the rose.
 
-     The mean over all headings is 0.689 against the old curve's 0.690, so
-     nothing else in the game got quicker or slower by this change alone. */
+     Tuned once after playtest: the first cut of this curve had a 0.15 floor,
+     and any fight that drifted upwind of the player turned into a crawl
+     nobody enjoyed. The floor is now 0.28 — beating is still the wrong way
+     to travel, but no longer a punishment for being in the wrong fight. The
+     mean over all headings is 0.688 against the old cosine's 0.690, so the
+     fleet as a whole neither quickened nor slowed. */
   windFactor(windAng, yaw = this.yaw) {
     // angle off the wind's eye: 0 = head to wind, π = dead run
     const twa = Math.PI - Math.abs(angDiff(windAng, yaw));
     const run = 0.5 - 0.5 * Math.cos(twa);          // 0 in irons .. 1 running
     const reach = Math.pow(Math.sin(twa), 1.2);     // peaks on the beam
-    return 0.15 + 0.59 * Math.pow(run, 0.75) + 0.35 * reach;
+    return 0.28 + 0.44 * Math.pow(run, 0.8) + 0.28 * reach;
   }
 
   /* Beating to windward.
@@ -307,11 +311,21 @@ export class Ship {
           if (this.isPlayer) this.throttle = 0.12;
         }
       }
-      else want = this.beatTo(Math.atan2(dx, dz), d, world.windAng);
+      else {
+        /* Inside a battle the tap is a tactical order, the distances are a few
+           ship-lengths, and a helm that answers "somewhere else first" reads
+           as a helm that ignored you — so the beat is a campaign manoeuvre
+           only. In the action she sails the line you gave her, pinched or
+           not, and the 0.28 floor keeps even that line honest. */
+        want = world.combatLive ? Math.atan2(dx, dz) : this.beatTo(Math.atan2(dx, dz), d, world.windAng);
+      }
     } else if (this.headingCmd != null) want = this.headingCmd;
 
     const diff = angDiff(this.yaw, want);
-    const maxTurn = this.turnSpeed * dt * (0.35 + 0.65 * clamp01(this.speed / Math.max(2, this.cls.speed * 0.5)));
+    /* 0.55 at a standstill: she answers the helm from bare steerage way. The
+       old 0.35 floor made every slow ship feel like she was ignoring the
+       wheel, and slow is what a battle mostly is. */
+    const maxTurn = this.turnSpeed * dt * (0.55 + 0.45 * clamp01(this.speed / Math.max(2, this.cls.speed * 0.5)));
     const turn = clamp(diff, -maxTurn, maxTurn);
     this.yaw += turn;
     this.turnRateSmoothed = damp(this.turnRateSmoothed || 0, turn / Math.max(dt, 0.0001), 6, dt);

@@ -117,6 +117,73 @@ for (const id of ['ilovantu', 'marasay', 'escarra']) {
   await shot(page, `shore-${id}`);
 }
 
+/* ---------- the fleet survives its captain's errand ashore ----------
+   The report that forced this: a player sailed into Greywake to trade and
+   every consort in company wrecked herself on the breakwater arms while the
+   flag was at the quay. Echelon slots sat on the moles, the sound-ahead
+   probe stepped clean over a thin wall, and a grounded hull had no idea how
+   to get off again. So: sail the whole errand — in through the mouth, dock,
+   trade-length pause, out again — and count the fleet afterwards. */
+const errand = await G(() => {
+  const g = window.__game, p = g.player;
+  const port = g.PORTS.find(x => x.id === 'greywake');
+  const t = window.__shore.greywake;
+  const ax = Math.atan2(port.x - t.x, port.z - t.z);      // seaward axis of the mouth
+  // the flag and two consorts, three hundred metres off the arm heads
+  p.x = t.x + Math.sin(ax) * 330; p.z = t.z + Math.cos(ax) * 330;
+  p.speed = 0; p.hull = p.hullMax; p.dest = null; p.yaw = ax + Math.PI;
+  p.throttle = 1; g.paused = false;      // the screenshot pass above struck her sails
+  const cons = [];
+  for (let k = 0; k < 2 && g.ships.length; k++) {
+    let con = g.ships.find(s => !s.isPlayer && s.alive && !g.fleet.includes(s)
+      && s.faction !== 'pirate' && !cons.includes(s));
+    if (!con) con = g.spawnNPC('merchant');
+    con.faction = 'player'; con.role = 'consort'; con.isPlayer = false;
+    con.hostileToPlayer = false; con.fleeing = false; con.chaseHold = 0;
+    con.formSlot = k + 1; con.hull = con.hullMax;
+    con.x = p.x + Math.cos(ax) * (40 + k * 30) - Math.sin(ax) * 50;
+    con.z = p.z - Math.sin(ax) * (40 + k * 30) - Math.cos(ax) * 50;
+    if (!g.fleet.includes(con)) g.fleet.push(con);
+    cons.push(con);
+  }
+  g.setFleetOrder('follow', true);
+  g.encounterCooling = 9999;                              // the errand, not an ambush
+  for (const s of g.ships) {
+    if (s.isPlayer || g.fleet.includes(s)) continue;
+    s.hostileToPlayer = false; s.target = null; s.chaseHold = 9999;
+  }
+  const berth = g.harbourBerth(port);
+  g.commandMove(berth.x, berth.z);
+  // in through the mouth: give her four minutes of sea time, stop when docked
+  let docked = false;
+  for (let i = 0; i < 60 * 240 && !docked; i++) {
+    g.update(1 / 60);
+    if (g.dockablePort && g.dockablePort.id === 'greywake') { g.enterPort(g.dockablePort); docked = true; }
+  }
+  // the trade itself: the consorts hold station on their own while she haggles
+  for (let i = 0; i < 60 * 30; i++) g.update(1 / 60);
+  g.leavePort();
+  // and out again, well past the arm heads
+  g.commandMove(t.x + Math.sin(ax) * 360, t.z + Math.cos(ax) * 360);
+  for (let i = 0; i < 60 * 180; i++) g.update(1 / 60);
+  const out = {
+    docked,
+    fleet: cons.map(c => ({ alive: c.alive, hull: +c.hullFrac.toFixed(2) })),
+  };
+  // stand the staging down so the sections after this inherit a clean sea
+  for (const c of cons) {
+    const i = g.fleet.indexOf(c);
+    if (i >= 0) g.fleet.splice(i, 1);
+    c.faction = 'trader'; c.role = 'merchant';
+  }
+  g.encounterCooling = 0;
+  return out;
+});
+ok(`the flag docked at Greywake through her own mouth (${errand.docked})`, errand.docked);
+ok(`and the fleet is afloat and whole after the errand `
+  + `(${errand.fleet.map(f => `${f.alive ? 'alive' : 'LOST'} ${Math.round(f.hull * 100)}%`).join(', ')})`,
+errand.fleet.length === 2 && errand.fleet.every(f => f.alive && f.hull > 0.8));
+
 /* ---------- credit for a fight somebody else finishes ---------- */
 const stolen = await G(() => {
   const g = window.__game, p = g.player;

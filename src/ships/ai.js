@@ -34,7 +34,17 @@ export function strength(s) {
 function avoidLand(ship, wantAng, dt) {
   const probe = 42 + ship.speed * 3.2;
   const need = ship.draft * 1.9 + 3;
-  const at = (a, d) => depthAt(ship.x + Math.sin(a) * d, ship.z + Math.cos(a) * d);
+  /* The shallowest water along the ray, not the water at its end. A single
+     sample at the probe's tip stepped clean over anything narrow — which is
+     how a whole fleet followed their captain onto Greywake's breakwater and
+     ground themselves to death against a wall none of them had sounded. */
+  const at = (a, d) => {
+    let m = Infinity;
+    for (const f of [0.35, 0.7, 1]) {
+      m = Math.min(m, depthAt(ship.x + Math.sin(a) * d * f, ship.z + Math.cos(a) * d * f));
+    }
+    return m;
+  };
   const c = at(wantAng, probe);
   if (c > need) return wantAng;
   const l = at(wantAng - 0.75, probe), r = at(wantAng + 0.75, probe);
@@ -200,6 +210,24 @@ export function updateAI(ship, dt, world, ctx) {
   const b = ship.brain;
   b.t += dt;
   if (b.cooldown > 0) b.cooldown -= dt;
+  /* Aground. Nothing on her list matters more than water under the keel, and
+     the ordinary sound-ahead is no help from on top of the shoal — it probes
+     ahead of a bow that is pointing at more of it. Take the deepest of eight
+     short casts and claw that way until she floats, whatever her orders were.
+     Without this she grinds where she struck until the sea has her. */
+  if (depthAt(ship.x, ship.z) < ship.draft + 0.4) {
+    let bestA = ship.yaw + Math.PI, bestD = -Infinity;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      let m = Infinity;
+      for (const r of [10, 20, 32]) m = Math.min(m, depthAt(ship.x + Math.sin(a) * r, ship.z + Math.cos(a) * r));
+      if (m > bestD) { bestD = m; bestA = a; }
+    }
+    ship.headingCmd = bestA;
+    ship.dest = null;
+    ship.throttle = 0.7;
+    return;
+  }
   /* Beaten off, or shaken off. She keeps her distance for a while rather than
      wearing round and handing you the same encounter ten seconds later. */
   if (ship.chaseHold > 0) {
@@ -540,7 +568,18 @@ function consortAI(ship, dt, world, ctx) {
     if (!t) t = findEnemy(ship, world.ships, 900);
     if (t) {
       const d = dist(ship.x, ship.z, t.x, t.z);
-      if (d > GUN_RANGE * 1.05) steerTo(ship, t.x, t.z, dt);
+      /* Take the disengaged side. Left to the plain circling duel a consort
+         drifts wherever her reloads suggest — which in practice was a slow
+         orbit straight through the flagship's line of fire, eating her
+         captain's broadsides. If she is on the flagship's side of the target,
+         her first job is to get round to the other one; guns from both
+         quarters, and nobody crossing the player's shot to do it. */
+      const toMe = Math.atan2(ship.x - t.x, ship.z - t.z);
+      const toFlag = Math.atan2(flag.x - t.x, flag.z - t.z);
+      if (flag.alive && d < GUN_RANGE * 1.5 && Math.abs(angDiff(toMe, toFlag)) < 1.1) {
+        const far = toFlag + Math.PI;
+        steerTo(ship, t.x + Math.sin(far) * 115, t.z + Math.cos(far) * 115, dt);
+      } else if (d > GUN_RANGE * 1.05) steerTo(ship, t.x, t.z, dt);
       else combatSteer(ship, t, dt, 110);
       tryFire(ship, t, ctx, 62);
         /* Grapples are the action too. A consort that cannot fire out here must
@@ -551,11 +590,28 @@ function consortAI(ship, dt, world, ctx) {
       return;
     }
   }
+  /* The flag is at the quay. The harbour proved deep enough for one hull on
+     one line — not for a squadron holding echelon inside the moles, which is
+     how a fleet once wrecked itself on Greywake's breakwater while its
+     captain haggled over iron. Heave to where the water is honest and wait. */
+  if (world.flagDocked) {
+    ship.throttle = 0;
+    ship.dest = null;
+    ship.headingCmd = ship.yaw;
+    return;
+  }
   // follow in echelon off the flagship's quarter
   const slot = ship.formSlot || 1;
   const back = 46 + slot * 26, side = (slot % 2 ? 1 : -1) * (34 + slot * 8);
-  const fx = flag.x - Math.sin(flag.yaw) * back + Math.cos(flag.yaw) * side;
-  const fz = flag.z - Math.cos(flag.yaw) * back - Math.sin(flag.yaw) * side;
+  let fx = flag.x - Math.sin(flag.yaw) * back + Math.cos(flag.yaw) * side;
+  let fz = flag.z - Math.cos(flag.yaw) * back - Math.sin(flag.yaw) * side;
+  /* An echelon slot is a courtesy, not a suicide pact: in a channel the slot
+     can sit on the mole while the flag's own track is the only proved water.
+     When the slot has less water than she needs, fall in dead astern instead. */
+  if (depthAt(fx, fz) < ship.draft * 1.9 + 3) {
+    fx = flag.x - Math.sin(flag.yaw) * back;
+    fz = flag.z - Math.cos(flag.yaw) * back;
+  }
   const d = dist(ship.x, ship.z, fx, fz);
   steerTo(ship, fx, fz, dt);
   // press on harder the further astern she is, so a slower hull can still keep station

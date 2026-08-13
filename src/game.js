@@ -591,6 +591,8 @@ export class Game {
     this.windAng += angDiff(this.windAng, this.windTargetAng) * Math.min(1, dt * 0.06);
     this.world.windAng = this.windAng;
     this.world.playerTarget = this.target;
+    this.world.combatLive = this.ctx.combatLive;
+    this.world.flagDocked = !!this.inPort;
     if (this._storyCool > 0) this._storyCool -= dt;   // the breath between chapter pages
 
     const p = this.player;

@@ -76,6 +76,12 @@ export class Projectiles {
   resolve(p, ctx) {
     for (const s of this.ships) {
       if (!s.alive || s === p.owner) continue;
+      /* Her own squadron does not stop her shot. The AI keeps friends out of
+         the line as best it can, but on a crowded gun deck "as best it can"
+         still meant a consort crossing your broadside and eating it — team
+         damage nobody ordered and nobody enjoyed. A ball passes a hull that
+         sails under the same colours as the gun that fired it. */
+      if (p.owner && s.faction === p.owner.faction) continue;
       const dx = p.x - s.x, dz = p.z - s.z;
       if (dx * dx + dz * dz > 3600) continue;
       const c = Math.cos(-s.yaw), sn = Math.sin(-s.yaw);
