@@ -467,7 +467,12 @@ const shotWork = await G(async (plans) => {
       foe.gunsPort = foe.gunsMax; foe.gunsStb = foe.gunsMax;
       foe.x = p.x + 70; foe.z = p.z; foe.speed = 0; p.yaw = 0; p.speed = 0;
       g.target = foe; g.ctx.combatLive = true; g.mode = 'battle';
-      for (let v = 0; v < 12 && foe.alive; v++) {
+      /* Eighteen volleys, not twelve. At twelve this sat exactly on the
+         threshold where round shot either just sinks her or just does not,
+         and the result swung between 1 and 6 out of 6 on gunnery spread
+         alone. The contrast between the shot types is what is being
+         measured, so the trial is given room to show it. */
+      for (let v = 0; v < 18 && foe.alive; v++) {
         p.ammo = plan[v % plan.length];
         p.reload.stb = 0; p.reload.port = 0;
         foe.x = p.x + 70; foe.z = p.z; foe.speed = 0;

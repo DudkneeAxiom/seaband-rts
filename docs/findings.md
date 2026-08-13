@@ -38,6 +38,46 @@ screens was taken and read.
 - *Officers.* Not audited this session.
 
 
+## 11. Easing the drag was not enough — the helm was still steering her aground  (P0)
+
+**Symptom.** The battle-escape failure from finding 5 came back, and this time
+the diagnostic I had added said why: `depth 1.7, draft 3.4`. She was hard
+aground, exactly as before.
+
+**Root cause.** Finding 5 eased the shoal drag when a hull's head was toward
+deeper water — necessary, and not sufficient. A grounded ship is still being
+*steered* by whatever course she was given, and the escape order pointed her
+along the arena's exit bearing, which ran further into the shallows. She
+dutifully held that course on 1.7m of water and ground there. The easing only
+helps a ship that happens to already be pointing at water.
+
+**Change.** While aground, the helm answers the ground before the orders: it
+takes the deepest of eight short casts and steers that way, and picks the
+orders up again the moment she floats. In `Ship.update`, so it covers every
+hull in the game at once — which let the NPC-specific claw-off added in
+finding 5 be deleted. Two copies of a rule is one rule and one bug.
+
+**Verification.** `campaign`: the escape that had been failing now reports
+"THEY BREAK OFF" from 62m instead of stuck-at-253m. `systems`: a hull
+deliberately stranded on 0.4m of water under a 3.4m draft claws off with 85%
+of her hull.
+
+## 12. A gunnery measurement balanced on a knife edge  (harness)
+
+**Symptom.** "Round shot is for sinking her" read 6/6, then 4/6, then 1/6 from
+identical staging, after two earlier fixes had already removed a starved crew
+and a drifting battery as causes.
+
+**Root cause.** Twelve volleys at that range put the trial exactly on the
+threshold where round shot either just sinks a cutter or just fails to, so the
+outcome rode entirely on gunnery spread. The remaining variance was real
+randomness the check had no business being sensitive to: what it exists to
+show is the *contrast* between shot types, not whether one particular hull
+sinks on volley eleven or thirteen.
+
+**Change.** Eighteen volleys, the same for every shot type, which moves the
+measurement off the edge without changing what it compares. Reads 6/6.
+
 ## 10. A prize nobody could ever commission, and no way to sail it  (P0, reported)
 
 **Symptom.** "I captured one of the main flagships which had 64 crew slots,

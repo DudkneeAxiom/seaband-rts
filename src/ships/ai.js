@@ -210,24 +210,11 @@ export function updateAI(ship, dt, world, ctx) {
   const b = ship.brain;
   b.t += dt;
   if (b.cooldown > 0) b.cooldown -= dt;
-  /* Aground. Nothing on her list matters more than water under the keel, and
-     the ordinary sound-ahead is no help from on top of the shoal — it probes
-     ahead of a bow that is pointing at more of it. Take the deepest of eight
-     short casts and claw that way until she floats, whatever her orders were.
-     Without this she grinds where she struck until the sea has her. */
-  if (depthAt(ship.x, ship.z) < ship.draft + 0.4) {
-    let bestA = ship.yaw + Math.PI, bestD = -Infinity;
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * TAU;
-      let m = Infinity;
-      for (const r of [10, 20, 32]) m = Math.min(m, depthAt(ship.x + Math.sin(a) * r, ship.z + Math.cos(a) * r));
-      if (m > bestD) { bestD = m; bestA = a; }
-    }
-    ship.headingCmd = bestA;
-    ship.dest = null;
-    ship.throttle = 0.7;
-    return;
-  }
+  /* Aground is handled in Ship.update, for every hull at once: while she is
+     on the ground her helm looks for water rather than following orders, and
+     takes them up again the moment she floats. There is no second copy of
+     that rule here, because two copies of a rule is one rule and one bug. */
+
   /* Beaten off, or shaken off. She keeps her distance for a while rather than
      wearing round and handing you the same encounter ten seconds later. */
   if (ship.chaseHold > 0) {

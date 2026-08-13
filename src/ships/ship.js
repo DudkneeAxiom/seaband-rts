@@ -321,6 +321,33 @@ export class Ship {
       }
     } else if (this.headingCmd != null) want = this.headingCmd;
 
+    /* Aground: the ground is answered before the orders are.
+     *
+     * Easing the drag was not enough on its own. A hull hard on a shoal is
+     * still being *steered* by whatever course she was given, and if that
+     * course points further into the shallows she grinds there until the sea
+     * has her — which is how a battle fought over a reef pinned the player
+     * 253m from an arena she needed to be 640m clear of, on 1.7m of water
+     * under a 3.4m draft, with the helm dutifully holding her on it.
+     *
+     * So while she is aground the helm looks for water instead: the deepest
+     * of eight short casts. Her orders are not forgotten and she takes them
+     * up again the moment she floats. No captain sails deeper aground on
+     * purpose, and nothing in this game may block the player permanently.
+     */
+    if (!this.lockTo && depthAt(this.x, this.z) < this.draft) {
+      let bestA = want, bestD = -Infinity;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * TAU;
+        let m = Infinity;
+        for (const r of [12, 24, 38]) {
+          m = Math.min(m, depthAt(this.x + Math.sin(a) * r, this.z + Math.cos(a) * r));
+        }
+        if (m > bestD) { bestD = m; bestA = a; }
+      }
+      want = bestA;
+    }
+
     const diff = angDiff(this.yaw, want);
     /* 0.55 at a standstill: she answers the helm from bare steerage way. The
        old 0.35 floor made every slow ship feel like she was ignoring the
