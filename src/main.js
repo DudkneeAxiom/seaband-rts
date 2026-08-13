@@ -15,6 +15,7 @@ import { fleeChance, talkChance, buildEncounter, CONTACT_R } from './sim/encount
 import { bindKeys, applyHeld } from './core/keys.js';
 import {
   initAudio, resumeAudio, updateAudio, audioStats, audioSolo, musicState, sfxMusicEvent,
+  getMix, setMixLevel, mixDefaults,
   sfxCannon, sfxWood, sfxSplash, sfxClash, sfxClick, sfxBell, sfxHorn, sfxCoin,
 } from './core/audio.js';
 import { clamp } from './core/util.js';
@@ -214,6 +215,7 @@ function boot() {
     solo: audioSolo,
     music: musicState,
     musicEvent: sfxMusicEvent,
+    getMix, setMix: setMixLevel, mixDefaults,
     update: updateAudio,
     cannon: sfxCannon, wood: sfxWood, splash: sfxSplash, clash: sfxClash,
     click: sfxClick, bell: sfxBell, horn: sfxHorn, coin: sfxCoin,

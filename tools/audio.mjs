@@ -164,7 +164,11 @@ const battle = await G(async () => {
   return { inBattle, inBoarding, sting: a.music().stinger };
 });
 seen.push(battle.inBattle, battle.inBoarding);
-const backOut = await believe('sea', 18);
+/* And back to open water. The powder smoke staged above bleeds off at a
+   second a second, so the calm is staged rather than waited for — otherwise
+   this measures combatHeat's decay rate, which is not what it is about. */
+await G(() => { const g = window.__game; g.combatHeat = 0; g.pursuit = null; });
+const backOut = await believe('sea', 20);
 ok(`the score rides the states with the player (${seen.join(' -> ')})`,
   gotSea && gotTension && battle.inBattle === 'battle'
   && battle.inBoarding === 'boarding' && backOut);
@@ -216,6 +220,34 @@ const musPoison = await G(async () => {
 });
 ok(`the controller shrugs off garbage state (${musPoison.threw} exceptions, ${musPoison.bad} bad samples)`,
   musPoison.threw === 0 && musPoison.bad === 0);
+
+/* ---- the faders the player owns ----
+   Ambience shipped at nearly twice the music, which is the complaint that
+   produced these. Two things must hold: the defaults put the score above the
+   sea, and moving a fader actually moves that bus and survives a reload. */
+const mixDefaults = await G(() => window.__audio.mixDefaults());
+ok(`the score is not shipped underneath the sea (music ${mixDefaults.music}, sea ${mixDefaults.amb})`,
+  mixDefaults.music > mixDefaults.amb);
+
+const faders = await G(async () => {
+  const a = window.__audio;
+  a.setMix('music', 0.9); a.setMix('amb', 0.05);
+  await new Promise(r => setTimeout(r, 400));
+  const set = a.getMix();
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem('salt-and-tally-mix')); } catch (e) { void e; }
+  // and garbage cannot poison a bus
+  for (const v of [NaN, Infinity, null, 'x', {}, -5, 99]) { a.setMix('music', v); a.setMix('nope', v); }
+  await new Promise(r => setTimeout(r, 300));
+  const after = a.getMix(), s = a.stats();
+  a.setMix('music', 0.52); a.setMix('amb', 0.40);
+  return { set, stored, after, bad: s.bad, peak: +s.peak.toFixed(3) };
+});
+ok(`a fader moves its bus and is written down (music ${faders.set.music}, stored ${faders.stored && faders.stored.music})`,
+  faders.set.music === 0.9 && faders.set.amb === 0.05
+  && !!faders.stored && faders.stored.music === 0.9);
+ok(`and no fader can be poisoned (music ended ${faders.after.music}, ${faders.bad} bad samples)`,
+  faders.after.music >= 0 && faders.after.music <= 1 && faders.bad === 0);
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');

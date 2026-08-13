@@ -6,7 +6,7 @@
 import { initMusic, musicUpdate, musicEvent, musicState } from './music.js';
 
 let ctx = null, master = null, ambBus = null, sfxBus = null, musBus = null;
-let started = false, muted = false;
+let started = false, muted = false, soloed = false;
 let waveLFO = null, windGain = null, waveGain = null;
 let gullTimer = 0, creakTimer = 0, quayTimer = 0, harbourGain = null;
 let noiseBuf = null, echoIn = null, probe = null;
@@ -15,9 +15,6 @@ let noiseBuf = null, echoIn = null, probe = null;
    at once. Past a couple of dozen simultaneous voices the mix is mud and the
    audio thread starts missing its deadline, which is what actually makes the
    harsh noise — so count them and drop the ones nobody would hear anyway. */
-/** Where the master sits when it is not muted, in one place so unmuting
-    cannot restore a level the mixer was never set to. */
-const MASTER = 0.75;
 const MAX_VOICES = 24;
 let voices = 0;
 function voice(seconds) {
@@ -25,6 +22,46 @@ function voice(seconds) {
   voices++;
   setTimeout(() => { voices--; }, Math.max(1, seconds * 1000));
   return true;
+}
+
+/* ---------------- the mixer the player owns ----------------
+
+   Ambience used to sit at 0.55 against music at 0.30 — the sea was very
+   nearly twice the score, which is why a tune written to be listened to
+   arrived as something happening behind the weather. The defaults now put
+   the score above the sea, and the player can move any of it.
+
+   Levels persist, because a mix you have to set again every session is not
+   really a setting. Anything unreadable falls back to the defaults rather
+   than muting the game. */
+const MIX_KEY = 'salt-and-tally-mix';
+const MIX_DEF = { master: 0.75, music: 0.52, amb: 0.40, sfx: 0.85 };
+const mix = { ...MIX_DEF };
+function loadMix() {
+  try {
+    const j = JSON.parse(localStorage.getItem(MIX_KEY) || 'null');
+    if (j) for (const k in MIX_DEF) {
+      if (typeof j[k] === 'number' && Number.isFinite(j[k])) mix[k] = Math.min(1, Math.max(0, j[k]));
+    }
+  } catch (e) { void e; }
+}
+function saveMix() {
+  try { localStorage.setItem(MIX_KEY, JSON.stringify(mix)); } catch (e) { void e; }
+}
+/** The four faders, for the settings screen. */
+export function getMix() { return { ...mix }; }
+export function mixDefaults() { return { ...MIX_DEF }; }
+/** Move one fader. Ramped, never stepped — a jump on a live bus clicks. */
+export function setMixLevel(k, v) {
+  if (!(k in mix)) return;
+  mix[k] = num(v, MIX_DEF[k], 0, 1);
+  saveMix();
+  if (!started) return;
+  const t = ctx.currentTime;
+  if (k === 'master') { if (!muted) master.gain.setTargetAtTime(mix.master, t, 0.05); }
+  else if (k === 'music' && !soloed) musBus.gain.setTargetAtTime(mix.music, t, 0.05);
+  else if (k === 'amb' && !soloed) ambBus.gain.setTargetAtTime(mix.amb, t, 0.05);
+  else if (k === 'sfx') sfxBus.gain.setTargetAtTime(mix.sfx, t, 0.05);
 }
 
 /* Every number that reaches an AudioParam goes through here first.
@@ -88,7 +125,8 @@ export function initAudio() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
   ctx = new AC();
-  master = ctx.createGain(); master.gain.value = MASTER;
+  loadMix();
+  master = ctx.createGain(); master.gain.value = mix.master;
   /* Everything is synthesised live and a broadside can stack a dozen voices in
      one frame, which clips the sum into a fizzing mess.
 
@@ -107,7 +145,7 @@ export function initAudio() {
   probe = ctx.createAnalyser(); probe.fftSize = 2048;
   ceiling.connect(probe);
   ambBus = ctx.createGain(); ambBus.gain.value = 0.0; ambBus.connect(master);
-  sfxBus = ctx.createGain(); sfxBus.gain.value = 0.85; sfxBus.connect(master);
+  sfxBus = ctx.createGain(); sfxBus.gain.value = mix.sfx; sfxBus.connect(master);
   musBus = ctx.createGain(); musBus.gain.value = 0.0; musBus.connect(master);
 
   // --- swell ---
@@ -148,8 +186,8 @@ export function initAudio() {
   echoIn.connect(dl); dl.connect(tame); tame.connect(fb); fb.connect(dl); dl.connect(musBus);
 
   started = true;
-  ambBus.gain.setTargetAtTime(0.55, ctx.currentTime, 2.5);
-  musBus.gain.setTargetAtTime(0.30, ctx.currentTime, 4);
+  ambBus.gain.setTargetAtTime(mix.amb, ctx.currentTime, 2.5);
+  musBus.gain.setTargetAtTime(mix.music, ctx.currentTime, 4);
 
   /* The score gets the graph on loan — the context, its bus, the shared echo
      line, and the same guards every param here goes through. Music can never
@@ -165,7 +203,7 @@ export function resumeAudio() {
 }
 export function toggleMute() {
   muted = !muted;
-  if (master) master.gain.setTargetAtTime(muted ? 0 : MASTER, ctx.currentTime, 0.1);
+  if (master) master.gain.setTargetAtTime(muted ? 0 : mix.master, ctx.currentTime, 0.1);
   return muted;
 }
 
@@ -294,9 +332,11 @@ export { musicState };
  */
 export function audioSolo(on) {
   if (!started) return;
+  soloed = !!on;
   const t = ctx.currentTime;
-  ambBus.gain.setTargetAtTime(on ? 0.0001 : 0.55, t, 0.05);
-  musBus.gain.setTargetAtTime(on ? 0.0001 : 0.30, t, 0.05);
+  // restores whatever the player set, not the level this was written against
+  ambBus.gain.setTargetAtTime(on ? 0.0001 : mix.amb, t, 0.05);
+  musBus.gain.setTargetAtTime(on ? 0.0001 : mix.music, t, 0.05);
 }
 
 export function audioStats() {

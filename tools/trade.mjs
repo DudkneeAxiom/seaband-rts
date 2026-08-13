@@ -312,6 +312,64 @@ const uiOffer = await page.evaluate(() => {
 ok(`the harbourmaster's board shows the advance (${uiOffer.offers} offers)`, uiOffer.offers >= 3);
 console.log(`  board reads: ${uiOffer.text}\n`);
 
+/* ---- buying does not throw you back to the top of the page ----
+   Reported from a desktop playtest: buying goods or recruiting from the
+   bottom of a long list scrolled the sheet back to the top, so every
+   purchase after the first meant scrolling down again. refresh() rebuilds
+   the tab, and the rebuild reset scrollTop unconditionally — correct when
+   you switch tabs, wrong when you are still on the one you were reading.
+   Driven through the real market: scroll down, press a real BUY, look. */
+/* A short window, so the goods list genuinely overflows. On a tall desktop
+   window the market fits and there is nothing to scroll — the check said so
+   rather than passing on an empty measurement. The mechanism under test does
+   not care about the viewport; it only needs one where scrollTop can be
+   non-zero. */
+const vpWas = page.viewportSize();
+await page.setViewportSize({ width: 900, height: 420 });
+await sleep(300);
+await page.evaluate(() => {
+  const tabs = [...document.querySelectorAll('#sheet-tabs .tab')];
+  const m = tabs.find(t => /MARKET/i.test(t.textContent));
+  if (m) m.click();
+});
+await sleep(500);
+const scrollKeep = await page.evaluate(async () => {
+  const c = document.getElementById('sheet-content');
+  if (!c) return { note: 'no sheet' };
+  c.scrollTop = c.scrollHeight;                     // all the way to the bottom
+  await new Promise(r => setTimeout(r, 120));
+  const before = c.scrollTop;
+  if (before < 20) return { note: 'list too short to scroll', before };
+  // the last BUY on the page — the row a player would actually be looking at
+  const buys = [...c.querySelectorAll('button')].filter(b => /^BUY/i.test(b.textContent.trim()));
+  const btn = buys[buys.length - 1];
+  if (!btn) return { note: 'no buy button', before };
+  btn.click();
+  await new Promise(r => setTimeout(r, 400));
+  return { before: Math.round(before), after: Math.round(c.scrollTop), buys: buys.length };
+});
+ok(`buying from the foot of the market leaves you where you were `
+  + `(${scrollKeep.note || `${scrollKeep.before}px -> ${scrollKeep.after}px`})`,
+!scrollKeep.note && Math.abs(scrollKeep.after - scrollKeep.before) < 40);
+
+/* And switching tabs still starts at the top, which is the behaviour the
+   unconditional reset was there for in the first place. */
+const scrollReset = await page.evaluate(async () => {
+  const c = document.getElementById('sheet-content');
+  c.scrollTop = c.scrollHeight;
+  await new Promise(r => setTimeout(r, 120));
+  const tabs = [...document.querySelectorAll('#sheet-tabs .tab')];
+  const other = tabs.find(t => !t.classList.contains('on'));
+  if (!other) return { note: 'only one tab' };
+  other.click();
+  await new Promise(r => setTimeout(r, 400));
+  return { top: Math.round(c.scrollTop), tab: other.textContent.trim() };
+});
+ok(`but changing tab starts at the top (${scrollReset.note || `${scrollReset.tab} at ${scrollReset.top}px`})`,
+  !!scrollReset.note || scrollReset.top === 0);
+if (vpWas) await page.setViewportSize(vpWas);
+await sleep(200);
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

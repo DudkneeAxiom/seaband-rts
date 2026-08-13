@@ -9,7 +9,7 @@ import { AMBITIONS, CHAPTERS } from '../data/origins.js';
 import { KEYMAP } from '../core/keys.js';
 import { COLOURS_STANDING, COLOURS_INFAMY } from '../sim/encounter.js';
 import { fmtCoin, clamp } from '../core/util.js';
-import { sfxCoin, toggleMute, audio } from '../core/audio.js';
+import { sfxCoin, toggleMute, audio, getMix, setMixLevel, mixDefaults } from '../core/audio.js';
 
 let G = null;
 let current = null;     // {tabs, tab, port}
@@ -49,14 +49,21 @@ function renderTabs() {
     box.appendChild(b);
   }
 }
-function renderTab() {
+function renderTab(keepScroll = false) {
   const c = $('sheet-content');
+  /* Switching tabs starts at the top; redrawing the tab you are already on
+     must not move your eye. Every purchase, recruitment and refit calls
+     refresh(), which rebuilds the whole list — and that used to throw the
+     player back to the top of a long market or tavern, so buying the last
+     goods on the page meant scrolling all the way down again to buy more. */
+  const y = keepScroll ? c.scrollTop : 0;
   clear(c);
-  c.scrollTop = 0;
   const t = current.tabs.find(x => x.id === current.tab);
   t && t.render(c);
+  // clamp: the list can be shorter after a purchase than it was before
+  c.scrollTop = Math.max(0, Math.min(y, c.scrollHeight - c.clientHeight));
 }
-function refresh() { renderTab(); }
+function refresh() { renderTab(true); }
 
 /* =========================================================
    PORT
@@ -660,11 +667,47 @@ function helpTab(n) {
 
 function settingsTab(n) {
   const r = el('div', 'row');
-  r.appendChild(el('div', 'rmain', `<div class="rtitle">Sound</div><div class="rsub">Waves, guns and a little music.</div>`));
+  r.appendChild(el('div', 'rmain', `<div class="rtitle">Sound</div><div class="rsub">Waves, guns and the score.</div>`));
   const b = el('button', 'btn', audio.muted ? 'OFF' : 'ON');
   onTap(b, () => { const m = toggleMute(); b.textContent = m ? 'OFF' : 'ON'; });
   r.appendChild(b);
   n.appendChild(r);
+
+  /* Four faders, because one volume control cannot settle an argument between
+     the sea and the score — and that argument was real: ambience shipped at
+     nearly twice the music. Live: you hear the change as you drag, which is
+     the only way to set a level honestly. */
+  const mix = getMix();
+  const FADERS = [
+    ['music', 'Music', 'The score.'],
+    ['amb', 'Sea &amp; weather', 'Swell, wind, gulls, the harbour.'],
+    ['sfx', 'Guns &amp; ship', 'Broadsides, timber, steel.'],
+    ['master', 'Overall', 'Everything at once.'],
+  ];
+  for (const [key, label, sub] of FADERS) {
+    const row = el('div', 'row fader');
+    row.appendChild(el('div', 'rmain', `<div class="rtitle">${label}</div><div class="rsub">${sub}</div>`));
+    const val = el('span', 'fval', `${Math.round(mix[key] * 100)}`);
+    const sl = document.createElement('input');
+    sl.type = 'range'; sl.min = '0'; sl.max = '100'; sl.step = '1';
+    sl.value = String(Math.round(mix[key] * 100));
+    sl.className = 'slider';
+    sl.setAttribute('aria-label', label.replace('&amp;', 'and'));
+    const move = () => { val.textContent = sl.value; setMixLevel(key, +sl.value / 100); };
+    sl.addEventListener('input', move);
+    sl.addEventListener('change', move);
+    const wrap = el('div', 'fwrap');
+    wrap.appendChild(sl); wrap.appendChild(val);
+    row.appendChild(wrap);
+    n.appendChild(row);
+  }
+  const reset = el('button', 'btn wide dim', 'RESET THE MIX');
+  onTap(reset, () => {
+    const d = mixDefaults();
+    for (const k in d) setMixLevel(k, d[k]);
+    refresh();
+  });
+  n.appendChild(reset);
 
   const r2 = el('div', 'row');
   r2.appendChild(el('div', 'rmain', `<div class="rtitle">Graphics</div><div class="rsub">Lower this if the sea stutters.</div>`));

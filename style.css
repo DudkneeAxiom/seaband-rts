@@ -1219,3 +1219,43 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   .brd-act{min-height:40px; font-size:11px;}
   .brd-act small{display:none;}
 }
+
+/* ---- the sound faders ----
+   A slider is a touch target like any other: the thumb is 28px on a 44px
+   rail so a finger finds it, and the row lays out as label-over-slider on a
+   phone where a slider beside text would be too short to aim at. */
+.row.fader { align-items: center; }
+.fwrap { display: flex; align-items: center; gap: 10px; min-width: 172px; }
+.fval {
+  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--parch-dim); min-width: 26px; text-align: right;
+}
+input.slider {
+  -webkit-appearance: none; appearance: none;
+  width: 136px; height: 44px; background: transparent; cursor: pointer;
+  margin: 0; touch-action: pan-y;
+}
+input.slider::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--brass) 0 var(--f, 50%), rgba(255,255,255,.14) var(--f, 50%) 100%);
+  background-color: rgba(255,255,255,.14);
+}
+input.slider::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.14); }
+input.slider::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--brass); }
+input.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 26px; height: 26px; margin-top: -10px; border-radius: 50%;
+  background: var(--parch); border: 2px solid var(--brass);
+  box-shadow: 0 2px 6px rgba(0,0,0,.45);
+}
+input.slider::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--parch); border: 2px solid var(--brass);
+  box-shadow: 0 2px 6px rgba(0,0,0,.45);
+}
+input.slider:focus-visible { outline: 2px solid var(--brass); outline-offset: 4px; }
+@media (max-width: 560px) {
+  .row.fader { flex-wrap: wrap; }
+  .fwrap { min-width: 0; width: 100%; }
+  input.slider { flex: 1; width: auto; }
+}
