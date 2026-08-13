@@ -28,69 +28,50 @@ that have each been learned painfully here, both in `CLAUDE.md`:
 
 ---
 
-## THE IMMEDIATE JOB: what is actually failing
+## Where the suite actually stands
 
-**Read this whole section before acting — the picture changed twice while it
-was being written, which is itself the point.**
+**16/16 clean on `3808eeb`, in 1211s.** That run covers everything in this
+document — the social pass, the typed buildings, the rebuilt roofs, the yard on
+the pier line and the scenic port cards.
 
-A run on the *typed-buildings* commit came back **15/16**, and it cleared two
-of the three failures listed further down: `trade` passed, and `layout`
-reported 0 problems. Those two were transient — disturbed by an intermediate
-state of the town rebuild, not broken by it. The `systems` 4× one also passed.
+Two earlier runs during this work reported failures (13/16, then 15/16) and
+**every one of those cleared without being fixed**. They were transient:
+suites disturbed by an intermediate state of the town rebuild, or by staging
+that depended on ground the settlement generator had just moved. The specific
+ones, in case any returns:
 
-That run's single failure was new:
+- `systems` — "an action at 4x opens at 1x (clock read 4x **on the campaign
+  layer**)". The diagnostic is the useful half: *on the campaign layer* means
+  `intoBattle()` never produced a battle. A staging failure, not the 4× rule.
+  `intoBattle` (`tools/qa.mjs`) stages at `(120, 60)`; check that water first.
+- `trade` — "DOCK offers itself when you are hove to on a clear quay". Docking
+  needs `dist < port.dockR && speed < 7.5`. Print depth, speed and distance at
+  the moment it gives up.
+- `layout` — "NOTHING TO MEASURE: pursuit, target, fleet never came up". This
+  guard is **telling the truth and must not be relaxed**; it refuses to report
+  "0 problems" when it measured nothing. It needs a real frame before it
+  measures — the `ff()` trap below.
+- `campaign` — "a battle cannot overwrite the save with a benched world (13
+  sail in the instance)". A battle is supposed to *narrow*: everyone not
+  fighting is spliced out of `game.ships`. If it returns, print what those
+  thirteen hulls are before assuming the benching is broken.
 
-### `campaign` — "a battle cannot overwrite the save with a benched world (13 sail in the instance)"
+**The lesson is the pattern, not the list.** Four failures across three runs,
+none of them a defect, all of them worth the twenty minutes it took to find
+that out. Run `npm test` and work from what it says today.
 
-Thirteen ships in one battle instance is a lot. A battle is supposed to
-*narrow*: everyone not fighting is spliced out of `game.ships` and hidden. So
-either the encounter legitimately gathered thirteen hulls (possible — the
-social pass puts more named ships on the water, and bounty targets cluster), or
-the benching did not happen. Start by printing what those thirteen are.
+## Where to pick up
 
-The rule under test is a real one and worth protecting: **`save()` refuses
-while `mode === 'battle'`**, because the ship list is not the world at that
-moment. The battle saves itself when it ends.
+Nothing is broken, so the next work is chosen rather than forced. In rough
+order of value:
 
-A further run covering the roof/yard/framing head (`3808eeb`) was still in
-flight at handoff and was never seen. **Run `npm test` and work from what it
-says.** Do not assume any list below is the live set — including this one.
-
-## The three failures from the previous commit (mostly cleared)
-
-Kept because the reasoning may still be useful if any of them return.
-
-A full run on the town-layout commit came back **13/16**. These are almost
-certainly disturbed by rebuilding every settlement (see "the town pass" below),
-not by unrelated rot. Take them in this order.
-
-### 1. `systems` — "an action at 4x opens at 1x (clock read 4x **on the campaign layer**)"
-
-The diagnostic is the useful part: *on the campaign layer* means `intoBattle()`
-never produced a battle at all. **This is a staging failure, not the 4× rule.**
-The rule itself is fine and has passed many runs.
-
-`intoBattle` (in `tools/qa.mjs`) stages the player at `(120, 60)` and a raider
-110m off. Check first whether that water is still what it was — the settlement
-generator changed, and a raider that grounds or sheers off never arrives.
-
-### 2. `trade` — "DOCK offers itself when you are hove to on a clear quay"
-
-Docking needs `dist < port.dockR && speed < 7.5`. New buildings and new ground
-near the quay are the obvious suspect. Print the player's depth, speed and
-distance to the port at the moment the check gives up.
-
-### 3. `layout` — "NOTHING TO MEASURE: pursuit, target, fleet never came up"
-
-This guard is **telling the truth and must not be relaxed** — it refuses to
-report "0 problems" when it measured nothing. State was present (pursuit set,
-target *Tally Mark*, fleet 2) but the panels had not painted. This is the
-`ff()` trap below: it needs a real frame before it measures.
-
-A run covering the current head (`3808eeb`, including the roof and yard work)
-was in flight at handoff and its result was not seen. **Run `npm test` first
-and work from what it actually says**, rather than assuming these three are
-still the live set.
+1. **Notables for the other three ports** — the cheapest big win. Add a
+   `PORT_IDENTITY` entry plus five `NOTABLES` rows and the town hub, the
+   People journal and bounty attribution all pick it up with no UI work.
+2. **Buildings up close** — base courses and window openings. The roofs give a
+   correct silhouette to hang them on now.
+3. **A "does content fit its container" layout check** — see the traps below.
+4. Mercer's `cordelia` arc, the officer-friction event, NPC progression.
 
 ---
 
