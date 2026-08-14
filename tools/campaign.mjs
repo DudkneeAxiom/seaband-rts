@@ -911,6 +911,207 @@ ok(`no action opens with a hull on the ground (${beached.length ? beached.join('
   beached.length === 0);
 for (let i = 0; i < 4 && await dismissModal(page); i++);
 
+/* ---------------------------------------------------------------
+   16. A course is only clear from where you are, and only clear for
+       the hull that has to sail it
+
+   Half an hour of traffic put fifteen hulls on the ground while the player
+   never touched it once. Two faults, both the same shape — a rule that
+   sounded the destination and never the road to it.
+
+   These are staged rather than watched. The honest aggregate over three runs
+   each way moved 0.33% of ship-seconds aground to 0.27%, which is inside the
+   noise of a world that spawns its own weather; the consort flank rule taught
+   this repo that lesson three flaky assertions ago. So: build the fault the
+   rule exists to correct, and ask whether the rule corrects it.
+   --------------------------------------------------------------- */
+const nav = await G(async () => {
+  const R = await import('/src/core/route.js');
+  const T = window.__terrain;
+  const g = window.__game;
+  const out = {};
+
+  /* (a) A deep hull is not routed through a shallow road.
+     The grid cleared every cell at a flat 6.5m — the player's cutter draws
+     3.45m, so the constant looked like a fact for a year. A fluyt draws 7.13m
+     and a frigate 8.97m. Measured on the water: `Ledger of Oosterhaven`,
+     draft 7.1, hard aground in 5.3m with three legs of a good route in hand. */
+  const DEEP = 8.97;                       // a frigate's draft
+  const need = R.keelFor(DEEP);
+  let worst = Infinity, legs = 0, routes = 0, worstAt = '';
+  for (const a of g.PORTS) {
+    for (const b of g.PORTS) {
+      if (a === b) continue;
+      const rt = R.findRoute(a.x, a.z, b.x, b.z, g.limit, need);
+      if (!rt) continue;
+      routes++;
+      /* Judged from the first waypoint, not from the berth. Fort Escarra's
+         mooring is 9.8m of water and a frigate draws 8.97m — she is already
+         standing in less than she wants before any course is laid, and no
+         routing can mend the ground she is floating over. What the road owes
+         her is every leg after that. */
+      let prev = rt[0];
+      for (let k = 1; k < rt.length; k++) {
+        const wp = rt[k];
+        // sound the leg itself, not just its ends: a waypoint in deep water
+        // is no use if the run to it crosses a bar
+        const d = Math.hypot(wp.x - prev.x, wp.z - prev.z);
+        const n = Math.max(1, Math.ceil(d / 14));
+        for (let s = 0; s <= n; s++) {
+          const t = s / n;
+          const dep = T.depthAt(prev.x + (wp.x - prev.x) * t, prev.z + (wp.z - prev.z) * t);
+          if (dep < worst) { worst = dep; worstAt = `${a.name}->${b.name} leg ${k}`; }
+        }
+        legs++; prev = wp;
+      }
+    }
+  }
+  out.deep = { routes, legs, shallowest: +worst.toFixed(1), worstAt, draft: DEEP, need: +need.toFixed(1) };
+  return out;
+});
+ok(`a frigate's road is deep enough for a frigate (${nav.deep.routes} routes, `
+  + `${nav.deep.legs} legs, shallowest water on any of them ${nav.deep.shallowest}m `
+  + `under a ${nav.deep.draft}m draft${nav.deep.worstAt ? ' at ' + nav.deep.worstAt : ''})`,
+  nav.deep.routes > 0 && nav.deep.legs > 0 && nav.deep.shallowest >= nav.deep.draft);
+
+/* (b) A hull set down off a clear line notices the line has gone foul.
+   `findRoute` returns null for "the rhumb line is already clear", and that
+   answer was kept for the whole leg — so a merchant who left port on a good
+   line and was then pushed off it by the wind or by `avoidLand` working round
+   a headland went on steering it with nothing to notice. Staged: put a
+   merchant where the line to her mark is squarely across land, and ask
+   whether she comes up with a route instead of driving on. */
+const resound = await G(async () => {
+  const R = await import('/src/core/route.js');
+  const g = window.__game;
+  // a stretch of water with land between it and the mark
+  const port = g.PORTS.find(p => p.id === 'greywake');
+  let spot = null;
+  for (let r = 320; r <= 900 && !spot; r += 40) {
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2;
+      const x = port.x + Math.cos(a) * r, z = port.z + Math.sin(a) * r;
+      if (window.__terrain.depthAt(x, z) < 14) continue;
+      if (R.clearWater(x, z, port.x, port.z)) continue;      // must be foul, that is the point
+      spot = { x, z }; break;
+    }
+  }
+  if (!spot) return { staged: false };
+  const s = g.ships.find(x => x.role === 'merchant' && x.alive);
+  if (!s) return { staged: false };
+  s.x = spot.x; s.z = spot.z; s.speed = 4;
+  /* The fault exactly: she is holding the answer from a moment when the line
+     WAS clear, and her brain has no reason to ask again. */
+  s.brain.path = null;
+  s.brain.pathGoal = { x: port.x, z: port.z };
+  s.brain.resound = 0;
+  s.brain.route = ['greywake', 'greywake'];
+  s.brain.flee = 0;
+  const before = { x: s.x, z: s.z, foul: !R.clearWater(s.x, s.z, port.x, port.z) };
+  for (let i = 0; i < 90; i++) g.update(1 / 30);            // three seconds: two casts
+  return {
+    staged: true, before,
+    gotRoute: !!(s.brain.path && s.brain.path.length),
+    // and the leg she is now steering is water
+    legClear: s.brain.path && s.brain.path.length
+      ? R.clearWater(s.x, s.z, s.brain.path[0].x, s.brain.path[0].z, R.keelFor(s.draft))
+      : R.clearWater(s.x, s.z, port.x, port.z, R.keelFor(s.draft)),
+  };
+});
+ok(`a course that goes foul under her is laid again (${resound.staged
+  ? (resound.gotRoute ? 'routed round it' : 'still steering the rhumb line')
+    + `, leg ${resound.legClear ? 'clear' : 'FOUL'}`
+  : 'could not stage'})`,
+  resound.staged && resound.gotRoute && resound.legClear);
+
+/* (c) An escort keeps station by a road she can sail.
+   The station itself was sounded — that was last session's fix — and the run
+   to it was not. When the charge rounds a point her station swings to the far
+   side of it, the water there is deep, and the straight line goes over the
+   headland. Escorts were the worst offenders on the sea for it: 1.25% of
+   their time aground against 0.23% for the merchants they were guarding. */
+const escort = await G(async () => {
+  const R = await import('/src/core/route.js');
+  const g = window.__game, T = window.__terrain;
+  const e = g.ships.find(s => s.role === 'escort' && s.alive)
+    || g.ships.find(s => s.role === 'merchant' && s.alive);
+  if (!e) return { staged: false };
+  const port = g.PORTS.find(p => p.id === 'greywake');
+  /* Put the charge on the far side of the land from her escort — and insist a
+     way round exists before staging anything on the pair. A pair that is foul
+     AND unroutable is not this fault, it is a lagoon, and asking the steering
+     to produce a route there made this check pass or fail on which two hulls
+     the world happened to hand it. Staged by construction, not by luck. */
+  let a = null, b = null;
+  for (let r = 300; r <= 800 && !b; r += 40) {
+    for (let i = 0; i < 64; i++) {
+      const ang = (i / 64) * Math.PI * 2;
+      const x1 = port.x + Math.cos(ang) * r, z1 = port.z + Math.sin(ang) * r;
+      const x2 = port.x - Math.cos(ang) * r, z2 = port.z - Math.sin(ang) * r;
+      if (T.depthAt(x1, z1) < 14 || T.depthAt(x2, z2) < 14) continue;
+      if (R.clearWater(x1, z1, x2, z2)) continue;               // must be foul
+      const way = R.findRoute(x1, z1, x2, z2, g.limit, R.keelFor(e.draft));
+      if (!way || !way.length) continue;                        // and must be roundable
+      a = { x: x1, z: z1 }; b = { x: x2, z: z2 }; break;
+    }
+  }
+  if (!b) return { staged: false };
+  const charge = g.ships.find(s => s !== e && s.alive && !s.isPlayer);
+  if (!charge) return { staged: false };
+  /* Nobody else on this water. An escort with a hostile in sight fights
+     instead of stationing and never reaches the rule under test — which is
+     what made this check fail one run in three, with the world quietly
+     deciding whether the scenario happened at all. */
+  for (const s of g.ships) {
+    if (s === e || s === charge || s.isPlayer) continue;
+    s.x = 9e4; s.z = 9e4; s.target = null; s.hostileToPlayer = false;
+  }
+  g.player.x = 9e4; g.player.z = 9e4;
+  e.role = 'escort'; e.escortFor = charge; e.escortSlot = 1;
+  e.aggro = 0; e.lastAttacker = null; e.target = null; e.fleeing = false;
+  e.x = a.x; e.z = a.z; e.speed = 3;
+  charge.x = b.x; charge.z = b.z; charge.speed = 3;
+  charge.hostileToPlayer = false; charge.alive = true; charge.captured = false;
+  /* Wipe what she was thinking before she was an escort. She had a life as a
+     merchant a moment ago and her brain still holds that route — a check that
+     reads a leftover `path` passes whatever the rule under test decides, which
+     is how this one first passed with the fix taken back out. */
+  e.brain.path = null; e.brain.pathGoal = null; e.brain.station = null;
+  e.brain.resound = 0; e.brain.flee = 0; e.brain.state = 'idle';
+  /* The question is which station she chose, not which way her bow ended up
+     pointing. Sounding her heading measures `avoidLand` — a greedy rule that
+     will deflect a bow off a rock whatever nonsense it was aimed at, and which
+     duly passed this check with the fix taken back out. What the rule under
+     test decides is the point she steers for, so read that.
+     Where the abeam station cannot be sailed to she takes the charge's wake,
+     which she can always see, because the charge is floating in it. */
+  const abeam = {
+    x: charge.x + Math.sin(charge.yaw + Math.PI / 2) * 78 - Math.sin(charge.yaw) * 46,
+    z: charge.z + Math.cos(charge.yaw + Math.PI / 2) * 78 - Math.cos(charge.yaw) * 46,
+  };
+  g.update(1 / 30);
+  const st = e.brain.station;
+  const wp = e.brain.path && e.brain.path.length ? e.brain.path[0] : null;
+  return {
+    staged: true,
+    abeamWasFoul: !R.clearWater(e.x, e.z, abeam.x, abeam.z, R.keelFor(e.draft)),
+    tookIt: !!st && Math.hypot(st.x - abeam.x, st.z - abeam.z) < 20,
+    // whatever she settled on, the line she is now sailing has to be water:
+    // a clear run to a station in sight, or the first leg of a route round
+    reachable: !!st && R.clearWater(e.x, e.z, st.x, st.z, R.keelFor(e.draft)),
+    routed: !!wp && R.clearWater(e.x, e.z, wp.x, wp.z, R.keelFor(e.draft)),
+    // so a failure says which half went wrong rather than only that it did
+    why: !st ? 'she never stationed at all (fought or fled instead)'
+      : !wp ? 'no route in hand' : 'route in hand',
+  };
+});
+ok(`an escort cut off from her charge sails water, not the rhumb line (${escort.staged
+  ? `abeam station ${escort.abeamWasFoul ? 'cut off by land' : 'NOT BLOCKED — bad staging'}, `
+    + `she ${escort.tookIt ? 'TOOK IT ANYWAY' : 'let it go'}, `
+    + `now on ${escort.reachable ? 'a clear run to station' : escort.routed ? 'a routed leg round' : 'A FOUL LINE — ' + escort.why}`
+  : 'could not stage'})`,
+  escort.staged && escort.abeamWasFoul && !escort.tookIt && (escort.reachable || escort.routed));
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

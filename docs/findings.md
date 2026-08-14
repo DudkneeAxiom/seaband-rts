@@ -5,6 +5,127 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 50. Two "findings" that were my own probes lying to me  (harness)
+
+**Symptom.** The previous session's voyage ended with two open items: DOCK was
+not offered on arrival at Tideglass or Fort Escarra, and a full six-port
+circuit raised **zero encounters** in 796 seconds.
+
+**Neither was real.** The docking one was a probe threshold — the voyage
+declared "made port" at 120m and then demanded a button that needs `dist <
+dockR` (74–90m) and `speed < 7.5`. Sailed honestly, Ilo Vantu goes from arrival
+at 13.2 knots to DOCK offered in **0.3 seconds**.
+
+The empty sea was worse: three successive probes measured a world that was
+never running. One teleported the player to `port + 700m` on a bearing that put
+her on a hillside — `depth -16.7m` is not deep water, it is ground 16.7m above
+the sea — and then measured a parked hull for twenty minutes. The next two
+stalled on `g.paused`: a modal pauses the world, and a bulk `for (…) g.update()`
+loop inside `page.evaluate` cannot click the button that clears it, so it spins
+at `dt = 0` forever. Driven properly the sea is busy — **24 encounters in 40
+minutes**, hostiles closing to 2m.
+
+And the merchants the player reported never seeing are in pip range **97% of a
+thirty-minute voyage** and within 500m for 65% of it, from minute zero. That
+was already the right diagnosis in finding 44 — they were invisible as
+*merchants*, not absent — and the coin mark on the pip is the fix.
+
+**Lesson.** Every one of these probes reported a confident number about a
+simulation that was not advancing. A harness that drives the world by hand has
+to prove the world moved: check `g.time`, check she is in water, check nothing
+is paused — before believing anything it says about what did or did not happen.
+
+## 49. The world sailed onto the beach while the player never touched it  (P1, playtest)
+
+**Symptom.** Half an hour of traffic, watched with the player auto-sailing the
+port circuit and every hull's keel checked once a simulated second. The player
+grounded for **0 of 1500 seconds**. Everybody else did it constantly — several
+at *negative* depth, which is not a shoal, that is a hull standing on dry land:
+
+```
+escort  Two Percent            aground in -3.4m
+escort  Guilder II             aground in -0.3m
+merchant Ledger of Oosterhaven aground in  0.8m
+```
+
+Aggregate over three runs: **0.331% of all ship-seconds on the ground**, with
+escorts worst at 1.25% against 0.23% for the merchants they were guarding.
+
+**Root cause — four of them, all the same shape: a rule that sounded the
+destination and never the road to it.**
+
+1. **A course was only sounded when it was laid.** `findRoute` returns null for
+   "the rhumb line is already clear", and `steerVia` kept that answer for the
+   whole leg. A hull that left port on a clean line and was then set down by
+   the wind, or shoved off it by `avoidLand` working round a headland, went on
+   steering a line that had since gone foul with nothing to notice. Measured
+   at the moment of stranding: 15 events, **11 on hulls carrying no route at
+   all**, 7 of those with land squarely across the line they were steering.
+
+2. **The road was cleared at a depth that was really one ship's depth.** The
+   route grid passed any cell over 6.5m. That is the player's cutter's answer —
+   she draws 3.45m, so every route ever laid had three metres to spare and the
+   constant looked like a fact. A fluyt draws 7.13m and a frigate 8.97m, and
+   the grid was routing both through six and a half metres of water. On the
+   water: `Ledger of Oosterhaven`, draft 7.1, hard aground in 5.3m **with three
+   legs of a perfectly valid route still in hand**.
+
+3. **The first leg of every route was the one leg nobody sounded.** `smooth()`
+   string-pulled from the grid cell nearest the ship, not from the ship.
+   `nearestWater` will reach eight cells — 384m — for a berth in thin water,
+   and the line back out to that cell can cross anything. Checked across all 20
+   port pairs at a frigate's draft: five foul legs, **all five of them leg
+   zero**, one of them over ground 31m above the sea.
+
+4. **And then the AI threw that leg away.** `steerVia` dropped the first
+   waypoint as "usually where she already is". It never was: the smoothing
+   returns the furthest mark she can *see* from where she stands, so the first
+   waypoint is the only one guaranteed to be a clear run from her, and the
+   second is the corner she was meant to round it at.
+
+A fifth, found while building the check: an escort whose charge has rounded a
+point has *no* station she can sail to — the abeam station is behind the land,
+and so is the wake, and so is the charge. The fallback ladder had nowhere left
+to fall, so she steered the rhumb line at a hull she could not see.
+
+**Change.** The grid stores the shallowest cast in each cell instead of a
+yes/no, so one bake answers the question for every draft afloat; `keelFor(draft)`
+says what a hull wants under her, and a deep hull that can find no deep road
+settles for the shallow one rather than being stranded — nothing here may make
+a place unreachable. `smooth()` is string-pulled from where the ship actually
+is. `steerVia` re-sounds the line it is steering every ~1.3s and lays a new
+route when it goes foul, and keeps every waypoint it is given. An escort with
+no sailable station routes to her charge instead of steering at her.
+
+**Verification.** Aggregate over four runs after, against three before:
+
+```
+before   0.475%  0.298%  0.219%          mean 0.331%
+after    0.030%  0.117%  0.058%  0.269%  mean 0.119%
+merchants 0% in three runs of the four; the player still 0/1500
+```
+
+But that number is weather — a world that spawns its own traffic, and the
+spread overlaps. So the three checks that went into `campaign` stage each
+fault instead, per finding 46, and each was confirmed to fail with its own fix
+reverted and pass with it back:
+
+```
+a frigate's road is deep enough for a frigate   20 routes, 61 legs, shallowest 10.5m under an 8.97m draft
+a course that goes foul under her is laid again routed round it, leg clear
+an escort cut off from her charge sails water   she let the station go, now on a routed leg round
+```
+
+**Two harness lessons on the way.** The escort check first *passed* with the
+fix removed, because it sounded her heading — which measures `avoidLand`, a
+greedy rule that will deflect a bow off a rock whatever nonsense it was aimed
+at. What the rule under test decides is the *point she steers for*, so the
+brain records it and the check reads that. Then it passed again on a leftover
+`brain.path` from the hull's previous life as a merchant, and then failed one
+run in three because a hostile in sight sent her into the fight branch and the
+scenario never happened. Staged by construction now: the pair must be foul
+*and* roundable, the water is cleared of everyone else, and the brain is wiped.
+
 ## 48. Your own fleet was sinking the prize you were boarding  (P1, reported)
 
 **Symptom.** Reported: "the player has no way to call off other ships in their

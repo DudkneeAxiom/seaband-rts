@@ -6,7 +6,7 @@
 import { PORTS, EDGE_NODES, FISH_GROUNDS, FACTIONS } from '../data/gamedata.js';
 import { clamp, clamp01, angDiff, dist, TAU } from '../core/util.js';
 import { depthAt } from '../world/terrain.js';
-import { findRoute } from '../core/route.js';
+import { findRoute, clearWater, keelFor } from '../core/route.js';
 import { fireBroadside, bestSide, GUN_RANGE, canBoard } from '../combat/combat.js';
 import { crewPower } from './ship.js';
 
@@ -102,16 +102,45 @@ function steerTo(ship, x, z, dt) {
  *
  * Falls back to the rhumb line whenever no route is found, so open water
  * costs nothing and nothing can be made unreachable by a failed search.
+ *
+ * The line she is steering is re-sounded as she sails it, not only when the
+ * course is laid. `findRoute` returns null for "the rhumb line is already
+ * clear", and that answer was being kept for the whole leg — so a hull that
+ * left port on a clean line and was then set down by the wind, or shoved off
+ * it by `avoidLand` working round a headland, went on steering a line that had
+ * since gone foul with nothing to notice. Measured over twenty-five minutes:
+ * fifteen strandings, eleven of them on hulls carrying no route at all, seven
+ * of those with land squarely across the line they were steering. A course is
+ * only clear from where you are now.
  */
+const RESOUND = 1.3;              // seconds between casts; cheap enough to run on every hull
 function steerVia(ship, x, z, dt, world) {
   const b = ship.brain;
   if (!b) { steerTo(ship, x, z, dt); return; }
   const moved = !b.pathGoal || dist(b.pathGoal.x, b.pathGoal.z, x, z) > 90;
-  if (moved) {
+  const need = keelFor(ship.draft);       // her own draft, not the player's
+  b.resound = (b.resound || 0) - dt;
+  /* Ask again when the goal changes, and again on the cast whenever the water
+     ahead has turned against her: no route in hand and the line now foul, or
+     a route in hand whose next leg she can no longer see. */
+  let ask = moved;
+  if (!ask && b.resound <= 0) {
+    const wp = b.path && b.path.length ? b.path[0] : null;
+    ask = wp ? !clearWater(ship.x, ship.z, wp.x, wp.z, need)
+      : !clearWater(ship.x, ship.z, x, z, need);
+  }
+  if (b.resound <= 0) b.resound = RESOUND * (0.7 + Math.random() * 0.6);  // spread the casts out
+  if (ask) {
     b.pathGoal = { x, z };
-    b.path = findRoute(ship.x, ship.z, x, z, (world && world.limit) || 1900) || null;
-    // the first leg is usually where she already is; drop it
-    if (b.path && b.path.length > 1) b.path.shift();
+    b.path = findRoute(ship.x, ship.z, x, z, (world && world.limit) || 1900, need) || null;
+    /* Every waypoint is kept. This used to drop the first one as "usually where
+       she already is" — it never was. The smoothing returns the furthest mark
+       she can *see* from where she stands, so the first waypoint is the only
+       one guaranteed to be a clear run from her; the second is the corner she
+       was meant to round it at. Throwing the first away handed her a leg
+       nobody had sounded, and did it on the one hull in the world that had
+       just asked for a safe road. The proximity rule below drops it a moment
+       later anyway when it really is under her bow. */
   }
   if (b.path && b.path.length) {
     const wp = b.path[0];
@@ -693,12 +722,36 @@ function escortAI(ship, dt, world, ctx, hurt) {
     sz = charge.z - Math.cos(charge.yaw) * 62;
   }
   if (depthAt(sx, sz) < ship.draft * 1.6) { sx = charge.x; sz = charge.z; }
+  /* And the run to it sounded as well as the spot itself. Sounding only the
+     station is the same mistake one step along: when the charge rounds a point
+     her escort's station swings to the far side of it, the water there is deep,
+     and the straight line to it goes over the headland. Escorts were the worst
+     offenders on the sea for it — 1.25% of their time on the ground against
+     0.23% for the merchants they were guarding. If she cannot see her station,
+     she takes the charge's wake, which she can always see: the charge is
+     floating, and the water between them is water the charge has just sailed. */
+  if (!clearWater(ship.x, ship.z, sx, sz, keelFor(ship.draft))) {
+    sx = charge.x - Math.sin(charge.yaw) * 62;
+    sz = charge.z - Math.cos(charge.yaw) * 62;
+    if (!clearWater(ship.x, ship.z, sx, sz, keelFor(ship.draft))) { sx = charge.x; sz = charge.z; }
+  }
+  // the station she settled on, so a check can ask whether it was a sailable one
+  b.station = { x: sx, z: sz };
   const gap = dist(ship.x, ship.z, sx, sz);
   if (gap < 34) {
     // on station: match her course rather than circling the spot
     ship.headingCmd = avoidLand(ship, charge.yaw, dt);
     ship.dest = null;
     ship.throttle = clamp(charge.speed / Math.max(1, ship.cls.speed), 0.25, 1);
+  } else if (!clearWater(ship.x, ship.z, sx, sz, keelFor(ship.draft))) {
+    /* Every station on the ladder is behind land — which is what it looks like
+       when the charge has rounded a point and left her escort on the wrong side
+       of it. There is no station to fall back to here, so stop picking one and
+       work round to the charge herself the way anything else crossing land
+       does. Steering the rhumb line at a hull you cannot see is the fault this
+       whole file keeps relearning. */
+    steerVia(ship, charge.x, charge.z, dt, world);
+    ship.throttle = 1;
   } else {
     steerTo(ship, sx, sz, dt);
     if (gap > 240) ship.throttle = 1;

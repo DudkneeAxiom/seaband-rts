@@ -6,7 +6,7 @@ import {
   PORTS, POIS, ISLANDS, HULLS, FACTIONS, NAMES, GOODS, RANKS, WORLD_SIZE, EDGE_NODES,
 } from './data/gamedata.js';
 import { clamp, clamp01, lerp, dist, angDiff, normAng, makeRNG, rngInt, TAU, fmtCoin } from './core/util.js';
-import { findRoute } from './core/route.js';
+import { findRoute, keelFor } from './core/route.js';
 import { bakeHeights, makeDepthTexture, buildTerrain, depthAt, PORT_SHORE } from './world/terrain.js';
 import { createWater, updateWater, waveHeight, setWaterQuality } from './world/water.js';
 import { createSky, updateSky, SKY } from './world/sky.js';
@@ -1706,7 +1706,7 @@ export class Game {
     // and stop closing for a boarding you have evidently thought better of
     this.chasing = null;
     this.boardRun = null;
-    const route = findRoute(p.x, p.z, x, z, this.limit);
+    const route = findRoute(p.x, p.z, x, z, this.limit, keelFor(p.draft));
     if (route) p.setRoute(route);
     else p.setDestination(x, z);
     p.throttle = 1;
@@ -1764,7 +1764,7 @@ export class Game {
     if (!drifted && this._chaseT > 0) return;
     this._chaseT = 1.2;
     this._chaseAim = { x: t.x, z: t.z };
-    const route = findRoute(p.x, p.z, t.x, t.z, this.limit);
+    const route = findRoute(p.x, p.z, t.x, t.z, this.limit, keelFor(p.draft));
     if (route) p.setRoute(route);
     else p.setDestination(t.x, t.z);
     p.throttle = 1;

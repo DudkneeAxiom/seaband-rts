@@ -140,7 +140,26 @@ that is written down, and everything that asks "can I fire", "can I dock",
   were approved whose geometry hung over the harbour. Each kind declares its
   drawn extent now. The same trap caught the AI twice: a route is no help to a
   ship whose *destination* is a hill, so loitering stations and escort
-  stations are sounded before they are taken.
+  stations are sounded before they are taken. Then a third and fourth time,
+  one level along again: sounding the station and not the *run to it* put
+  escorts on the ground at five times the rate of the merchants they guarded,
+  and `smooth()` string-pulled from the grid cell nearest the ship rather than
+  the ship, so the first leg of every route was the one leg nobody sounded.
+  Sound the whole road, from where she actually is.
+- **A course is only clear from where you are now.** `findRoute` returns null
+  for "the rhumb line is already clear", and that answer was kept for a whole
+  leg — so a hull set down by the wind, or shoved off her line by `avoidLand`
+  working round a headland, sailed on into land nobody had re-checked. Eleven
+  of fifteen strandings were hulls carrying no route at all. Anything steering
+  a long line has to re-sound it as it sails it.
+- **A constant that fits one hull is not a fact about the sea.** The route grid
+  cleared every cell over 6.5m, which is the player's cutter's answer with
+  three metres to spare — and it was routing a 7.13m fluyt and an 8.97m frigate
+  through the same water. The grid holds the shallowest cast per cell now and
+  `keelFor(draft)` asks the question per hull, with the shallow road as a
+  fallback so no place becomes unreachable. Same shape as the settlement limits
+  tuned on Ilo Vantu: measure what a number was tuned against, then ask who
+  else has to live with it.
 - **A guard that reads a flag must run before something else sets it.** The
   price of attacking a neutral was charged in the damage callback, guarded on
   "she is not already hostile" — and a battle flags every enemy hostile as it
@@ -157,6 +176,24 @@ that is written down, and everything that asks "can I fire", "can I dock",
   three were flaky, the last one ranging 0% to 92% across staged trials. The
   check that works stages the fault the rule exists to correct (a consort
   squarely in front of your guns) and asks whether the steering fixes it.
+- **Stage the fault by construction, and assert the decision, not the
+  aftermath.** The escort check learned this three ways in one sitting. It
+  passed with the fix removed because it sounded her *heading* — which measures
+  `avoidLand`, a greedy rule that deflects a bow off a rock whatever nonsense
+  it was aimed at; what the rule under test decides is the point she steers
+  for, so the brain records that and the check reads it. Then it passed on a
+  leftover `brain.path` from the hull's previous life as a merchant. Then it
+  failed one run in three because a hostile in sight sent her into the fight
+  branch and the scenario never happened at all. **Prove a new check fails with
+  its own fix reverted** — all three of finding 49's do — or it is decoration.
+- **A harness that drives the world by hand must prove the world moved.** Three
+  probes in a row reported confident numbers about a simulation that was not
+  advancing: one teleported the player onto a hillside (`depth -16.7m` is not
+  deep water, it is ground 16.7m up) and measured a parked hull for twenty
+  minutes; two more spun at `dt = 0` because a modal had paused the world and a
+  bulk `for (…) g.update()` inside `page.evaluate` cannot click the button that
+  clears it. Both "findings" they produced were fiction. Check `g.time` moved,
+  check she is floating, check nothing is paused — before believing anything.
 - **One control per job.** The town page briefly carried a WHERE TO GO list —
   a row and a GO button per counter — directly beneath a tab strip with one
   tab per counter. Navigation written out twice is not twice as navigable; it
@@ -167,6 +204,6 @@ that is written down, and everything that asks "can I fire", "can I dock",
 ## State of it
 
 Feature-complete vertical slice with the campaign/encounter/battle spine in
-place and six powers with water of their own. `tools/all.mjs` runs 270-odd
-checks across fifteen suites; all green at the last commit on this branch
-(15/15 in about eighteen minutes).
+place and six powers with water of their own. `tools/all.mjs` runs 359 checks
+across sixteen suites; all green at the last commit on this branch
+(16/16 in about twenty minutes).
