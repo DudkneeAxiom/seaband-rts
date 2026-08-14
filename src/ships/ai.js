@@ -102,6 +102,25 @@ function steerTo(ship, x, z, dt) {
 }
 
 /**
+ * Keeping station on another hull, which is not a passage and must not beat.
+ *
+ * A consort's slot and an escort's station are points computed off a moving
+ * ship, a hull's length or two away. `beatTo` exempts anything inside 90m, and
+ * a consort dropping astern is outside it — so she would come about and stand
+ * away from the flag she was trying to catch, fall further behind, and take
+ * whatever the sea offered while she was out there. Two suites away from the
+ * one being worked on went intermittently red on it.
+ *
+ * The same exception combat and the run-down already carry: the beat is for
+ * crossing water, not for holding a place beside somebody.
+ */
+function steerStation(ship, x, z, dt) {
+  ship.headingCmd = avoidLand(ship, Math.atan2(x - ship.x, z - ship.z), dt);
+  ship.dest = null;
+  ship.throttle = 1;
+}
+
+/**
  * Steer for somewhere a long way off, round the land rather than into it.
  *
  * `steerTo` lays the rhumb line and leans on `avoidLand`, which is a greedy
@@ -932,7 +951,7 @@ function escortAI(ship, dt, world, ctx, hurt) {
     steerVia(ship, charge.x, charge.z, dt, world);
     ship.throttle = 1;
   } else {
-    steerTo(ship, sx, sz, dt);
+    steerStation(ship, sx, sz, dt);
     if (gap > 240) ship.throttle = 1;
   }
 }
@@ -1017,7 +1036,7 @@ function consortAI(ship, dt, world, ctx) {
     }
   }
   const d = dist(ship.x, ship.z, fx, fz);
-  steerTo(ship, fx, fz, dt);
+  steerStation(ship, fx, fz, dt);
   // press on harder the further astern she is, so a slower hull can still keep station
   ship.throttle = clamp01(d / 60) * 0.65 + 0.35 + clamp01((d - 80) / 140) * 0.95;
   if (d < 22) ship.throttle = 0.25;
