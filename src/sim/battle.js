@@ -143,9 +143,31 @@ export class Battle {
       const off = (i - (ships.length - 1) / 2) * (s.cls.len * 2.6 + 26);
       let x = cx + Math.sin(across) * off;
       let z = cz + Math.cos(across) * off;
-      // never deploy a hull onto the putty; walk her out to water she floats in
-      for (let g = 0; g < 12 && depthAt(x, z) < s.draft * 3 + 4; g++) {
-        x += Math.sin(heading) * 18; z += Math.cos(heading) * 18;
+      /* Never deploy a hull onto the putty — and look in every direction for
+         the water, not just one.
+
+         This walked twelve steps along a single bearing, the way she was
+         facing, and simply gave up if that line was blocked. On a coast it
+         usually is: an action that formed close inshore could open with a
+         ship already sitting in the middle of an island, aground before a
+         shot was fired. Reported from play, and it was the player's own hull.
+
+         So: rings outward from where she was going to stand, nearest water
+         wins. If there is none within a couple of hundred metres, put her
+         where the two fleets actually met — which was floating water by
+         definition, because they were both floating in it. */
+      const need = s.draft * 3 + 4;
+      if (depthAt(x, z) < need) {
+        let found = null;
+        for (let r = 16; r <= 230 && !found; r += 16) {
+          for (let k = 0; k < 16; k++) {
+            const a = heading + (k / 16) * Math.PI * 2;
+            const tx = x + Math.sin(a) * r, tz = z + Math.cos(a) * r;
+            if (depthAt(tx, tz) >= need) { found = { x: tx, z: tz }; break; }
+          }
+        }
+        if (found) { x = found.x; z = found.z; }
+        else { x = this.x; z = this.z; }
       }
       s.x = x; s.z = z;
       s.yaw = heading + (Math.random() - 0.5) * 0.25;

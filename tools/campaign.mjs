@@ -705,26 +705,48 @@ const farSide = await G(() => {
      into her. Propping her hull is a pose for the camera, not a rule change:
      nothing in the steering under test reads hull. */
   foe.hull = foe.hullMax;
-  let widest = 0;
-  for (let s = 0; s < 45 * 30 && foe.alive && con.alive; s++) {
+  /* Stage the fault the rule exists to correct, rather than watching a duel
+     and hoping it shows up. Put her exactly between the flagship and the
+     enemy — masking the battery — and see whether the steering takes her off
+     that line. Emergent behaviour over forty-five seconds was measured at
+     anywhere from 0% to 92% of the action masked, so no threshold on it was
+     ever going to mean anything; this asks the mechanism the question
+     directly. */
+  const bearing = Math.atan2(foe.x - p.x, foe.z - p.z);
+  con.x = p.x + Math.sin(bearing) * 70;
+  con.z = p.z + Math.cos(bearing) * 70;
+  con.speed = 0;
+  const sepAt = () => Math.abs(angDiff(
+    Math.atan2(con.x - foe.x, con.z - foe.z),
+    Math.atan2(p.x - foe.x, p.z - foe.z)));
+  const before = sepAt();
+  let best = before;
+  for (let s = 0; s < 22 * 30 && foe.alive && con.alive; s++) {
     if (foe.hull < foe.hullMax * 0.25) foe.hull = foe.hullMax * 0.25;
     g.update(1 / 30);
-    if (s % 15 === 0 && foe.alive) {
-      const toCon = Math.atan2(con.x - foe.x, con.z - foe.z);
-      const toFlag = Math.atan2(p.x - foe.x, p.z - foe.z);
-      widest = Math.max(widest, Math.abs(angDiff(toCon, toFlag)));
-    }
+    if (s % 10 === 0) best = Math.max(best, sepAt());
   }
-  return { widest: +widest.toFixed(2), foeAlive: foe.alive, conAlive: con.alive };
+  return { before: +before.toFixed(2), best: +best.toFixed(2), after: +sepAt().toFixed(2),
+    foeAlive: foe.alive, conAlive: con.alive };
 });
-/* The flank steer pushes until she is 1.1 rad clear of the flagship's bearing;
-   past that the ordinary duel takes over. So "she got well beyond 1.3" is the
-   mechanism having worked, and how much further she swings belongs to the
-   enemy's own sailing, which no assertion should be hostage to. */
-ok(`and she takes the enemy's far side (${farSide && farSide.why
+/* The flank steer pushes a consort clear of the flagship's bearing so she is
+   not standing in front of the guns.
+
+   Three assertions have been tried on this. The widest separation ever
+   reached (flaky: 1.14 to 3.12 rad on identical staging). The separation she
+   holds (flaky: 0.89 to 1.35). The share of the action she spends masking
+   (measured across sixteen trials at anywhere from 0% to 92%). All three
+   watched a duel and hoped the rule would show up in it — and how a duel
+   swings belongs to the enemy's sailing, which no assertion should be hostage
+   to, as the comment here has said all along while the assertion ignored it.
+
+   So stage the fault instead: put her squarely between the flagship and the
+   enemy, and ask whether the steering takes her off that line. That is the
+   rule, tested directly, and it does not care how the fight goes. */
+ok(`and a consort masking your guns steers off the line (${farSide && farSide.why
   ? 'no battle to watch: ' + JSON.stringify(farSide.why)
-  : 'widest separation ' + (farSide ? farSide.widest : '?') + ' rad'})`,
-!!farSide && farSide.widest > 1.3);
+  : `${farSide ? farSide.before : '?'} rad -> ${farSide ? farSide.best : '?'} rad`})`,
+!!farSide && farSide.best > farSide.before + 0.5 && farSide.best > 0.9);
 
 await G(() => {
   const g = window.__game;
@@ -764,6 +786,52 @@ await leaveBattle(page);
 const chipBack = await waitFor(page,
   () => !document.getElementById('objective').classList.contains('hidden'), 12000);
 ok('and comes back when the sea is quiet again', chipBack);
+
+/* ---------------------------------------------------------------
+   last · an action never opens with somebody standing on the land
+
+   Reported from play: "the instance spawned my boat in the middle of the
+   island, grounding it from the fight." The deployment walked twelve steps
+   along one bearing — the way the ship was facing — looking for water, and
+   gave up if that line was blocked. On a coast it usually is. Reverted
+   against this check, Greywake puts the *player* eighty-seven metres up
+   inside the rock before a shot is fired.
+
+   Every waterfront in the world, because that is the hard case: the fleets
+   meet on the beach itself and the arena has land on three sides.
+   --------------------------------------------------------------- */
+const beached = await G(() => {
+  const g = window.__game, H = window.__terrain.heightAt;
+  const out = [];
+  for (const port of g.PORTS) {
+    const sh = window.__shore[port.id];
+    if (!sh) continue;
+    if (g.mode === 'battle' && g.battle) g.battle.finish('fled');
+    if (g.mode === 'encounter') g.closeEncounter();
+    g.paused = false;
+    const p = g.player;
+    p.x = sh.x; p.z = sh.z; p.alive = true; p.hull = p.hullMax; p.speed = 0;
+    let foe = g.ships.find(s => s.faction === 'pirate' && s.alive) || g.spawnNPC('pirate');
+    if (!foe) continue;
+    foe.x = sh.x + 40; foe.z = sh.z + 20; foe.alive = true;
+    foe.hostileToPlayer = true; foe.target = p; foe.chaseHold = 0; foe.fleeing = false;
+    g.encounterCooling = 0;
+    g.startEncounter(foe);
+    if (g.mode !== 'encounter') continue;
+    g.chooseEncounter('fight');
+    if (g.mode !== 'battle' || !g.battle) continue;
+    const all = [...g.battle.allies, ...g.battle.enemies];
+    for (const s of all) {
+      const depth = -H(s.x, s.z);
+      if (depth < s.draft) out.push(`${port.id}:${s.isPlayer ? 'PLAYER' : s.name} in ${depth.toFixed(1)}m`);
+    }
+    g.battle.finish('fled');
+  }
+  return out;
+});
+ok(`no action opens with a hull on the ground (${beached.length ? beached.join(', ') : 'every waterfront clear'})`,
+  beached.length === 0);
+for (let i = 0; i < 4 && await dismissModal(page); i++);
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');

@@ -151,6 +151,12 @@ that is written down, and everything that asks "can I fire", "can I dock",
   — and the only input left, tapping the water beside her, lands on the marked
   ship and unmarks her. The gesture available for the job undid the job. A
   button that gives the order beats an input the player has to be clever with.
+- **Test the mechanism, not the weather around it.** Three assertions on the
+  consort flank rule each watched a real duel and measured what came out —
+  widest separation, held separation, share of the action masked — and all
+  three were flaky, the last one ranging 0% to 92% across staged trials. The
+  check that works stages the fault the rule exists to correct (a consort
+  squarely in front of your guns) and asks whether the steering fixes it.
 - **One control per job.** The town page briefly carried a WHERE TO GO list —
   a row and a GO button per counter — directly beneath a tab strip with one
   tab per counter. Navigation written out twice is not twice as navigable; it

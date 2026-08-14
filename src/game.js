@@ -3300,8 +3300,8 @@ class Markers {
       this.hunts.push({ mesh, mat: m });
     }
 
-    // fighting-weight pips: one shared texture per tier, sprites pooled per ship
-    this.pipTex = PIP_TIERS.map(makePip);
+    // fighting-weight pips: a sprite per visible ship, each with its own
+    // little canvas, because each one now carries her own number
     this.pips = new Map();     // ship.id -> Sprite
     this.pipPool = [];
 
@@ -3340,9 +3340,14 @@ class Markers {
       if (!spr) {
         spr = this.pipPool.pop();
         if (!spr) {
+          const c = document.createElement('canvas');
+          c.width = 128; c.height = 64;
+          const tex = new THREE.CanvasTexture(c);
           spr = new THREE.Sprite(new THREE.SpriteMaterial({
-            transparent: true, depthTest: false, depthWrite: false,
+            map: tex, transparent: true, depthTest: false, depthWrite: false,
           }));
+          spr.userData.canvas = c;
+          spr.userData.tex = tex;
           spr.renderOrder = 9;
           this.scene.add(spr);
         }
@@ -3350,10 +3355,7 @@ class Markers {
         this.pips.set(s.id, spr);
       }
       const w = game.weighUp(s);
-      if (spr.material.map !== this.pipTex[w.tier]) {
-        spr.material.map = this.pipTex[w.tier];
-        spr.material.needsUpdate = true;
-      }
+      drawPip(spr, w.tier, w.theirs, !!(s.manifest && s.manifest.amount > 0));
       const top = (s.mesh.userData.mastTop || s.cls.len * 0.9) + 7;
       spr.position.set(s.x, waveHeight(s.x, s.z) + top, s.z);
       const sc = clamp(d * 0.032, 11, 26);
@@ -3504,31 +3506,67 @@ class Markers {
 /* ---------- fighting-weight pips ----------
    Five tiers, drawn once and shared. Chevrons rather than words: they stay
    legible at the size a ship half a mile off deserves on a phone screen. */
+/* The five bands a ship can fall into against your whole fleet. The colour is
+   the band; the number written on it is her actual fighting weight, which is
+   the same figure the target card puts on its scale. */
 const PIP_TIERS = [
-  { glyph: '▼▼', col: '#7fe08d', ring: 'rgba(127,224,141,.75)' },
-  { glyph: '▼', col: '#b9dd85', ring: 'rgba(185,221,133,.7)' },
-  { glyph: '●', col: '#eccb76', ring: 'rgba(236,203,118,.7)' },
-  { glyph: '▲', col: '#f0a071', ring: 'rgba(240,160,113,.75)' },
-  { glyph: '▲▲', col: '#f2705f', ring: 'rgba(242,112,95,.85)' },
+  { col: '#7fe08d', ring: 'rgba(127,224,141,.75)' },
+  { col: '#b9dd85', ring: 'rgba(185,221,133,.7)' },
+  { col: '#eccb76', ring: 'rgba(236,203,118,.7)' },
+  { col: '#f0a071', ring: 'rgba(240,160,113,.75)' },
+  { col: '#f2705f', ring: 'rgba(242,112,95,.85)' },
 ];
-function makePip(tier) {
-  const c = document.createElement('canvas');
-  c.width = 128; c.height = 64;
+
+/**
+ * Draw a ship's weight onto her own pip.
+ *
+ * These used to be five pre-baked glyphs — ▼▼ through ▲▲ — one texture per
+ * band, shared by every hull in it. That told you which of five buckets she
+ * was in and nothing else, so two ships with the same arrow could be a long
+ * way apart and a captain had to mark each one in turn to find out. A number
+ * says it outright, and it is the same number the target card weighs her by.
+ *
+ * A texture per *sprite* rather than per band, redrawn only when the figure
+ * or the band actually changes — the pool is a handful of sprites, so this is
+ * a handful of canvases, and a hull's weight moves slowly enough that most
+ * frames redraw nothing at all.
+ */
+function drawPip(spr, tier, n, laden) {
+  const key = `${tier}:${n}:${laden ? 1 : 0}`;
+  if (spr.userData.pipKey === key) return;
+  spr.userData.pipKey = key;
+  const c = spr.userData.canvas;
   const g = c.getContext('2d');
+  const T = PIP_TIERS[tier] || PIP_TIERS[2];
+  g.clearRect(0, 0, c.width, c.height);
   const r = 18;
   g.beginPath();
   g.moveTo(14 + r, 10); g.arcTo(114, 10, 114, 54, r); g.arcTo(114, 54, 14, 54, r);
   g.arcTo(14, 54, 14, 10, r); g.arcTo(14, 10, 114, 10, r); g.closePath();
   g.fillStyle = 'rgba(8,20,27,.78)';
   g.fill();
-  g.strokeStyle = tier.ring; g.lineWidth = 2.5; g.stroke();
-  g.font = '700 30px ui-sans-serif, system-ui, sans-serif';
+  g.strokeStyle = T.ring; g.lineWidth = 2.5; g.stroke();
+  g.font = '700 34px ui-sans-serif, system-ui, sans-serif';
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillStyle = tier.col;
-  g.fillText(tier.glyph, 64, 33);
-  const t = new THREE.CanvasTexture(c);
-  t.needsUpdate = true;
-  return t;
+  g.fillStyle = T.col;
+  /* A hull with cargo in her gets a coin beside her weight.
+     Reported after the convoys went in: "I didn't see a merchant ship at all."
+     They were there — measured at 98% of a fifteen-minute voyage with one in
+     sight, ten different ones, one as close as 96m — but there was nothing to
+     tell you which sail was which. A laden trader looks like any other ship at
+     four hundred metres, and the manifest only appeared once you had marked
+     her, so finding the one worth robbing meant tapping every sail on the sea.
+     The number still says how dangerous she is; the coin says she is carrying
+     something. Two marks, two questions, neither standing in for the other. */
+  if (laden) {
+    g.fillText(String(n), 76, 34);
+    g.font = '700 26px ui-sans-serif, system-ui, sans-serif';
+    g.fillStyle = '#ffd27a';
+    g.fillText('◆', 40, 34);
+  } else {
+    g.fillText(String(n), 64, 34);
+  }
+  spr.userData.tex.needsUpdate = true;
 }
 
 function makeLabel(text, color = '#ffe6b0') {

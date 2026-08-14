@@ -5,6 +5,105 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 46. Three flaky assertions on one rule, and the fix was to stop watching  (harness)
+
+**Symptom.** `campaign`'s consort-positioning check failed a full run at 1.14
+rad and passed a rerun at 3.12, on identical staging.
+
+**Root cause.** It asserted the **widest** separation ever reached beat 1.3 —
+more than the mechanism promises. The flank steer pushes a consort to 1.1 rad
+clear of the flagship's bearing and then hands over to the ordinary duel, so
+anything past that came from how far the enemy's own sailing happened to swing
+her. The comment directly above the assertion already said no assertion should
+be hostage to that, and then the assertion was.
+
+**Two more attempts, both wrong, and worth recording because the pattern is
+the lesson.** Measuring the separation she *holds*: 0.89 rad on one run, 1.35
+on the next. Measuring the share of the action she spends masking the guns:
+8–9% across three runs, which looked stable, then **21%** in the very next
+full run — and sixteen staged trials put the true range at **0% to 92%**.
+
+Every one of those watched a duel and hoped the rule would show up in it. How
+a duel swings is the enemy's sailing, and no amount of choosing a cleverer
+statistic makes an emergent outcome into a test of a mechanism.
+
+**Change.** Stage the fault the rule exists to correct. Put the consort
+squarely between the flagship and the enemy — masking the battery, separation
+zero — and ask whether the steering takes her off that line. It does: 0 rad →
+**2.24, 2.49, 1.73** across three runs against a 0.9 bar. The rule, tested
+directly, indifferent to how the fight goes.
+
+## 45. The convoys were there; you could not tell which they were  (P1, reported)
+
+**Symptom.** Reported after the merchant work landed: "I didn't see a merchant
+ship at all."
+
+**Measured first, because the obvious reading was that they were not
+spawning.** Sailing a four-leg voyage between ports for fifteen simulated
+minutes and sampling every five seconds: a merchant was within sighting range
+**98% of the time**, ten different ones over the voyage, one as close as 96m.
+They were never missing.
+
+**Root cause.** Nothing said which sail was which. A laden trader is a dhow or
+a fluyt in ordinary colours, and at four hundred metres that is a ship. The
+manifest only appeared once she was marked, so the way to find the one worth
+robbing was to tap every sail on the sea in turn — which is exactly the
+tapping that unmarks things, and not a thing anybody would do.
+
+**Change.** A hull with cargo in her gets a coin beside her weight on the mast
+pip: `◆192` against a raider's plain `62`. The number still answers "how
+dangerous", the coin answers "is she carrying anything", and neither stands in
+for the other.
+
+## 44. The mast pips carry a number now  (requested)
+
+**Asked for.** Replace the symbols above the ships with a number based on
+strength or threat.
+
+**What was there.** Five pre-baked glyphs — ▼▼ ▼ ● ▲ ▲▲ — one texture per
+band, shared by every hull in it. That told you which of five buckets she fell
+into and nothing more, so two ships wearing the same arrow could be a long way
+apart and the only way to find out was to mark each one in turn.
+
+**Change.** The pip carries her fighting weight, the same figure the target
+card weighs her by, so the two agree by construction. The five colours stay,
+because the band is still worth reading at a glance and colour is never asked
+to be the only signal here — the number is the signal, the colour reinforces
+it. A texture per *sprite* rather than per band, redrawn only when the figure
+or the band actually changes: the pool is a handful of sprites, and a hull's
+weight moves slowly enough that most frames redraw nothing.
+
+Measured on the water: 47, 50, 73, 241, 431 over a fisher, a cutter, a dhow
+and two brigs.
+
+## 43. An action that opened with the player inside a rock  (P0, reported)
+
+**Symptom.** Reported: "one of the times when I started a fight, the instance
+spawned my boat in the middle of the island, grounding it from the fight."
+
+**Root cause.** `deploy` lays each side out abeam of the other, then walks any
+hull that landed on the putty out to water — twelve steps of 18m **along a
+single bearing**, the way she happened to be facing, giving up if that line
+was blocked. On a coast it usually is blocked, and the line of battle is laid
+across the bearing the fleets closed on, which near a shore is very often
+straight at it.
+
+**Change.** Rings outward from where she was going to stand, sixteen bearings
+at a time, nearest water wins. Failing that she goes to the middle of the
+arena — which is floating water by definition, because that is where two
+floating ships met.
+
+**Verification, and it reproduces exactly what was reported.** A new check in
+`campaign` forms an action on every waterfront in the world. Reverted to the
+old single-bearing walk it fails at Greywake with
+
+```
+AGROUND: PLAYER in -87.5m, Hook & Halter in -11.4m
+```
+
+— the player's own hull eighty-seven metres up inside the rock, before a shot.
+With the fix, every waterfront is clear.
+
 ## 42. A refuge a raider could follow you into  (P1)
 
 **Symptom.** The full run failed three harbour-refuge checks — *"she sheers
