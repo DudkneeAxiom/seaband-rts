@@ -121,6 +121,8 @@ export class Game {
     this.battle = null;
     this.pursuit = null;             // who is coming for you, for the HUD
     this.chasing = null;             // who you are running down, if anyone
+    this.moveGoal = null;            // where you told her to go, until she is there
+    this.boardRun = null;            // who you are closing on to grapple
     this._chaseAim = null; this._chaseT = 0;
     this.encounterCooling = 0;       // grace after one resolves
     this.target = null;
@@ -241,6 +243,8 @@ export class Game {
     this.battle = null;
     this.pursuit = null;             // who is coming for you, for the HUD
     this.chasing = null;             // who you are running down, if anyone
+    this.moveGoal = null;            // where you told her to go, until she is there
+    this.boardRun = null;            // who you are closing on to grapple
     this._chaseAim = null; this._chaseT = 0;
     this.encounterCooling = 0;       // grace after one resolves
     this.target = null;
@@ -843,8 +847,11 @@ export class Game {
 
     // ---- the campaign layer ----
     this.encounterCooling = Math.max(0, this.encounterCooling - dt);
-    if (this.mode === 'battle' && this.battle) this.battle.update(dt);
-    else {
+    if (this.mode === 'battle' && this.battle) {
+      this.battle.update(dt);
+      // the boarding order is a battle-layer manoeuvre, so it runs here
+      this.updateBoardRun(dt);
+    } else {
       this.updateChase(dt); this.updatePursuit(dt); this.checkContact();
       /* Somebody you know, in trouble, close enough to see. Cheap: only when
          she is actually near you and only once. */
@@ -1142,6 +1149,14 @@ export class Game {
 
   updateContext(dt) {
     const p = this.player;
+    /* The mark goes out when she gets there — "there" being no destination
+       and no route left to run, which is what arriving looks like from here.
+       Also when she has no helm to speak of: dead, boarding, or in port. */
+    if (this.moveGoal) {
+      const under = !p || !p.alive || p.boarding || this.inPort;
+      const arrived = !under && !p.dest && !(p.route && p.route.length);
+      if (under || arrived) this.moveGoal = null;
+    }
     // dockable port. Inside the buoys you are under the shore's guns and the
     // Tally have already sheered off, so the harbour is always open — running
     // for port is the one move a losing captain has, and it has to work.
@@ -1675,12 +1690,23 @@ export class Game {
     /* Steer round the islands rather than into them. findRoute returns null
        when the rhumb line is already clear, which is most taps — a course
        across open water is still a straight run at the point you touched. */
-    // a course of your own is the helm taken back: stop running her down
+    // a course of your own is the helm taken back: stop running her down,
+    // and stop closing for a boarding you have evidently thought better of
     this.chasing = null;
+    this.boardRun = null;
     const route = findRoute(p.x, p.z, x, z, this.limit);
     if (route) p.setRoute(route);
     else p.setDestination(x, z);
     p.throttle = 1;
+    /* Where she was told to go, kept until she gets there.
+       The ping was a ring that expanded once and vanished, so a course laid
+       across open water left nothing on the sea to say where it ended — tap,
+       look away, and the destination existed only in the helm. This is the
+       mark itself: it sits on the water until she arrives and then goes out.
+       The last waypoint of a route, not the next one: what the player chose
+       is the place they touched, and the corners in between are the helm's
+       business. */
+    this.moveGoal = { x, z };
     this.markers.pingMove(x, z);
     this.mark('sailed');
   }
@@ -1737,6 +1763,7 @@ export class Game {
     if (!this.target) return;
     this.target = null;
     this.chasing = null;
+    this.boardRun = null;
     this.fireSide = null;
     this.boardable = false;
     sfxClick(380);
@@ -1753,11 +1780,61 @@ export class Game {
     const n = fireBroadside(p, this.fireSide, this.target, this.ctx);
     if (n > 0) { this.mark('fired'); this.combatHeat = 12; }
   }
+  /**
+   * BOARD: come alongside her, then grapple.
+   *
+   * This used to refuse unless you were already alongside with the way off
+   * her, which left the actual manoeuvre — close a moving ship, match her
+   * course, take the way off — as something to be done by tapping the water
+   * beside her. That is the one gesture that cannot do it: a tap near a
+   * marked ship lands on the ship, and tapping a marked ship unmarks her, so
+   * trying to steer in toggled the target off and on again.
+   *
+   * So the button is the order. Alongside, it grapples as it always did.
+   * Short of that it lays her aboard: the helm closes on her every second or
+   * so, and the moment the grapples can reach, they go across. Pressed again
+   * it stands off, and taking the helm back by hand cancels it too.
+   */
   playerBoard() {
     const p = this.player;
     if (!p || !this.target) return;
-    if (!canBoard(p, this.target)) { toast('Get alongside and take way off her first.', '', 2000); return; }
-    this.startBoarding(p, this.target);
+    if (canBoard(p, this.target)) { this.boardRun = null; this.startBoarding(p, this.target); return; }
+    if (this.boardRun === this.target) {
+      this.boardRun = null;
+      toast('Standing off.', '', 1400);
+      return;
+    }
+    this.boardRun = this.target;
+    this._boardT = 0;
+    toast('Laying her aboard. Hold your fire until the grapples take.', '', 2600);
+  }
+
+  /**
+   * Run the boarding order. Steers for her, and takes the way off as the gap
+   * closes — grapples cannot be thrown across at ramming speed, so a run that
+   * arrives flat out arrives and bounces off, which is what made doing this
+   * by hand so fiddly.
+   */
+  updateBoardRun(dt) {
+    const t = this.boardRun;
+    if (!t) return;
+    const p = this.player;
+    if (!p || !p.alive || p.boarding || p.lockTo || !t.alive || t.captured || this.inPort) {
+      this.boardRun = null; return;
+    }
+    if (canBoard(p, t)) { this.boardRun = null; this.startBoarding(p, t); return; }
+    const d = dist(p.x, p.z, t.x, t.z);
+    if (d > 900) { this.boardRun = null; return; }   // she is gone; that is not a boarding
+    this._boardT -= dt;
+    if (this._boardT <= 0) {
+      this._boardT = 0.6;
+      p.setDestination(t.x, t.z);
+    }
+    /* Inside grappling water, come down to her pace rather than through her.
+       `canBoard` wants under 7.5 of relative speed; sail at her and you never
+       get there, so the last forty metres are sailed at her speed plus a
+       little, which is how it is actually done. */
+    p.throttle = d < 46 ? clamp((t.speed + 3) / Math.max(1, p.cls.speed), 0.08, 1) : 1;
   }
   setFleetOrder(o, silent = false) {
     this.fleetOrder = o;
@@ -3152,6 +3229,30 @@ class Markers {
       scene.add(m);
       this.moveRings.push({ mesh: m, t: 0 });
     }
+    /* The standing destination mark. The ping beside it is a flourish that
+       plays once; this is the thing you can look for when you glance back. A
+       ring on the water with a staff and a pennant over it, so it reads at
+       range against open sea as well as against a coastline. */
+    this.destMark = new THREE.Group();
+    const dRing = new THREE.RingGeometry(7, 9, 30);
+    dRing.rotateX(-Math.PI / 2);
+    this.destMark.add(new THREE.Mesh(dRing, new THREE.MeshBasicMaterial({
+      color: 0xffd27a, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide,
+    })));
+    const staff = new THREE.CylinderGeometry(0.32, 0.32, 15, 6);
+    staff.translate(0, 7.5, 0);
+    this.destMark.add(new THREE.Mesh(staff, new THREE.MeshBasicMaterial({
+      color: 0xffd27a, transparent: true, opacity: 0.85, depthWrite: false,
+    })));
+    const flag = new THREE.PlaneGeometry(5.4, 3);
+    flag.translate(2.7, 13, 0);
+    this.destMark.add(new THREE.Mesh(flag, new THREE.MeshBasicMaterial({
+      color: 0xffd27a, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide,
+    })));
+    this.destMark.visible = false;
+    this.destMark.renderOrder = 5;
+    scene.add(this.destMark);
+
     const tgeo = new THREE.RingGeometry(1, 1.26, 40);
     tgeo.rotateX(-Math.PI / 2);
     this.targetRing = new THREE.Mesh(tgeo, new THREE.MeshBasicMaterial({
@@ -3289,6 +3390,16 @@ class Markers {
     }
     const p = game.player;
     const t = game.target;
+    /* The destination mark, for as long as there is a destination. It rides
+       the swell like everything else on the water, and turns to face the
+       camera so the pennant is never edge-on and invisible. */
+    const goal = game.moveGoal;
+    this.destMark.visible = !!goal;
+    if (goal) {
+      this.destMark.position.set(goal.x, waveHeight(goal.x, goal.z) + 0.4, goal.z);
+      const cam = game.rig && game.rig.cam;
+      if (cam) this.destMark.rotation.y = Math.atan2(cam.position.x - goal.x, cam.position.z - goal.z);
+    }
     // gun arcs follow the flagship whenever there is something to shoot at
     const showArcs = !!(t && t.alive && !t.captured && p.alive);
     this.arcs.visible = showArcs;

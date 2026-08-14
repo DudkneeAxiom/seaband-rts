@@ -210,8 +210,29 @@ export function portGuarding(x, z) {
     that where she stands. This only stops cold pursuit into a harbour. */
 function sheerOffFromPort(ship, dt) {
   if (ship.aggro > 0) return false;
+  const b = ship.brain;
+  /* Having decided to sheer off, keep going for a bit.
+     The decision was re-taken every frame from "am I inside guarded water",
+     and a raider laid off a minor port starts barely forty metres inside that
+     ring — so she stood out, crossed the line, immediately resumed hunting,
+     and came straight back in. Over ten seconds she could end up *closer* to
+     the harbour than she began, which is a refuge that is not one. Marasay
+     failed this a quarter of the time and the harness caught it as a flake.
+     Standing off is a decision about the harbour, not about the exact metre
+     she is standing on, so it holds for a few seconds past the boundary. */
+  if (b && b.sheerT > 0) b.sheerT -= dt;
   const guard = portGuarding(ship.x, ship.z);
-  if (!guard) return false;
+  if (!guard) {
+    if (!b || b.sheerT <= 0 || !b.sheerFrom) return false;
+    // still standing out from the harbour she just left
+    ship.headingCmd = avoidLand(ship, Math.atan2(ship.x - b.sheerFrom.x, ship.z - b.sheerFrom.z), dt);
+    ship.dest = null;
+    ship.throttle = 1;
+    ship.target = null;
+    b.state = 'sheer';
+    return true;
+  }
+  if (b) { b.sheerT = 7; b.sheerFrom = { x: guard.x, z: guard.z }; }
   const away = Math.atan2(ship.x - guard.x, ship.z - guard.z);
   ship.headingCmd = avoidLand(ship, away, dt);
   ship.dest = null;

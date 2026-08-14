@@ -2,7 +2,7 @@
    plus the log/menu. Everything is a tall scrolling list of big rows —
    the shape thumbs are happiest with. */
 import { $, el, clear, onTap, toast, modal } from './dom.js';
-import { GOODS, RANKS, RANK_ORDER, OFFICER_ROLES, HULLS, FACTIONS } from '../data/gamedata.js';
+import { GOODS, RANKS, RANK_ORDER, OFFICER_ROLES, HULLS, FACTIONS, tonsOf } from '../data/gamedata.js';
 import { repairCost, recruitCost, PROVISION_PRICE, SHOT_PRICE } from '../sim/economy.js';
 import { drawPortrait, officerLabel, officerEffect } from '../sim/officers.js';
 import { AMBITIONS, CHAPTERS } from '../data/origins.js';
@@ -506,7 +506,7 @@ function harbourTab(n, port) {
     const c2 = repairCost(s);
     if (c2 <= 0) continue;
     const r2 = el('div', 'row');
-    r2.appendChild(el('div', 'rmain', `<div class="rtitle">${s.name}</div><div class="rsub">${s.cls.name} · hull ${Math.round(s.hull)}/${s.hullMax}</div>`));
+    r2.appendChild(el('div', 'rmain', `<div class="rtitle">${s.name}</div><div class="rsub">${s.cls.name} · ${tonsOf(s.cls)}t · hull ${Math.round(s.hull)}/${s.hullMax}</div>`));
     const b2 = el('button', 'btn gold', `◆ ${c2}`);
     b2.disabled = G.coin < c2;
     onTap(b2, () => {
@@ -788,7 +788,7 @@ function yardTab(n, port) {
       const r = el('div', 'row');
       r.appendChild(el('div', 'rmain',
         `<div class="rtitle">${pr.name}</div>
-         <div class="rsub">${cls.name} · hull ${Math.round(pr.hull)}/${cls.hull} · ${pr.guns} guns · a prize crew of ${G.prizeCrewFor(cls)} and a captain; ${cls.crewMin} hands to work her properly</div>`));
+         <div class="rsub">${cls.name} · ${tonsOf(cls)}t · hull ${Math.round(pr.hull)}/${cls.hull} · ${pr.guns} guns · a prize crew of ${G.prizeCrewFor(cls)} and a captain; ${cls.crewMin} hands to work her properly</div>`));
       const b = el('button', 'btn', 'SELL ◆' + Math.round(cls.value * 0.55 * (pr.hull / cls.hull)));
       onTap(b, () => {
         G.coin += Math.round(cls.value * 0.55 * (pr.hull / cls.hull));
@@ -824,7 +824,7 @@ function fleetRow(s, port) {
   const capt = s.captain ? s.captain.name : (s.isPlayer ? 'You' : '— no captain —');
   r.appendChild(el('div', 'rmain',
     `<div class="rtitle">${s.name} ${s.isPlayer ? '<span class="pill">FLAGSHIP</span>' : ''}</div>
-     <div class="rsub">${s.cls.name} · ${capt}</div>
+     <div class="rsub">${s.cls.name} · ${tonsOf(s.cls)}t · ${capt}</div>
      <div class="statline">
        <span>hull <b>${Math.round(s.hull)}/${s.hullMax}</b></span>
        <span>guns <b>${s.gunsPort + s.gunsStb}</b></span>
@@ -1079,7 +1079,7 @@ function logTab(n) {
   const r = el('div', 'row');
   r.appendChild(el('div', 'rmain',
     `<div class="rtitle">${p.name}</div>
-     <div class="rsub">${p.cls.name} under your own colours</div>
+     <div class="rsub">${p.cls.name} · ${tonsOf(p.cls)}t, under your own colours</div>
      <div class="statline">
       <span>coin <b>◆${fmtCoin(G.coin)}</b></span><span>prestige <b>${Math.round(G.prestige)}</b></span>
       <span>infamy <b>${Math.round(G.infamy)}</b></span><span>fleet <b>${G.fleet.length}</b></span>

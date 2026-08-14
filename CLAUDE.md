@@ -146,6 +146,11 @@ that is written down, and everything that asks "can I fire", "can I dock",
   "she is not already hostile" — and a battle flags every enemy hostile as it
   forms, so the guard was always shut by the time it was asked. Piracy was
   free. Charge at the moment of choice, not at the moment of consequence.
+- **If a manoeuvre matters, give it a control.** BOARD only appeared once you
+  were already alongside, so closing the last two hundred metres had no button
+  — and the only input left, tapping the water beside her, lands on the marked
+  ship and unmarks her. The gesture available for the job undid the job. A
+  button that gives the order beats an input the player has to be clever with.
 - **One control per job.** The town page briefly carried a WHERE TO GO list —
   a row and a GO button per counter — directly beneath a tab strip with one
   tab per counter. Navigation written out twice is not twice as navigable; it

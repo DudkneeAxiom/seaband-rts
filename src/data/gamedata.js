@@ -146,6 +146,20 @@ export const GOODS = {
   spice:  { id:'spice',  name:'Pepper',    base: 110, icon:'✦', vol:1 },
 };
 
+/**
+ * Tons burthen — how big she is, in one number you can compare.
+ *
+ * Derived from her own length and beam rather than written down beside them,
+ * so it can never disagree with the hull that gets drawn: change the
+ * dimensions and the tonnage follows. The shape of the formula is the old
+ * builder's measure, which is a measure of *capacity* — which is why a fluyt
+ * out-tons a brig while losing badly to her, and that is worth knowing at a
+ * glance rather than being a surprise.
+ *
+ *   cutter 60 · lugger 113 · dhow 163 · brig 324 · fluyt 330 · frigate 592
+ */
+export const tonsOf = cls => (cls ? Math.round(cls.len * cls.beam * cls.beam * 0.09) : 0);
+
 /* ---------------- Crew ranks ---------------- */
 export const RANKS = {
   deckhand: { id:'deckhand', name:'Deckhand',  xp: 0,   wage: 2, sail:0.5, gun:0.4, fight:0.6, tier:0 },

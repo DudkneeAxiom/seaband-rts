@@ -880,6 +880,72 @@ ok(`word in harbour points you at the story's quarry (${hunt.note
 ok(`and the objective says so in words (${hunt.note || hunt.toldText.replace(/<[^>]+>/g, '').trim()})`,
   !hunt.note && /off /.test(hunt.toldText) && hunt.blindText !== hunt.toldText);
 
+/* ---- how big she is, in one number ---- */
+const tons = await G(() => {
+  const g = window.__game;
+  const t = Object.values(g.HULLS).map(c => ({ name: c.name, t: Math.round(c.len * c.beam * c.beam * 0.09) }));
+  return { list: t, flag: document.getElementById('flag-name').textContent };
+});
+ok(`every hull has a tonnage, and it rises with her (${tons.list.map(x => `${x.name} ${x.t}t`).join(', ')})`,
+  tons.list.every(x => x.t > 0)
+  && tons.list.find(x => x.name === 'Cutter').t < tons.list.find(x => x.name === 'Frigate').t);
+ok(`and your own is on the ship's own panel ("${tons.flag}")`, /·\s*\d+t/.test(tons.flag));
+
+/* ---- the mark stays on the water until she gets there ----
+   A tap used to play one expanding ring and vanish, so a course laid across
+   open water left nothing behind to say where it ended. */
+const wp = await G(() => {
+  const g = window.__game, p = g.player;
+  p.x = 40; p.z = 300; p.speed = 0; p.yaw = 0; p.hull = p.hullMax;
+  g.commandMove(40, 430);
+  for (let k = 0; k < 30; k++) g.update(1 / 30);
+  return { goal: !!g.moveGoal, shown: g.markers.destMark.visible,
+    at: g.moveGoal ? [Math.round(g.moveGoal.x), Math.round(g.moveGoal.z)] : null };
+});
+ok(`a course laid leaves a mark on the water (${JSON.stringify(wp.at)})`, wp.goal && wp.shown);
+const wpGone = await G(() => {
+  const g = window.__game;
+  for (let i = 0; i < 90 * 30 && g.moveGoal; i++) g.update(1 / 30);
+  return { goal: !!g.moveGoal, shown: g.markers.destMark.visible,
+    left: Math.round(Math.hypot(g.player.x - 40, g.player.z - 430)) };
+});
+ok(`and it goes out when she gets there (${wpGone.left}m off the mark)`,
+  !wpGone.goal && !wpGone.shown && wpGone.left < 60);
+
+/* ---- BOARD is an order, not a reward for having already arrived ----
+   Getting alongside was the part with no control on it: the only way to
+   steer in was to tap the water beside her, and a tap near a marked ship
+   lands on the ship, which unmarks her. */
+const gotBattle = await intoBattle(page, { enemyHull: 0.55 });
+const boardRun = await G(() => {
+  const g = window.__game, p = g.player;
+  if (!g.battle) return null;
+  p.crew.marine += 12; p.crew.sailor += 8;
+  const t = g.battle.enemies[0];
+  g.target = t;
+  const gap0 = Math.round(Math.hypot(t.x - p.x, t.z - p.z));
+  const offered = !!document.querySelector('.act-btn.board') || (!g.boardable && !!g.target);
+  g.playerBoard();
+  const ordered = g.boardRun === t;
+  for (let i = 0; i < 60 * 30; i++) {
+    g.update(1 / 30);
+    if (p.boarding || g.mode !== 'battle') break;
+  }
+  return {
+    offered, ordered, gap0,
+    gap: g.target ? Math.round(Math.hypot(g.target.x - p.x, g.target.z - p.z)) : -1,
+    boarding: !!p.boarding, mode: g.mode,
+  };
+});
+ok(`BOARD is offered before you are alongside, and gives the order `
+  + `(${boardRun ? `${boardRun.gap0}m off, ordered ${boardRun.ordered}` : 'no action'})`,
+!!gotBattle && !!boardRun && boardRun.offered && boardRun.ordered);
+ok(`and the helm closes her and grapples without being steered `
+  + `(${boardRun ? `${boardRun.gap0}m -> ${boardRun.gap}m, boarding ${boardRun.boarding}` : '-'})`,
+!!boardRun && boardRun.boarding && boardRun.gap < boardRun.gap0);
+await leaveBattle(page);
+for (let i = 0; i < 4 && await dismissModal(page); i++);
+
 /* ---- last of all: a new voyage starts on a clock nobody has to reset ----
    Reported: starting a new campaign gave a world already running fast, with
    nothing to do about it but notice and set the clock back by hand. The game

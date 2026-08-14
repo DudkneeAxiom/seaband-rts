@@ -1,7 +1,7 @@
 /* The heads-up display. Contextual: buttons exist only while they mean
    something, so the ocean keeps the screen. */
 import { $, el, clear, onTap, toast, setNoticesLow } from './dom.js';
-import { AMMO, FACTIONS, GOODS } from '../data/gamedata.js';
+import { AMMO, FACTIONS, GOODS, tonsOf } from '../data/gamedata.js';
 import { clamp, clamp01, fmtCoin, normAng, TAU } from '../core/util.js';
 import { worldToScreen } from '../core/input.js';
 
@@ -103,7 +103,7 @@ export class HUD {
       this.syncSpeed();
 
       if (p) {
-        $('flag-name').textContent = p.name;
+        $('flag-name').textContent = `${p.name} · ${tonsOf(p.cls)}t`;
         setBar('bar-hull', 'txt-hull', p.hullFrac, Math.round(p.hull));
         setBar('bar-sail', 'txt-sail', p.sailFrac, Math.round(p.sails));
         setBar('bar-crew', 'txt-crew', p.crewFrac, p.crewTotal);
@@ -332,7 +332,13 @@ export class HUD {
     if (!p || !p.alive) { this.renderActions([]); return; }
 
     if (g.dockablePort && !p.boarding) acts.push('dock');
-    if (g.boardable) acts.push('board');
+    /* BOARD is offered whenever there is somebody to board, not only once you
+       are already alongside. Getting alongside *is* the manoeuvre, and it was
+       the part with no control on it — the only way to steer in was to tap
+       the water beside her, which is a tap that lands on the ship and unmarks
+       her. The button gives the order and the helm does the closing. */
+    if (g.ctx.combatLive && g.target && g.target.alive && !g.target.captured
+      && !p.boarding && !g.target.boarding) acts.push('board');
     const fireSide = g.fireSide;
     /* Guns belong to the action. On the campaign layer a marked ship is
        something you are looking at, not something you are shooting at — so
@@ -345,6 +351,17 @@ export class HUD {
 
     const key = acts.join(',') + '|' + (fireSide || '') + '|' + (g.dockablePort ? g.dockablePort.id : '');
     if (key !== this.actionKeys) { this.actionKeys = key; this.renderActions(acts); }
+
+    /* The board button says which of its two jobs it is about to do: throw
+       the grapples, close the range, or stand off from a run already
+       ordered. A button whose meaning changes has to say so. */
+    if (this.buttons.board) {
+      const sub = this.buttons.board.querySelector('.sub');
+      const closing = g.boardRun === g.target;
+      this.buttons.board.classList.toggle('reloading', !g.boardable && !closing);
+      sub.textContent = g.boardable ? `${Math.round(g.boardOdds * 100)}% ODDS`
+        : closing ? 'CLOSING — TAP TO STOP' : 'CLOSE HER';
+    }
 
     // live reload ring
     if (this.buttons.fire) {
@@ -384,7 +401,7 @@ export class HUD {
     }
 
     if (acts.includes('board')) {
-      const b = el('button', 'act-btn board', `BOARD<span class="sub">${Math.round(g.boardOdds * 100)}% ODDS</span>`);
+      const b = el('button', 'act-btn board', `BOARD<span class="sub"></span>`);
       onTap(b, () => g.playerBoard(), 300);
       box.appendChild(b);
       this.buttons.board = b;
@@ -432,7 +449,8 @@ export class HUD {
     $('tc-sail').style.width = (t.sailFrac * 100) + '%';
     $('tc-crew').style.width = (t.crewFrac * 100) + '%';
     const d = Math.hypot(t.x - g.player.x, t.z - g.player.z);
-    $('tc-who').textContent = `${fac ? fac.short + ' · ' : ''}${t.cls.name}`;
+    // how big she is, in the one number that compares hulls at a glance
+    $('tc-who').textContent = `${fac ? fac.short + ' · ' : ''}${t.cls.name} · ${tonsOf(t.cls)}t`;
     /* What a loaded merchant is worth, and what is travelling with her.
        A convoy should be a decision made at a distance rather than a surprise
        found in the hold afterwards — so the manifest and the escort count are
@@ -447,9 +465,8 @@ export class HUD {
          the cargo gets the line to itself. */
       const good = GOODS[m.good];
       const guard = (t.escorts || []).filter(e => e && e.alive && !e.captured).length;
-      $('tc-who').textContent = `${fac ? fac.short + ' · ' : ''}`
-        + (guard ? `${guard} escort${guard > 1 ? 's' : ''}` : 'unescorted');
-      $('tc-range').textContent = `${m.amount} ${good ? good.name : m.good} · ~◆${m.value} · ${Math.round(d)}m`;
+      $('tc-range').textContent = `${m.amount} ${good ? good.name : m.good} · ~◆${m.value}`
+        + (guard ? ` · ${guard} escort${guard > 1 ? 's' : ''}` : ' · unescorted');
     } else {
       $('tc-range').textContent = `${Math.round(d)}m · ${t.gunsPort + t.gunsStb} guns`;
     }

@@ -5,6 +5,100 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 42. A refuge a raider could follow you into  (P1)
+
+**Symptom.** The full run failed three harbour-refuge checks — *"she sheers
+off rather than follow you under the guns of Greywake"* — reporting the raider
+**closer** to the harbour than she started (−15m, −62m, −67m). Run on its own,
+the same suite passed all five.
+
+**Not a flake, and worth the twenty minutes to find that out.** Fourteen
+trials per port with the raider's state reset each time: Ilo Vantu, Greywake,
+Tideglass and Escarra never failed; **Marasay failed 4 of 14**, worst case
+−58m. The intermittency in the full run was carried brain state changing which
+side of the coin came up, not the presence or absence of a bug.
+
+**Root cause.** The decision to sheer off was re-taken every frame from "am I
+inside guarded water", and a raider laid off a *minor* port starts barely
+forty metres inside that ring. So she stood out, crossed the line, instantly
+resumed hunting, and came back in — and over ten seconds could finish nearer
+the harbour than she began. A refuge that is not one.
+
+**Change.** Standing off is a decision about the harbour, not about the exact
+metre she is standing on: it holds for seven seconds past the boundary,
+steering away from the port she just left. Same instinct as `chaseHold`, which
+exists for the same reason one layer up.
+
+**Verification.** The same seventy trials: **0 failures**, and Marasay's worst
+case goes from −58m to +27m.
+
+## 41. BOARD is an order now, not a reward for having already arrived  (P1, reported)
+
+**Symptom.** Reported: "in combat you should have a clickable option to board
+and clicking that button makes the ship follow the enemy ship to board;
+currently if a player tries to tap to get close to board the ship it toggles
+and toggles off the focused view."
+
+**Root cause, and it is a nasty little trap.** The BOARD button only appeared
+once `canBoard` was already true — alongside her, with the way off. Getting
+*there* is the whole manoeuvre, and it had no control at all: the only way to
+steer in was to tap the water beside her. But a tap near a marked ship lands
+on the *ship*, and tapping the ship you have marked is the gesture that
+unmarks her. So the one input available for closing to board toggled the
+target off, and tapping again toggled it back — exactly as reported. The
+manoeuvre was unreachable through the interface that was meant to perform it.
+
+**Change.** The button is the order. It is offered whenever there is somebody
+to board, and it says which of its jobs it is about to do: `CLOSE HER` short
+of grappling range, `CLOSING — TAP TO STOP` once ordered, `NN% ODDS` when the
+grapples can reach. `updateBoardRun` steers for her every half-second and
+**takes the way off as the gap closes** — grapples cannot be thrown at ramming
+speed, so the last forty metres are sailed at her pace plus a little, which is
+the part that made doing it by hand so fiddly. The moment `canBoard` is true
+the grapples go across on their own. Pressing it again stands off; laying a
+course of your own cancels it too.
+
+**Verification.** `systems`, in a real action: 181m → 50m unsteered, `boarding
+true`. Measured over a run: eleven seconds from 175m, slowing from 14 knots to
+1.3 as she came alongside.
+
+## 40. A destination you could not see  (P2, reported)
+
+**Symptom.** Reported: "if a player clicks or taps out on the map I'd like to
+be able to see where that marker is and once the ship comes to a halt on the
+waypoint it goes away."
+
+**Root cause.** `pingMove` was a flourish — one ring that expanded and
+vanished. After it played, a course laid across open water left nothing on the
+sea to say where it ended; the destination existed only inside the helm.
+
+**Change.** A standing mark: a ring on the water with a staff and a pennant
+over it, turned to face the camera so the flag is never edge-on. It shows the
+*end* of the course rather than the next corner of a route — what the player
+chose is the place they touched, and the dog-legs in between are the helm's
+business. It goes out when she arrives, and also when there is no helm to
+speak of: dead, boarding, or in port.
+
+## 39. How big is she, in one number  (feature, requested)
+
+**Asked for.** A size value for ships, in the spirit of Bannerlord's party
+sizes — something you can compare at a glance.
+
+**What it is.** Tons burthen, derived from her own length and beam rather than
+written down beside them, so it can never disagree with the hull that gets
+drawn. The shape of the formula is the old builder's measure, which measures
+*capacity* — which is why a fluyt out-tons a brig while losing badly to her,
+and that is a thing worth knowing at a glance rather than discovering in an
+action:
+
+```
+cutter 60t · lugger 113t · dhow 163t · brig 324t · fluyt 330t · frigate 592t
+```
+
+It sits on the target card beside her class, on your own ship's panel beside
+her name, and in the yard and fleet lists where hulls are actually compared
+before money changes hands.
+
 ## 38. Playtest: robbing a friendly trader cost nothing at all  (P0)
 
 **Symptom.** Found by playing it. Ran a convoy down the way a player does —
