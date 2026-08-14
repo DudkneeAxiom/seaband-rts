@@ -140,6 +140,12 @@ that is written down, and everything that asks "can I fire", "can I dock",
   "ships glitching in the harbour" turned out to be. Both now use the same
   beat. Ask this question *first* when the world misbehaves and the player does
   not.
+- **Carry a rule across, and carry its exceptions too.** `beatTo` was given to
+  NPC captains and the beat came with it; the rule that a beat is a campaign
+  manoeuvre *only* did not, so raiders zigzagged to windward mid-duel and
+  actions stopped ending. `runDownTo` had it one step along, routing a hull
+  round a headland at 126m from her enemy. Both exceptions were already written
+  down in `Ship.update` — for the player.
 - **Measure the words in the report.** "Stuck at the wall" was chased twice
   with the metrics already to hand — hulls *aground* and hulls *going nowhere*
   — and both read clean while the ship in the screenshot sat sixteen metres off

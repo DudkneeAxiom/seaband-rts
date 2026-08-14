@@ -60,8 +60,10 @@ function avoidLand(ship, wantAng, dt) {
 }
 
 /* The wind this tick, cached at the top of updateAI so fifteen steerTo call
-   sites do not each have to carry the world on their backs. */
+   sites do not each have to carry the world on their backs. And whether an
+   action is live, for the same reason. */
 let WIND = 0;
+let LIVE = false;
 
 /**
  * A mark inside the no-go cone has to be beaten up to, and every hull on this
@@ -82,10 +84,18 @@ let WIND = 0;
  * about, and a lead line that takes the other board rather than stand into the
  * shore — and it had been wired to the player alone since it was written. Same
  * fault as `findRoute` before it. So: same method, both sides.
+ *
+ * Both sides *including the rule about when not to beat*. `Ship.update` has
+ * carried that rule for the player since the beat was written — "inside a
+ * battle the tap is a tactical order, the distances are a few ship-lengths"
+ * — and handing NPCs the beat without it put them to windward of a duel: a
+ * raider zigzagged at 126m from an enemy on 39% hull and the action would not
+ * end. Carrying a rule across means carrying its exceptions too.
  */
 function steerTo(ship, x, z, dt) {
   const want = Math.atan2(x - ship.x, z - ship.z);
-  const safe = avoidLand(ship, ship.beatTo(want, dist(ship.x, ship.z, x, z), WIND), dt);
+  const aim = LIVE ? want : ship.beatTo(want, dist(ship.x, ship.z, x, z), WIND);
+  const safe = avoidLand(ship, aim, dt);
   ship.headingCmd = safe;
   ship.dest = null;
   ship.throttle = 1;
@@ -173,7 +183,12 @@ function steerVia(ship, x, z, dt, world) {
  * there, which is the reason it kept surviving a watch with nobody in it.
  */
 function runDownTo(ship, x, z, dt, world) {
-  if (clearWater(ship.x, ship.z, x, z, keelFor(ship.draft))) {
+  /* Not inside a live action. A battle is fought at a few ship-lengths on
+     ground both hulls are already standing on, and sending a raider off to
+     work round a headland when she is 126m from her enemy is how a duel stops
+     ending: measured, an action that would not close with the enemy on 34%
+     hull. The same exception the beat carries, for the same reason. */
+  if (LIVE || clearWater(ship.x, ship.z, x, z, keelFor(ship.draft))) {
     if (ship.brain) { ship.brain.path = null; ship.brain.pathGoal = null; }
     steerTo(ship, x, z, dt);
     return;
@@ -349,6 +364,7 @@ export function updateAI(ship, dt, world, ctx) {
   if (!ship.alive || ship.captured || ship.isPlayer) return;
   if (ship.boarding) return;
   WIND = world.windAng;
+  LIVE = !!world.combatLive;
   const b = ship.brain;
   b.t += dt;
   if (b.cooldown > 0) b.cooldown -= dt;
@@ -654,6 +670,12 @@ function sableAI(ship, dt, world, ctx, hurt) {
          a breakwater for ten minutes is a bug. */
       for (let i = 0; i < 12 && !alt; i++) {
         const c = openStation(ship.x, ship.z, 150, 320, need + 2);
+        if (c && clearWater(ship.x, ship.z, c.x, c.z, need)) alt = c;
+      }
+      // and room is a luxury before it is a requirement: water she can see is
+      // the floor, or the ladder still has a rung that can come up empty
+      for (let i = 0; i < 16 && !alt; i++) {
+        const c = waterPoint(ship.x, ship.z, 140, 320, need);
         if (c && clearWater(ship.x, ship.z, c.x, c.z, need)) alt = c;
       }
       if (alt) { b.post = alt; b.path = null; b.pathGoal = null; }

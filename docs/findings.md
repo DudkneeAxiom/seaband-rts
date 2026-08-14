@@ -97,6 +97,17 @@ time within 60m of arm  96–99%          18–23%
 The staged check puts a guard one side of the harbour and her gate the other
 and asks whether she shifts it. It fails with the rule reverted.
 
+**And the full suite caught what four standalone runs did not.** Giving NPC
+captains `beatTo` gave them the beat *without the rule about when not to beat*.
+`Ship.update` has carried that rule for the player since the beat was written —
+"inside a battle the tap is a tactical order, the distances are a few
+ship-lengths" — and an NPC raider zigzagging to windward at 126m from an enemy
+on 34% hull meant the action would not end. Three campaign checks failed
+together, none of them mine. `runDownTo` had the same fault one step along: it
+sent a hull off to work round a headland mid-duel. Both carry the exception
+now. **Carrying a rule across means carrying its exceptions too** — and a suite
+that runs everything is how you find out you left one behind.
+
 **Lesson.** The complaint was "stuck at the wall". I measured *aground* and
 *going nowhere*, twice, because those were the metrics I already had. Neither
 is the same thing, and a hull can sit sixteen metres off masonry for ten
