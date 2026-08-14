@@ -5,6 +5,113 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 51. The harbours were full of ships that could not sail to windward  (P1, reported)
+
+**Symptom.** Reported from a phone with a screenshot: ships "glitching in
+harbor ports … ones stuck on the grey wall", a merchant that "keeps moving left
+to right", and "if a player is docked or tapped to slow down it doesn't anchor
+the ship and allows it to drift."
+
+**Reproduced.** Half an hour watched off Greywake, tracking every hull within
+900m. Four of fifteen were going nowhere. The worst is the ship in the
+screenshot:
+
+```
+hull                     path   net  wander  swing   aground
+Stone Arm      (sable)     74m    6m   0.08   10.3 rad   2.3%
+Breakwater     (sable)    393m   87m   0.22   19.4 rad   0.7%
+Warehouse Rose (escort)   584m   25m   0.04   39.9 rad   0
+```
+
+`Warehouse Rose` turned six full circles in two minutes to gain 25m.
+
+**Root cause — the big one: no NPC captain could beat to windward.**
+
+The first guess was terrain, and it was wrong. Both Sable gate-keepers had a
+post in **56m and 78m of water** with a clear line the whole way — sounded end
+to end, `findRoute` returning null because there was nothing to route around.
+What they had in common was the wind: their posts lay **0.50 and 0.61 rad
+inside a 0.82 rad no-go cone**, dead upwind.
+
+`layToWind` laid the near edge of the cone and held it, on the stated reasoning
+that "the mark drifts out of the cone as she goes, and one long board with a
+fetch at the end looks like a captain who knows her trade". That is true of a
+mark you are passing and false of a station, which does not move: she reaches
+away until the bearing swings, comes back, and does it again for ever. There
+was no tack — the comment said so outright: "An NPC captain has no tack state
+to beat with."
+
+`Ship.beatTo` is the real thing — a tack state, a rule for when to come about,
+and a lead line that takes the other board rather than stand into the shore —
+and it had been wired to the player alone since it was written. Exactly the
+`findRoute` fault of a year earlier, and finding 49's before that.
+
+**Three smaller ones underneath it.**
+
+- A Sable picket ran at full throttle to a 120m ring and then at a flat quarter
+  throttle inside it. She was still making thirteen knots when she crossed the
+  ring, coasted out the far side, was told to close again, and orbited. At a
+  harbour with arms, one end of that orbit is masonry.
+- A Sable post was a bearing off a fixed station with nothing asking whether
+  the result was water — the same fault fixed for loitering and escort stations
+  two sessions ago, missed here.
+- An escort whose charge is gone steers for home, and "steer for home" with no
+  arrival is an orbit. That was `Warehouse Rose`.
+
+**Change.** `steerTo` calls `ship.beatTo` — the same beat for every hull
+afloat. The picket takes the way off as she comes in and lies to inside 30m,
+and gets her sails back the moment she is aground whatever the station says.
+Sable posts are sounded. A paid-off escort that reaches her home port takes up
+her faction's patrol, which knows how to arrive.
+
+**And the anchoring, which was two separate faults.** Arriving at a mark left
+12% of throttle on — meant to read as "taking the way off her", and reading
+instead as a ship that never stops: **239m clear of the mark in the five
+minutes after reaching it**, still making half a knot, for ever. And
+`leavePort` set *full* throttle, so closing the harbour screen sent her sailing
+herself out of the roads on whatever heading she was lying on. Both now leave
+her where she is; tapping the water still works, and arriving on a shoal keeps
+her sails so the escape steering has something to work with.
+
+**Verification.** Greywake watched again, three runs:
+
+```
+                  hulls going nowhere   ship-seconds aground
+before                    4                 0.65%
+after                 0, 0, 1*             0.05%, 0.14%, 0.17%
+* a pirate circling the parked player, which is what she is supposed to do
+```
+
+Worst wander went from 0.04 to 0.96 — near-straight sailing. Three staged
+checks in `campaign`, each confirmed to fail with its own fix reverted:
+
+```
+a mark dead upwind is beaten up to      board starboard, 0 rad off close-hauled, then came about
+she lies where she was sailed to        sailed 327m, throttle 0 on arrival, 0m of drift in five minutes
+leaving the harbour screen              throttle 0 alongside, 0 after
+```
+
+**The beat check took six attempts, and every failure was staging.** It let her
+sail four minutes and she covered 2650m — a teleport, not a beat, because
+parking the player at 9e4 put every hull outside the cull radius and the
+population system moved them wholesale. Then the sea room was checked at 400m
+and not at 60m, so it measured `avoidLand`'s 1.5 rad deflection instead of the
+beat. Then the player was parked 300m away and *was* the scenario — a Sable
+guard finds an enemy at 640m, so the hull steered at her the whole time and the
+check read a bearing of exactly π/4. Then the ship the world handed it was
+still shaking off section 1 and `updateAI` returned before any steering at all.
+The version that works asks two questions and runs the world for one tick:
+does she lay a board, and when she has stood far enough off, does she come
+about.
+
+**And one check passed while measuring nothing.** "She lies where she was
+sailed to" passed with the fix reverted, because `commandMove` refuses for a
+hull that is boarding or grappled — both left lying about by earlier sections —
+so the course was never laid and it sat measuring a ship that had not moved.
+Then the mark it tapped turned out to be ashore, so 600 seconds went by for a
+452m trip and "throttle on arrival" was read off a ship still under way. It
+sounds for water now and proves she sailed.
+
 ## 50. Two "findings" that were my own probes lying to me  (harness)
 
 **Symptom.** The previous session's voyage ended with two open items: DOCK was

@@ -63,22 +63,29 @@ function avoidLand(ship, wantAng, dt) {
    sites do not each have to carry the world on their backs. */
 let WIND = 0;
 
-/** A mark inside the no-go cone cannot be steered at. An NPC captain has no
-    tack state to beat with, so she lays the near edge of the cone and holds
-    it — the mark drifts out of the cone as she goes, and one long board with
-    a fetch at the end looks like a captain who knows her trade. Holding the
-    plain bearing looked like a ship becalmed in open water. */
-function layToWind(ship, want) {
-  const eye = WIND + Math.PI;
-  const off = angDiff(eye, want);
-  if (Math.abs(off) >= 0.82) return want;
-  const side = off !== 0 ? Math.sign(off) : (ship.id % 2 ? 1 : -1);
-  return eye + 0.82 * side;
-}
-
+/**
+ * A mark inside the no-go cone has to be beaten up to, and every hull on this
+ * sea now beats the same way.
+ *
+ * This used to lay the near edge of the cone and hold it, on the reasoning
+ * that "the mark drifts out of the cone as she goes, and one long board with a
+ * fetch at the end looks like a captain who knows her trade". That is true of
+ * a mark you are passing. It is false of a station, which does not move: she
+ * reaches away on the one board until the bearing swings, comes back, and does
+ * it again, for ever. From the deck it is a ship sliding left to right and
+ * getting nowhere — reported exactly that way, with a screenshot of a Sable
+ * guard grinding on Greywake's breakwater at the far end of the swing. Both
+ * gate-keepers measured with their post **dead upwind**, 0.50 and 0.61 rad
+ * inside a 0.82 rad cone, in open water with a clear line the whole way.
+ *
+ * `Ship.beatTo` is the real thing — a tack state, a rule for when to come
+ * about, and a lead line that takes the other board rather than stand into the
+ * shore — and it had been wired to the player alone since it was written. Same
+ * fault as `findRoute` before it. So: same method, both sides.
+ */
 function steerTo(ship, x, z, dt) {
   const want = Math.atan2(x - ship.x, z - ship.z);
-  const safe = avoidLand(ship, layToWind(ship, want), dt);
+  const safe = avoidLand(ship, ship.beatTo(want, dist(ship.x, ship.z, x, z), WIND), dt);
   ship.headingCmd = safe;
   ship.dest = null;
   ship.throttle = 1;
@@ -543,9 +550,13 @@ const SABLE_REACH = 900;
 function sableAI(ship, dt, world, ctx, hurt) {
   const b = ship.brain;
   if (!b.post) {
-    // each of them keeps a different gate of the Sound
+    // each of them keeps a different gate of the Sound — in water, and only
+    // where there is water: the bearing is hers, the depth is the sea's answer
     const a = (ship.name.length * 1.7) % TAU;
-    b.post = { x: SABLE_STATION.x + Math.cos(a) * 380, z: SABLE_STATION.z + Math.sin(a) * 380 };
+    const want = { x: SABLE_STATION.x + Math.cos(a) * 380, z: SABLE_STATION.z + Math.sin(a) * 380 };
+    b.post = depthAt(want.x, want.z) > keelFor(ship.draft)
+      ? want
+      : (waterPoint(SABLE_STATION.x, SABLE_STATION.z, 300, 520, keelFor(ship.draft)) || want);
   }
   const fromPost = dist(ship.x, ship.z, b.post.x, b.post.z);
 
@@ -572,9 +583,31 @@ function sableAI(ship, dt, world, ctx, hurt) {
       return;
     }
   }
-  // back to the gate, and hold it
-  if (fromPost > 120) steerTo(ship, b.post.x, b.post.z, dt);
-  else { ship.throttle = 0.22; ship.headingCmd = avoidLandPublic(ship, ship.yaw + dt * 0.25); }
+  /* Back to the gate, round the land rather than at it. This laid the rhumb
+     line, and a Sable gate sits inside Greywake — so a hull on the wrong side
+     of the left breakwater arm steered straight at masonry, was deflected by
+     `avoidLand`, and was pointed straight back at it. Reported with a
+     screenshot of exactly that: `Stone Arm` on the wall, 74m sailed and 6m
+     gained in three minutes, with ten radians of helm in it. Her post was
+     never the problem — it is in 56m of water. The road to it was. */
+  if (fromPost > 240) steerVia(ship, b.post.x, b.post.z, dt, world);
+  else {
+    /* Holding the gate means lying to it, not circling it.
+       This ran her at full throttle to a 120m ring and then at a flat quarter
+       throttle inside it, which never settles: she was still making thirteen
+       knots when she crossed the ring, coasted straight out the far side, was
+       told to close again, and went round for ever. That limit cycle is what
+       laid a Sable guard on Greywake's breakwater — 80m sailed and 9m gained
+       in two minutes, with the arm at one end of the swing.
+       So she takes the way off as she comes in, the way anything arriving
+       somewhere does, and lies to inside thirty metres. Aground she gets her
+       sails back whatever the station says: nothing here may pin a hull. */
+    const stuck = depthAt(ship.x, ship.z) < ship.draft;
+    ship.throttle = stuck ? 1 : clamp((fromPost - 30) / 150, 0, 0.55);
+    ship.headingCmd = avoidLandPublic(ship, fromPost > 60
+      ? Math.atan2(b.post.x - ship.x, b.post.z - ship.z)
+      : ship.yaw + dt * 0.25);
+  }
 }
 
 /* ---------- Veyra Covenant: knowledge of the water, used ----------
@@ -669,7 +702,20 @@ function escortAI(ship, dt, world, ctx, hurt) {
   if (chargeLost) {
     ship.escortFor = null;
     const home = nearestPort(ship, p => p.faction === ship.faction) || nearestPort(ship);
-    if (home) steerVia(ship, home.x, home.z, dt, world);
+    /* And when she gets there she is paid off, because "steer for home" with
+       no arrival is an orbit. `Warehouse Rose` sailed 584m round Greywake and
+       gained 25m of it, with forty radians of helm — the merchant the player
+       reported "moving left to right" without going anywhere. A hull with no
+       job takes the work her faction has: the roads out of her own port,
+       which is `patrolAI`, and which knows how to arrive. */
+    if (!home) return;
+    if (dist(ship.x, ship.z, home.x, home.z) < (home.dockR || 90) + 120) {
+      ship.role = 'patrol';
+      ship.escortSlot = 0;
+      b.post = null; b.wpPos = null; b.path = null; b.pathGoal = null; b.station = null;
+      return;
+    }
+    steerVia(ship, home.x, home.z, dt, world);
     return;
   }
 

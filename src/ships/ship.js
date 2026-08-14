@@ -306,9 +306,18 @@ export class Ship {
           // a waypoint, not the destination — round it and carry on
           this.dest = this.route.shift();
         } else {
-          // arrived: hold the heading but take the way off her
+          /* Arrived: hold the heading and take *all* the way off her.
+             This left 12% of throttle on, which was meant to read as "taking
+             the way off" and instead read as a ship that never stops — she
+             sailed 239m clear of the mark in the five minutes after reaching
+             it, still making half a knot, for ever. Reported from the deck as
+             the ship not anchoring when you tapped to slow her down. A mark
+             you sailed to is a place you meant to be. */
           this.dest = null; this.headingCmd = this.yaw;
-          if (this.isPlayer) this.throttle = 0.12;
+          // unless the mark she was sent to turns out to be a shoal: taking
+          // the way off there would pin her on it, and the escape steering
+          // above needs sail to work with
+          if (this.isPlayer && depthAt(this.x, this.z) >= this.draft) this.throttle = 0;
         }
       }
       else {

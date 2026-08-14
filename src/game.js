@@ -2421,7 +2421,13 @@ export class Game {
   leavePort() {
     this.inPort = null;
     const p = this.player;
-    if (p && p.alive) { p.throttle = 1; p.headingCmd = p.yaw; }
+    /* She lies where she is until she is told to go. Closing the harbour
+       screen used to set full throttle, so a captain who had finished her
+       business looked up to find the ship sailing herself out of the roads on
+       whatever heading she happened to be lying on — the other half of the
+       report that docking does not anchor her. Tapping the water still works,
+       and always will. */
+    if (p && p.alive) { p.throttle = 0; p.dest = null; p.route = null; p.headingCmd = p.yaw; }
     this.refreshObjective();
     this.save();
   }

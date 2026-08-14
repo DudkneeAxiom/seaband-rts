@@ -134,7 +134,23 @@ that is written down, and everything that asks "can I fire", "can I dock",
   existed for a year and was wired to tap-to-sail alone, so NPC captains went
   on steering the rhumb line into headlands — the exact fault the route module
   was written to cure, still live for every hull but one. When a fix lands on
-  the player's path, ask what else takes that path.
+  the player's path, ask what else takes that path. It happened again with
+  `beatTo`: no NPC captain could sail to windward, so any station upwind was
+  simply unreachable and they reached away and back for ever — which is what
+  "ships glitching in the harbour" turned out to be. Both now use the same
+  beat. Ask this question *first* when the world misbehaves and the player does
+  not.
+- **Look for the wind before the terrain.** Two guard ships pinned at Greywake
+  looked exactly like a routing fault, and their posts were in 56m and 78m of
+  water with a clear line the whole way. What they had in common was that the
+  post lay inside the no-go cone. A hull that cannot get somewhere is not
+  always a hull that cannot see the way.
+- **Arriving means stopping.** Reaching a mark left 12% of throttle on, meant
+  as "taking the way off her" and read from the deck as a ship that never
+  stops — 239m clear of the mark in the five minutes after reaching it. A
+  station-keeper had the same shape: full throttle to a ring, flat quarter
+  throttle inside it, and an orbit she never settled out of. Take the way off
+  as she comes in, and let her lie there.
 - **A rule about position must cover what is actually drawn.** Placement
   sounded the nominal footprint while `building()` draws past it, so buildings
   were approved whose geometry hung over the harbour. Each kind declares its
@@ -186,6 +202,18 @@ that is written down, and everything that asks "can I fire", "can I dock",
   failed one run in three because a hostile in sight sent her into the fight
   branch and the scenario never happened at all. **Prove a new check fails with
   its own fix reverted** — all three of finding 49's do — or it is decoration.
+  Finding 51 proves why: one of its checks passed green with the fix reverted
+  because `commandMove` silently refuses for a hull that is boarding or
+  grappled, both left lying about by earlier sections, so the course was never
+  laid and the check sat measuring a ship that had not moved. **Assert that the
+  staging happened**, not only that the outcome looks right.
+- **A long suite leaves residue, and the last section inherits all of it.**
+  Sixteen sections of staging had hulls parked at 9e4, a forced encounter
+  cooldown, and a player moved four times; the new checks variously read a
+  3588m teleport as drift, a leftover `chaseHold` as a steering decision, and a
+  ship whose brain still belonged to section 1. Clear every precondition the
+  code under test reads — and prefer one tick of the world to four minutes of
+  it, because four minutes is long enough for the world to become the subject.
 - **A harness that drives the world by hand must prove the world moved.** Three
   probes in a row reported confident numbers about a simulation that was not
   advancing: one teleported the player onto a hillside (`depth -16.7m` is not

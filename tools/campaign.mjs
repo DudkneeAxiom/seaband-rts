@@ -1112,6 +1112,192 @@ ok(`an escort cut off from her charge sails water, not the rhumb line (${escort.
   : 'could not stage'})`,
   escort.staged && escort.abeamWasFoul && !escort.tookIt && (escort.reachable || escort.routed));
 
+/* ---------------------------------------------------------------
+   17. Reported from the deck: ships that go nowhere, and a ship that
+       will not stay put
+   --------------------------------------------------------------- */
+
+/* (a) A mark dead upwind can be reached at all.
+   `layToWind` laid the near edge of the no-go cone and held it, on the
+   reasoning that the mark drifts out of the cone as she goes. True of a mark
+   you are passing; false of a station, which does not move — she reached away
+   until the bearing swung, came back, and did it again for ever. Measured at
+   Greywake: both Sable gate-keepers with their post 0.50 and 0.61 rad inside
+   a 0.82 rad cone, open water and a clear line, going nowhere. `Ship.beatTo`
+   is the real beat and had been the player's alone. Staged in open water so
+   this is a question about the wind and nothing else. */
+const beat = await G(async () => {
+  const R = await import('/src/core/route.js');
+  const g = window.__game, T = window.__terrain;
+  g.paused = false;
+  /* Open water with a clear line to a mark 380m dead upwind, so nothing here
+     is about routing. Scanned for deterministically. */
+  g.windAng = 0; g.windTargetAng = 0; g.windTimer = 1e6; g.world.windAng = 0;
+  const eye = Math.PI;                       // where the wind blows from
+  let c = null, bestScore = -1;
+  for (let x = -900; x <= 900; x += 60) {
+    for (let z = -900; z <= 900; z += 60) {
+      const px = x + Math.sin(eye) * 380, pz = z + Math.cos(eye) * 380;
+      if (!R.clearWater(x, z, px, pz, 12)) continue;
+      /* Deep close in as well as far out. `avoidLand` sounds 42m plus her way
+         ahead and deflects a full 1.5 rad when it does not like the answer, so
+         a spot that is open at 400m and thin at 60m makes this check measure
+         the deflection instead of the beat — which is exactly what it first
+         did, reading 1.54 rad off close-hauled. */
+      let worst = Infinity;
+      for (let i = 0; i < 12; i++) {
+        const a = i / 12 * Math.PI * 2;
+        for (const d of [40, 80, 140, 200, 320]) {
+          worst = Math.min(worst, T.depthAt(x + Math.sin(a) * d, z + Math.cos(a) * d));
+        }
+      }
+      if (worst > bestScore) { bestScore = worst; c = { x, z, px, pz }; }
+    }
+  }
+  if (bestScore < 20) c = null;
+  const s = g.ships.find(x => x.alive && !x.isPlayer && !g.fleet.includes(x));
+  if (!c || !s) return { staged: false };
+
+  /* The player kept well clear. The powers hostile to her find an enemy at
+     640m, and parked 300m off she *was* the scenario: the guard steered at the
+     player the whole time and the check read a bearing of exactly π/4 and
+     called it a failed beat. Still inside the 2400m cull, so the world does
+     not reap the hull under test. */
+  const p = g.player;
+  p.x = c.x + 1150; p.z = c.z; p.speed = 0; p.throttle = 0;
+  p.dest = null; p.route = null; g.moveGoal = null; p.alive = true; p.hull = p.hullMax;
+  for (const o of g.ships) {
+    if (o === s || o.isPlayer) continue;
+    o.x = c.x + 1400; o.z = c.z + 200; o.target = null; o.hostileToPlayer = false;
+  }
+  /* Wipe what she was doing in an earlier scenario. `updateAI` returns before
+     any of the steering when a hull is holding off after a chase, fleeing, or
+     grappled — and this check first read a null heading because the ship the
+     world handed it was still shaking off section 1. */
+  s.role = 'sable'; s.target = null; s.aggro = 0; s.fleeing = false;
+  s.chaseHold = 0; s.boarding = null; s.lockTo = null; s.captured = false;
+  s.hostileToPlayer = false; s.hull = s.hullMax; s.sails = s.sailMax; s.tack = 0;
+  s.x = c.x; s.z = c.z; s.speed = 5; s.yaw = eye;
+  s.brain = { post: { x: c.px, z: c.pz }, t: 0, cooldown: 0 };
+
+  /* The decision, not the voyage. Letting her sail for four minutes and asking
+     where she ended up measured the weather: the first two attempts had her
+     2650m from the staging point (a teleport, not a beat) and drowned. What
+     the fix decides is the heading she is given, so read that.
+     One: with the mark dead in the eye she lays a board instead of pointing at
+     it. `layToWind` never touched `tack` at all, so a non-zero tack is the
+     signature of the beat being wired in. */
+  s.headingCmd = null;               // so a stale order cannot be mistaken for a decision
+  g.update(1 / 30);
+  const board1 = s.tack;
+  const head1 = s.headingCmd;
+  const closeHauled = head1 == null ? 9 : Math.min(
+    Math.abs(((head1 - (eye + 0.82) + Math.PI * 3) % (Math.PI * 2)) - Math.PI),
+    Math.abs(((head1 - (eye - 0.82) + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
+
+  /* Two: she comes about. Stand her well off to the board's side, so the mark
+     is now across the wind from her, and ask again — a captain who cannot do
+     this is the one who reaches away for ever. */
+  const across = eye + Math.PI / 2 * board1;
+  s.x = c.x + Math.sin(across) * 300; s.z = c.z + Math.cos(across) * 300;
+  let board2 = board1;
+  for (let i = 0; i < 30 && board2 === board1; i++) { g.update(1 / 30); board2 = s.tack; }
+
+  return { staged: true, board1, board2, cameAbout: !!board1 && board2 === -board1,
+    closeHauled: +closeHauled.toFixed(2), seaRoom: Math.round(bestScore),
+    head1: +head1.toFixed(2), eye: +eye.toFixed(2), alive: s.alive };
+});
+ok(`a mark dead upwind is beaten up to, not reached away from (${beat.staged
+  ? `board ${beat.board1 === 0 ? 'NONE — she pointed at it' : beat.board1 > 0 ? 'starboard' : 'port'}, `
+    + `${beat.closeHauled} rad off close-hauled, `
+    + `then ${beat.cameAbout ? 'came about' : 'HELD THE SAME BOARD'}`
+  : 'could not stage'})`,
+  beat.staged && beat.board1 !== 0 && beat.closeHauled < 0.25 && beat.cameAbout);
+
+/* (b) A mark she was sailed to is a place she meant to be.
+   Arriving left 12% of throttle on — meant as "taking the way off her", read
+   from the deck as a ship that never stops. She sailed 239m clear of the mark
+   in the five minutes after reaching it, still making half a knot. */
+const rest = await G(() => {
+  const g = window.__game, p = g.player;
+  g.paused = false; g.inPort = null;
+  /* Every reason `commandMove` refuses, cleared first. It returns early for a
+     hull that is boarding or grappled, and sixteen sections of staging leave
+     both lying about — so the course was never laid, `moveGoal` was never set,
+     the arrival loop exited on its first test and the check sat there
+     measuring a ship that had not moved. It passed with the fix reverted,
+     which is the only reason it was caught. */
+  p.boarding = null; p.lockTo = null; p.captured = false; p.route = null; p.dest = null;
+  p.x = 120; p.z = 60; p.speed = 0; p.alive = true; p.hull = p.hullMax;
+  const from = { x: p.x, z: p.z };
+  for (const s of g.ships) { if (!s.isPlayer) { s.x = 9e4; s.z = 9e4; s.hostileToPlayer = false; } }
+  /* Hold the campaign layer for the measurement. Left free, the world sent
+     somebody to find her during the five minutes, the encounter made a battle,
+     and the deployment set her down 1805m away — which the check duly reported
+     as drift on a ship making no way at all. */
+  g.encounterCooling = 1e5;
+  /* A mark in water, sounded rather than assumed. The first version tapped a
+     fixed offset that turned out to be ashore, so she never arrived at all —
+     600 seconds of sailing for a 452m trip — and "throttle on arrival" was
+     read off a ship still under way. */
+  const T = window.__terrain;
+  let mark = null;
+  for (let i = 0; i < 24 && !mark; i++) {
+    const a = i / 24 * Math.PI * 2;
+    const mx = p.x + Math.sin(a) * 320, mz = p.z + Math.cos(a) * 320;
+    if (T.depthAt(mx, mz) < 20) continue;
+    let clear = true;
+    for (let k = 1; k <= 24; k++) {
+      const t = k / 24;
+      if (T.depthAt(p.x + (mx - p.x) * t, p.z + (mz - p.z) * t) < 12) { clear = false; break; }
+    }
+    if (clear) mark = { x: mx, z: mz };
+  }
+  if (!mark) return { staged: false };
+  g.commandMove(mark.x, mark.z);
+  const laid = !!g.moveGoal;
+  for (let i = 0; i < 600 * 30 && g.moveGoal; i++) g.update(1 / 30);
+  const throttleOnArrival = p.throttle;
+  const sailed = Math.round(Math.hypot(p.x - from.x, p.z - from.z));
+  /* Let the world settle before the tape measure comes out. Sixteen sections
+     of staging leave residue — the first version of this recorded a 3588m jump
+     on the very first tick after arrival, on a hull making no way at all, and
+     reported it as drift. The decision above is the substance; this is only
+     asking whether she then stays where she was put. */
+  for (let i = 0; i < 90; i++) g.update(1 / 30);
+  const at = { x: p.x, z: p.z };
+  let vMax = 0;
+  for (let i = 0; i < 300 * 30; i++) { g.update(1 / 30); vMax = Math.max(vMax, p.speed); }
+  return { was: +throttleOnArrival.toFixed(2), mode: g.mode, vMax: +vMax.toFixed(2), laid, sailed,
+    drift: Math.round(Math.hypot(p.x - at.x, p.z - at.z)), v: +p.speed.toFixed(2) };
+});
+ok(`she lies where she was sailed to (${rest.staged === false ? 'could not find water to sail to'
+  : `sailed ${rest.sailed}m, throttle ${rest.was} on arrival, `
+  + `${rest.drift}m of drift in the five minutes after, never above ${rest.vMax} knots`})`,
+  rest.staged !== false && rest.laid && rest.sailed > 250 && rest.was === 0
+  && rest.drift < 25 && rest.vMax < 0.5 && rest.mode === 'campaign');
+
+/* (c) And closing the harbour screen does not make sail for her.
+   `leavePort` set full throttle, so a captain who had finished her business
+   looked up to find the ship sailing herself out of the roads. */
+const left = await G(() => {
+  const g = window.__game, p = g.player, port = g.PORTS.find(x => x.id === 'ilovantu');
+  g.paused = false;
+  g.enterPort(port);
+  const inPort = { throttle: p.throttle, speed: p.speed };
+  g.leavePort();
+  return { inPort: +inPort.throttle.toFixed(2), after: +p.throttle.toFixed(2),
+    dest: !!p.dest, route: !!(p.route && p.route.length) };
+});
+ok(`and leaving the harbour screen does not make sail for her `
+  + `(throttle ${left.inPort} alongside, ${left.after} after)`,
+  left.after === 0 && !left.dest && !left.route);
+await G(() => {
+  // enterPort opened the harbour screen; put it away without leaning on the UI
+  document.getElementById('sheet').classList.add('hidden');
+  window.__game.inPort = null; window.__game.paused = false;
+});
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;
