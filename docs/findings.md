@@ -5,6 +5,76 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 54. A thumb faster than the screen turned the captain's purse to NaN  (P1, playtest)
+
+**Symptom.** A played career reported `coin: NaN`, and the compass started
+throwing `rotate(NaN 50 50)`. Forty minutes of sailing with no port visits was
+clean, so it was not the sea.
+
+**Reproduction.** Dock at Ilo Vantu, trade, leave, dock again. It falls over on
+the second visit, every time:
+
+```
+visit 1: ◆216, upgrades []
+visit 2: coin NaN, and ilovantu.fish = NaN
+```
+
+**Root cause.** Every trade calls `refresh()`, which throws the market row away
+and builds a new one. A tap already on its way lands on the old node — and that
+handler closed over the quantities from when it was *drawn*:
+
+```js
+const have = p.cargo[gid] || 0;      // read at render
+onTap(sb, () => {
+  const cnt = Math.min(qtyMult, have);   // ...and used at tap, however stale
+  p.cargo[gid] -= cnt;
+  if (p.cargo[gid] <= 0) delete p.cargo[gid];
+```
+
+Sell sixteen fish you no longer have and `p.cargo.fish -= 16` runs on an entry
+deleted a moment before: `undefined - 16` is **NaN**. Then `NaN <= 0` is false,
+so it is never cleaned up. From there it is four steps downhill, and every one
+of them is a comparison that lets NaN through:
+
+1. `p.cargoUsed` and `p.cargoFree` go NaN.
+2. The BUY row computes `nb = Math.min(…, p.cargoFree, …)` → NaN, and
+   `bb.disabled = nb <= 0` is **false**, so the button stays lit.
+3. Pressing it runs `G.coin -= buy * cnt` with a NaN count — **the purse**.
+4. `takeStock` runs `Math.max(0, stock - NaN)` → the port's fish stock is NaN
+   for the rest of the voyage, which prices at NaN, which lights the button
+   again.
+
+On a phone, tapping faster than the screen redraws is not abuse. It is how
+people buy things.
+
+**Change.** Both handlers price and count the deal from the ship and the store
+*as they are at the tap*, never from what the row said when it was drawn; and
+every guard is `!(cnt > 0)` rather than `cnt <= 0`, because the second is false
+for NaN — which is precisely how a poisoned quantity got through the door.
+Underneath, `addStock`/`takeStock` refuse a non-finite quantity and `price()`
+treats a broken shelf as an empty one, so one bad number cannot outlive the tap
+that made it.
+
+**Verification.** Eight consecutive port visits, everything finite:
+
+```
+before   visit 2 → coin NaN, ilovantu.fish NaN
+after    ◆239 ◆272 ◆247 ◆20 ◆5 ◆4 ◆5 ◆8, nothing non-finite anywhere
+```
+
+The check in `trade` stages the fault as it actually happens — keep the button,
+let the game redraw around it, and go on pressing the one you are holding. With
+the fix reverted it reads `hold NaN` and takes a second check down with it,
+which is the cascade in miniature.
+
+**Two harness notes.** It first passed while measuring nothing: the cargo was
+put aboard *after* the counter was drawn, so the row rendered against an empty
+hold and the button was inert. It asserts the staging now — that the button is
+genuinely detached and that twelve fish actually sold. And the playtest that
+found this had itself been broken: `untilDock` waited for *any* dockable port,
+and she leaves inside the radius of the one she has just left, so it fired on
+tick zero and she never sailed a metre.
+
 ## 53. A trader looked like a warship because only her builders had a say  (P1, reported)
 
 **Symptom.** "Can we change merchant ships visuals to look more like a merchant

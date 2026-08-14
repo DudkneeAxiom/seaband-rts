@@ -313,6 +313,62 @@ const uiOffer = await page.evaluate(() => {
   return { offers: hit.length, text: hit[0] ? hit[0].textContent.replace(/\s+/g, ' ').trim().slice(0, 110) : '' };
 });
 ok(`the harbourmaster's board shows the advance (${uiOffer.offers} offers)`, uiOffer.offers >= 3);
+
+/* ---------- a thumb faster than the screen cannot break the economy ----------
+
+   Every trade calls `refresh()`, which throws the row away and builds a new
+   one. A tap already on its way lands on the old node, and that handler used
+   to close over the quantities from when it was drawn — so selling sixteen
+   fish you no longer have ran `p.cargo.fish -= 16` on an entry deleted a
+   moment before. `undefined - 16` is NaN, `NaN <= 0` is false so it was never
+   cleaned up, and four steps later the hold, the purchase, the captain's coin
+   and Ilo Vantu's fish stock were all NaN for the rest of the voyage.
+
+   Staged as it actually happens: keep the button, let the game redraw around
+   it, and go on pressing the one you are holding. */
+/* Cargo aboard *before* the counter is drawn, or the row renders with an
+   empty hold, the SELL button is inert, and the check quietly measures
+   nothing — which is what it did first time round. */
+await G(() => { window.__game.player.cargo.fish = 12; });
+await goPortTab(page, 'HARBOUR');
+await sleep(200);
+await goPortTab(page, 'MARKET');
+await sleep(400);
+const stale = await G(() => {
+  const g = window.__game, p = g.player;
+  const port = g.inPort || g.PORTS[0];
+  const rows = [...document.querySelectorAll('#sheet-content .row')];
+  const row = rows.find(r => /fish/i.test(r.textContent));
+  if (!row) return { staged: false };
+  const sell = [...row.querySelectorAll('button')].find(b => /SELL/i.test(b.textContent));
+  if (!sell) return { staged: false };
+  const before = { coin: g.coin, stock: g.market.stock(port.id, 'fish') };
+  // the same node, thirty times, while the sheet rebuilds underneath it
+  for (let i = 0; i < 30; i++) { try { sell.click(); } catch (e) { void e; } }
+  const fin = v => Number.isFinite(v);
+  return {
+    staged: true, detached: !sell.isConnected,
+    coin: g.coin, cargo: p.cargo.fish === undefined ? 'gone' : p.cargo.fish,
+    cargoUsed: p.cargoUsed, cargoFree: p.cargoFree,
+    stock: g.market.stock(port.id, 'fish'),
+    buyPrice: g.market.buyPrice(port.id, 'fish'),
+    allFinite: fin(g.coin) && fin(p.cargoUsed) && fin(p.cargoFree)
+      && fin(g.market.stock(port.id, 'fish')) && fin(g.market.buyPrice(port.id, 'fish'))
+      && (p.cargo.fish === undefined || fin(p.cargo.fish)),
+    before, sold: 12 - (p.cargo.fish || 0),
+  };
+});
+ok(`hammering a stale SELL leaves the books straight (${stale.staged
+  ? `coin ◆${Math.round(stale.coin)}, hold ${stale.cargoUsed}, `
+    + `stock ${Math.round(stale.stock)}, buy ◆${stale.buyPrice}, ${stale.sold} sold `
+    + `off a ${stale.detached ? 'detached' : 'LIVE — bad staging'} button`
+  : 'could not stage'})`,
+  stale.staged && stale.detached && stale.sold > 0
+  && stale.allFinite && stale.coin >= 0 && stale.cargoUsed >= 0);
+
+await goPortTab(page, 'HARBOUR');
+await sleep(300);
+
 console.log(`  board reads: ${uiOffer.text}\n`);
 
 /* ---- buying does not throw you back to the top of the page ----
@@ -502,6 +558,8 @@ if (raid) {
 } else {
   ok('clearing for action on a friendly trader costs her power\'s good opinion', false);
 }
+
+
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');

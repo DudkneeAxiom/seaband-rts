@@ -243,6 +243,13 @@ that is written down, and everything that asks "can I fire", "can I dock",
   bulk `for (…) g.update()` inside `page.evaluate` cannot click the button that
   clears it. Both "findings" they produced were fiction. Check `g.time` moved,
   check she is floating, check nothing is paused — before believing anything.
+- **A handler must read the world at the tap, not at the draw.** Every trade
+  re-renders its row, and a tap already on its way lands on the old node — so a
+  SELL that closed over "you have sixteen" ran `cargo -= 16` on an entry that
+  had just been deleted. `undefined - 16` is NaN, and then every guard shaped
+  `x <= 0` waves it through, because that is false for NaN. Four steps later
+  the hold, the purse and a port's stock were all NaN for the rest of the
+  voyage. Guard with `!(n > 0)`, and recompute quantities from live state.
 - **One control per job.** The town page briefly carried a WHERE TO GO list —
   a row and a GO button per counter — directly beneath a tab strip with one
   tab per counter. Navigation written out twice is not twice as navigable; it

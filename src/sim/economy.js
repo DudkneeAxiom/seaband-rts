@@ -40,7 +40,9 @@ export class Market {
   /** price rises as stock falls; +30% at empty, −25% at glut */
   price(portId, goodId, forSale = true) {
     const st = this.ports[portId];
-    const s = st.stock[goodId];
+    // a shelf whose count has gone wrong is priced as an empty one, not as NaN:
+    // a price is a number the player is asked to trust with their coin
+    const s = Number.isFinite(st.stock[goodId]) ? st.stock[goodId] : 0;
     const scar = clamp(1.45 - s / 110, 0.74, 1.42);
     let v = this.base(portId, goodId) * scar;
     v *= forSale ? 1.08 : 0.92;      // the harbour takes its cut both ways
@@ -53,8 +55,21 @@ export class Market {
   sellPrice(portId, goodId) { return this.price(portId, goodId, false); }
   stock(portId, goodId) { return this.ports[portId].stock[goodId]; }
 
-  takeStock(portId, goodId, n) { this.ports[portId].stock[goodId] = Math.max(0, this.ports[portId].stock[goodId] - n); }
-  addStock(portId, goodId, n) { this.ports[portId].stock[goodId] += n; }
+  /* A quantity that is not a number never reaches the shelves. One bad `cnt`
+     from a stale button turned Ilo Vantu's fish stock into NaN permanently —
+     and a NaN stock prices at NaN, which enables the BUY button (`NaN <= 0` is
+     false), which sets the captain's coin to NaN. The counter is the last
+     place to catch that, so it catches it. */
+  takeStock(portId, goodId, n) {
+    if (!Number.isFinite(n)) return;
+    const st = this.ports[portId].stock;
+    st[goodId] = Math.max(0, (Number.isFinite(st[goodId]) ? st[goodId] : 0) - n);
+  }
+  addStock(portId, goodId, n) {
+    if (!Number.isFinite(n)) return;
+    const st = this.ports[portId].stock;
+    st[goodId] = (Number.isFinite(st[goodId]) ? st[goodId] : 0) + n;
+  }
 
   /** slow drift back to baseline + NPC merchant churn */
   tick(dt) {

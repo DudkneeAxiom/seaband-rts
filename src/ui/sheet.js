@@ -659,26 +659,45 @@ function marketTab(n, port) {
       `<div class="rtitle">${good.icon} ${good.name} ${cheap
         ? '<span class="pill g">SOLD HERE</span>' : dear ? '<span class="pill r">WANTED HERE</span>' : ''}</div>
        <div class="rsub">Buy ◆${buy} · Sell ◆${sell} · ${stock} in store${have ? ` · <b style="color:var(--parch)">${have} aboard</b>` : ''}</div>`));
+    /* Both handlers price and count the deal from the ship and the store as
+       they are *at the tap*, never from what the row said when it was drawn.
+       Every trade calls `refresh()`, which throws the row away and builds a
+       new one — and a tap already on its way lands on the old node, whose
+       handler still closes over the quantities from before. Selling sixteen
+       fish you no longer have runs `p.cargo.fish -= 16` on an entry that was
+       deleted a moment ago: `undefined - 16` is NaN, `NaN <= 0` is false so it
+       is never cleaned up, and from there it is four steps to a NaN hold, a
+       NaN purchase, NaN coin, and a port whose fish stock is NaN for the rest
+       of the voyage. Reproduced in two port visits; on a phone, tapping faster
+       than the screen redraws is just how people buy things.
+
+       `!(cnt > 0)` rather than `cnt <= 0`, because the second is false for NaN
+       — which is exactly how a poisoned quantity got through the door the
+       first time. */
     const q = el('div', 'qty');
     const nb = Math.min(qtyMult, stock, p.cargoFree, Math.floor(G.coin / buy));
     const bb = el('button', 'btn' + (nb > 0 ? ' gold' : ' dim'), `BUY`);
-    bb.disabled = nb <= 0;
+    bb.disabled = !(nb > 0);
     onTap(bb, () => {
-      const cnt = Math.min(qtyMult, stock, p.cargoFree, Math.floor(G.coin / buy));
-      if (cnt <= 0) return toast(p.cargoFree <= 0 ? 'Hold is full.' : 'Not enough coin.', 'bad');
-      G.coin -= buy * cnt;
+      const price = G.market.buyPrice(port.id, gid);
+      const cnt = Math.min(qtyMult, Math.floor(G.market.stock(port.id, gid)),
+        p.cargoFree, Math.floor(G.coin / Math.max(1, price)));
+      if (!(cnt > 0)) return toast(p.cargoFree <= 0 ? 'Hold is full.' : 'Not enough coin.', 'bad');
+      G.coin -= price * cnt;
       p.cargo[gid] = (p.cargo[gid] || 0) + cnt;
       G.market.takeStock(port.id, gid, cnt);
       G.onGoodsBought(gid, cnt, port);
       sfxCoin(); G.save(); refresh();
     });
     const sb = el('button', 'btn' + (have > 0 ? '' : ' dim'), `SELL`);
-    sb.disabled = have <= 0;
+    sb.disabled = !(have > 0);
     onTap(sb, () => {
-      const cnt = Math.min(qtyMult, have);
-      G.coin += sell * cnt;
-      p.cargo[gid] -= cnt;
-      if (p.cargo[gid] <= 0) delete p.cargo[gid];
+      const aboard = p.cargo[gid] || 0;
+      const cnt = Math.min(qtyMult, aboard);
+      if (!(cnt > 0)) return;
+      G.coin += G.market.sellPrice(port.id, gid) * cnt;
+      p.cargo[gid] = aboard - cnt;
+      if (!(p.cargo[gid] > 0)) delete p.cargo[gid];
       G.market.addStock(port.id, gid, cnt);
       G.onGoodsSold(gid, cnt, port);
       sfxCoin(); G.save(); refresh();
