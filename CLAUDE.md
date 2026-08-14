@@ -141,6 +141,11 @@ that is written down, and everything that asks "can I fire", "can I dock",
   drawn extent now. The same trap caught the AI twice: a route is no help to a
   ship whose *destination* is a hill, so loitering stations and escort
   stations are sounded before they are taken.
+- **A guard that reads a flag must run before something else sets it.** The
+  price of attacking a neutral was charged in the damage callback, guarded on
+  "she is not already hostile" — and a battle flags every enemy hostile as it
+  forms, so the guard was always shut by the time it was asked. Piracy was
+  free. Charge at the moment of choice, not at the moment of consequence.
 - **One control per job.** The town page briefly carried a WHERE TO GO list —
   a row and a GO button per counter — directly beneath a tab strip with one
   tab per counter. Navigation written out twice is not twice as navigable; it

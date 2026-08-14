@@ -695,7 +695,14 @@ export class Game {
       /* Her own people, in something that can fight: the Compact hire their
          own hulls, the Freeholds buy the Admiralty's protection. */
       const faction = m.faction === 'compact' ? 'compact' : 'admiralty';
-      const classId = v >= 2600 ? 'brig' : (r() > 0.5 ? 'lugger' : 'brig');
+      /* A ladder, not a coin toss. This rolled lugger-or-brig for every
+         escort, so a ◆900 run could sail behind sixteen guns and a starting
+         cutter that took the bait was simply sunk — the option to rob a
+         convoy is not an option if the first rung kills you. The weight now
+         follows the money the same way the *number* of them does: a middling
+         run gets a lugger you can fight, and the brigs guard the shipments
+         that are worth a brig. */
+      const classId = v >= 2200 ? 'brig' : 'lugger';
       const names = faction === 'compact' ? NAMES.ship_compact : NAMES.ship_admiralty;
       const used = new Set([...this.ships.map(x => x.name), ...this.reservedNames()]);
       let name = names[(r() * names.length) | 0], g2 = 0;
@@ -1120,7 +1127,16 @@ export class Game {
       if (s.isPlayer || this.fleet.includes(s) || s === this.target) continue;
       if (s.boarding) continue;
       const d = dist(s.x, s.z, p.x, p.z);
-      if (d > 2400 || (!s.alive && s.sinking > 6)) this.removeShip(s);
+      /* An escort culled with her charge, not left behind as a warship with
+         nothing to guard. A convoy that sails off the edge of the world used
+         to leave its escorts drifting about the player's water for good —
+         they answer to a hull that no longer exists, and every merchant that
+         wandered away added another. Not while she is fighting: an escort who
+         has been given a reason to care about the player is nobody's stray. */
+      const strayEscort = s.role === 'escort' && !s.hostileToPlayer
+        && (!s.escortFor || !s.escortFor.alive || s.escortFor.captured
+          || this.ships.indexOf(s.escortFor) < 0);
+      if (d > 2400 || (!s.alive && s.sinking > 6) || (strayEscort && d > 900)) this.removeShip(s);
     }
   }
 
@@ -1514,7 +1530,23 @@ export class Game {
   /** Ratio of their weight to yours, and the verdict a sailing master would give. */
   weighUp(other) {
     const mine = Math.max(1, this.fleetStrength);
-    const theirs = strength(other);
+    /* Weigh what you would actually be fighting.
+       A convoy's escorts come into the action with her — the battle takes
+       them all — so weighing the merchant alone told a cutter she was FAR
+       WEAKER than a dhow while a lugger stood off her quarter waiting. The
+       card's whole job is to be judged at a distance, and it was leaving the
+       guns out of the sum. */
+    let theirs = strength(other);
+    for (const e of (other.escorts || [])) {
+      if (e && e.alive && !e.captured) theirs += strength(e);
+    }
+    // and from the other end: an escort is only ever met with her charge
+    if (other.role === 'escort' && other.escortFor && other.escortFor.alive) {
+      theirs += strength(other.escortFor);
+      for (const e of (other.escortFor.escorts || [])) {
+        if (e && e !== other && e.alive && !e.captured) theirs += strength(e);
+      }
+    }
     const ratio = theirs / mine;
     let tier, verdict;
     if (ratio < 0.55) { tier = 0; verdict = 'FAR WEAKER'; }
@@ -1818,6 +1850,26 @@ export class Game {
     if (this.hintState.edge) return;
     this.hintState.edge = 1;
     hint('The Shoals end here. Beyond is open ocean — another voyage.', 4200);
+  }
+
+  /**
+   * The bill for opening an action against people who were not your enemies.
+   *
+   * Called as a battle forms, because that is the moment of choice — and
+   * because a moment later every one of them is flagged hostile and the
+   * charge in `onHit` can no longer tell a trader from a raider. Anyone
+   * already at odds with you, and the Tally who are everyone's enemy, are
+   * free as they always were.
+   */
+  chargeForAttacking(list) {
+    const p = this.player;
+    if (!p) return;
+    for (const s of list || []) {
+      if (!s || s.isPlayer || this.fleet.includes(s)) continue;
+      if (s.faction === 'pirate' || s.hostileToPlayer) continue;
+      if (isHostile(p, s)) continue;
+      this.provoke(s);
+    }
   }
 
   provoke(s) {

@@ -5,6 +5,80 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 38. Playtest: robbing a friendly trader cost nothing at all  (P0)
+
+**Symptom.** Found by playing it. Ran a convoy down the way a player does —
+mark her, close, contact, FIGHT — shot her rig off and reduced her to 42% hull,
+and the reckoning read **infamy 0, standing untouched**. The entire price of
+piracy, the thing the whole feature is supposed to weigh against, was not
+being charged.
+
+**Root cause.** The charge lives in `onHit`, guarded on
+`!s.hostileToPlayer` — a sensible guard, since you should not be fined for
+returning fire. But `battle.js` flags **every enemy hostile as the action
+forms**, before the first ball is in the air. So by the time any shot landed
+the guard was always shut. Only the direct `provoke()` path — a shot fired on
+the campaign layer, which the rules now refuse anyway — could ever charge it.
+
+A captain could clear for action on a trader whose power had come to trust
+her, take the cargo, and lose nothing.
+
+**Change.** `chargeForAttacking()` runs as the battle forms, which is the
+moment of choice and the last moment the game can still tell a trader from a
+raider. Anyone already at odds with you, and the Tally who are everyone's
+enemy, are free as they always were. The toast now says it out loud as you
+clear for action: *"Word will get out. Infamy +7, standing −16."*
+
+**Verification.** `trade`, driven through the whole real chain because that is
+the only way the bug appears: compact 30 → 4, infamy 17 → 27. Last in the file,
+since it opens a real action.
+
+## 37. Playtest: the card weighed the merchant and ignored her escort  (P1)
+
+**Symptom.** Marking an escorted convoy showed **FAR WEAKER — You 172, 73 Her**
+while a lugger stood off her quarter waiting to join the action. The card whose
+whole job is "judge this at a distance" was leaving the guns out of the sum.
+
+**Change.** `weighUp` counts the escorts with their charge, and an escort with
+her charge — because the battle takes them all. The same convoy now reads EVEN.
+
+Two more from the same screenshot: the manifest line ran off the end of a
+174px card and the ellipsis ate the escort count, which is the half that
+decides whether you go — the escort has moved onto the line that names her
+power, and the cargo has the line to itself. And the card was being *revealed*
+on every tick but only *filled* on the slow one, so marking a ship put a blank
+card on the glass for up to a seventh of a second; it fills the moment the
+target changes now.
+
+## 36. Playtest: one escort was a coin-flip between a lugger and a brig  (P1)
+
+**Symptom.** A starting cutter that took the bait on a ◆1879 convoy was simply
+sunk. Reading the rule back: the escort's hull class rolled lugger-or-brig
+regardless of the shipment, so a middling run could sail behind sixteen guns.
+
+**Change.** The weight follows the money the same way the *number* of escorts
+does: a middling run gets a lugger you can fight, and the brigs guard the
+shipments that are worth a brig. The option to rob a convoy is not an option
+if the first rung kills you.
+
+## 35. Playtest: escorts outliving their convoy  (P2)
+
+**Symptom.** Five hundred seconds of the world running itself left an escort
+with no charge — a warship guarding a hull that no longer existed, and one
+more every time a merchant wandered off the edge of the world.
+
+**Change.** A stray escort is culled with her charge rather than left drifting
+about the player's water. Not while she is fighting: an escort who has been
+given a reason to care about the player is nobody's stray.
+
+**And three things that looked like bugs and were not**, recorded because each
+cost time: the target card reading empty (my probe read it before the 0.14s
+tick), a convoy that could not be brought to action (my probe marked a
+different merchant to the one it had staged), and a merchant taking no damage
+through a whole action (the probe never manoeuvred, so `fireSide` was null and
+every broadside was NO ARC). A playtest harness that cannot sail is not
+evidence about sailing.
+
 ## 34. The market was a slab with two sheets of paper beside it  (P2, reported)
 
 **Symptom.** Reported: "the market building visuals look terrible". Framed

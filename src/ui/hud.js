@@ -416,8 +416,16 @@ export class HUD {
     // drive this from the card's actual state every tick, not from a
     // transition — a missed edge would leave the two panels overlapping
     setNoticesLow(show);
-    if (!show) return;
-    if (!slow) return;
+    if (!show) { this.cardFor = null; return; }
+    /* The card is revealed on every tick and was only *filled* on the slow
+       one, so marking a ship put an empty card on the glass — blank name,
+       empty bars, "You 0 · 0 Her" — for up to a seventh of a second. Two
+       frames on a desk and plainly visible in a screenshot. Whoever she is,
+       fill it the moment she changes; the slow tick still owns the numbers
+       that move while she is marked. */
+    const changed = this.cardFor !== t;
+    this.cardFor = t;
+    if (!slow && !changed) return;
     $('tc-name').textContent = t.name;
     const fac = FACTIONS[t.faction];
     $('tc-hull').style.width = (t.hullFrac * 100) + '%';
@@ -432,10 +440,16 @@ export class HUD {
        her battery for anything that is not carrying cargo. */
     const m = t.manifest;
     if (m) {
+      /* Two facts, and the card is 174px wide. Putting the range, the cargo,
+         its worth and the escort on one line ran it off the end — the ellipsis
+         ate the escort count, which is the half that decides whether you go.
+         The line that already names her power carries the escort instead, and
+         the cargo gets the line to itself. */
       const good = GOODS[m.good];
       const guard = (t.escorts || []).filter(e => e && e.alive && !e.captured).length;
-      $('tc-range').textContent = `${Math.round(d)}m · ${m.amount} ${good ? good.name : m.good}`
-        + ` · ~◆${m.value}${guard ? ` · ${guard} escort${guard > 1 ? 's' : ''}` : ' · unescorted'}`;
+      $('tc-who').textContent = `${fac ? fac.short + ' · ' : ''}`
+        + (guard ? `${guard} escort${guard > 1 ? 's' : ''}` : 'unescorted');
+      $('tc-range').textContent = `${m.amount} ${good ? good.name : m.good} · ~◆${m.value} · ${Math.round(d)}m`;
     } else {
       $('tc-range').textContent = `${Math.round(d)}m · ${t.gunsPort + t.gunsStb} guns`;
     }

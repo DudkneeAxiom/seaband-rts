@@ -447,6 +447,62 @@ ok(`and costs more from a power that trusted you (friend −${price ? price.frie
 ok(`and her escort takes it personally (${price ? `${price.escortsTurned} of ${price.hadEscorts}` : '?'})`,
   !!price && (price.hadEscorts === 0 || price.escortsTurned === price.hadEscorts));
 
+/* ---- last: clearing for action against a friend is what costs ----
+   Dead last in the file because it opens a real action, which changes the
+   world for anything after it.
+
+   The charge for attacking people who were not your enemies lived in the
+   damage callback, guarded on "she is not already hostile" — and a battle
+   flags every enemy hostile as it forms, before the first ball is in the
+   air. So the guard was always shut by the time it was asked: a captain
+   could clear for action against a friendly trader, shoot her rig off and
+   take her cargo without losing a point of standing with the power she
+   belonged to. Driven through the real chain — mark, close, contact,
+   FIGHT — because that is the only way the bug appears. */
+// this suite spends its life in harbour, and contact is refused in port or
+// with a screen open — so put her back to sea before asking for a fight
+await G(() => {
+  const g = window.__game;
+  document.getElementById('sheet').classList.add('hidden');
+  g.inPort = null; g.paused = false;
+});
+await sleep(300);
+const raid = await G(() => {
+  const g = window.__game, p = g.player;
+  p.x = 120; p.z = 60; p.dest = null; p.speed = 0; p.hull = p.hullMax;
+  let m = g.ships.find(s => s.role === 'merchant' && !s.hostileToPlayer);
+  for (let i = 0; i < 12 && !m; i++) m = g.spawnNPC('merchant');
+  if (!m) return null;
+  m.x = p.x + 120; m.z = p.z + 30;
+  for (const s of g.ships) {
+    if (s === m || s.isPlayer || (m.escorts || []).includes(s)) continue;
+    s.x += 3200; s.hostileToPlayer = false;
+  }
+  g.standing[m.faction] = 30;               // a power that had come to trust you
+  g.encounterCooling = 0; g.paused = false;
+  g.selectTarget(m);
+  return { name: m.name, faction: m.faction, standing: g.standing[m.faction], infamy: Math.round(g.infamy) };
+});
+if (raid) {
+  for (let i = 0; i < 60; i++) {
+    const mode = await G(() => { const g = window.__game; for (let k = 0; k < 30; k++) g.update(1 / 30); return g.mode; });
+    if (mode !== 'campaign') break;
+  }
+  await G(() => { const g = window.__game; if (g.mode === 'encounter') g.chooseEncounter('fight'); });
+  await waitFor(page, () => window.__game.mode === 'battle', 9000);
+  const after = await G(() => ({
+    mode: window.__game.mode,
+    standing: { ...window.__game.standing },
+    infamy: Math.round(window.__game.infamy),
+  }));
+  ok(`clearing for action on a friendly trader costs her power's good opinion `
+    + `(${raid.faction} ${raid.standing} -> ${after.standing[raid.faction]}, infamy ${raid.infamy} -> ${after.infamy}, ${after.mode})`,
+  after.mode === 'battle' && after.standing[raid.faction] < raid.standing && after.infamy > raid.infamy);
+  await G(() => { const g = window.__game; if (g.battle) g.battle.finish('fled'); });
+} else {
+  ok('clearing for action on a friendly trader costs her power\'s good opinion', false);
+}
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

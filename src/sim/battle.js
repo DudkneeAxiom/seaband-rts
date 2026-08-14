@@ -107,6 +107,17 @@ export class Battle {
       for (const s of this.enemies) { s.throttle = 1; s.speed = s.cls.speed * 0.55; }
     }
 
+    /* Clearing for action against somebody who was not your enemy is the
+       moment you chose to be a pirate, and it is the moment it should cost.
+       It cost nothing at all before: the loop below flags every enemy hostile
+       as the action opens, and the reputation charge in `onHit` is guarded on
+       `!hostileToPlayer` — so by the time the first ball landed the ship had
+       already been marked as an enemy and the charge was skipped. A captain
+       could shoot a friendly trader's rig off, take her cargo and lose not a
+       point of standing with the power she belonged to, which is most of the
+       reason to think twice about doing it. */
+    g.chargeForAttacking(this.enemies);
+
     for (const s of this.enemies) {
       s.hostileToPlayer = true;
       s.aggro = 40;
