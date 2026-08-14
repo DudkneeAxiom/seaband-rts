@@ -711,8 +711,15 @@ function consortAI(ship, dt, world, ctx) {
   if (!flag) return;
   const order = ship.fleetOrder || 'follow';
 
+  /* Guns held across the fleet: she sails her station and says nothing.
+     This is what lets a prize be taken — every order used to fire, so a
+     captain closing to board had her own consorts sinking the ship she was
+     boarding, and the bigger her fleet the worse it got. */
+  const silent = !!world.holdFire;
+
   if (order === 'hold') {
     ship.throttle = 0.12;
+    if (silent) return;
     const e = findEnemy(ship, world.ships, GUN_RANGE);
     if (e) tryFire(ship, e, ctx, 62);
     return;
@@ -735,10 +742,12 @@ function consortAI(ship, dt, world, ctx) {
         steerTo(ship, t.x + Math.sin(far) * 115, t.z + Math.cos(far) * 115, dt);
       } else if (d > GUN_RANGE * 1.05) steerTo(ship, t.x, t.z, dt);
       else combatSteer(ship, t, dt, 110);
-      tryFire(ship, t, ctx, 62);
+      if (!silent) tryFire(ship, t, ctx, 62);
         /* Grapples are the action too. A consort that cannot fire out here must
-         not simply climb aboard instead. */
-      if (ctx.combatLive && canBoard(ship, t) && t.crewTotal < ship.crewTotal * 0.7 && ctx.startBoarding) {
+         not simply climb aboard instead — and while the fleet's guns are held
+         she does not take the prize out from under her captain either. */
+      if (!silent && ctx.combatLive && canBoard(ship, t)
+        && t.crewTotal < ship.crewTotal * 0.7 && ctx.startBoarding) {
         ctx.startBoarding(ship, t);
       }
       return;

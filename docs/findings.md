@@ -5,6 +5,53 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 48. Your own fleet was sinking the prize you were boarding  (P1, reported)
+
+**Symptom.** Reported: "the player has no way to call off other ships in their
+fleet to stop firing if trying to capture a new ship, making boarding
+difficult if you have a larger fleet."
+
+**Root cause.** Every order a consort could be given fired her guns. FOLLOW
+fired. ENGAGE fired and boarded. **HOLD fired too** — it slowed her to a crawl
+and went on shooting anything inside gun range, which is not what the word
+means to anybody reading it. So a captain closing to take a prize had her own
+squadron shooting it out from under her, and the more ships she owned the
+worse it got. A fleet made capturing *harder*, which is backwards for the
+mechanic the whole prize system is built on.
+
+**Change.** A hold-fire toggle on the fleet bar, beside the three formation
+orders rather than as a fourth one — where they sail and whether they shoot
+are different questions, and you may well want them alongside and silent. It
+suppresses consort gunnery *and* consort boarding, so they cannot take the
+prize out from under you either.
+
+**Verification, and the control had to be rewritten too.** The obvious pair
+was "free → she sinks, held → she lives", and the first half is an outcome
+with a whole duel inside it: 56% hull on one run, nothing left on the next.
+Exactly the trap in finding 46, three days old. So it counts the shot out of
+the consorts' own lockers, which is what the toggle actually governs:
+
+```
+left free  3 consorts spend 10–20 rounds, her hull 15% / 0%
+held       0 rounds out of 6 lockers, her hull 100%, boarding true
+```
+
+## 47. No way to know how strong you were  (P1, reported)
+
+**Symptom.** Reported: "player has no idea how strong they are compared to
+other ships on the water."
+
+**Root cause.** Finding 44 put a fighting-weight number over every other
+ship's mast, and left the player with nothing to hold it against. The
+comparison existed only on the target card, and only once you had marked
+somebody — so reading `431` over a brig told you nothing unless you were
+already committing to look at her.
+
+**Change.** Your own weight sits with the provisions and the shot on the ship
+panel, in the same units: `WEIGHT 914`. Fleet weight rather than hull weight,
+because consorts turn up to the same action, and it is the same figure the
+card calls "You".
+
 ## 46. Three flaky assertions on one rule, and the fix was to stop watching  (harness)
 
 **Symptom.** `campaign`'s consort-positioning check failed a full run at 1.14

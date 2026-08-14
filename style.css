@@ -321,6 +321,10 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 }
 .fleet-btn .fi{font-size:15px; color:var(--brass);}
 .fleet-btn.on{background:linear-gradient(180deg,#3d6a80,#1d4356); color:#fff; border-color:var(--brass);}
+/* Guns held reads as a warning rather than a selection: it is a thing you
+   have deliberately switched off, and you want to notice it is still off. */
+.fleet-btn.hold-fire.on{background:linear-gradient(180deg,#b7442f,#7a2a1d); border-color:#e88a63; color:#ffe6dd;}
+.fleet-btn.hold-fire.on .fi{color:#ffd9c8;}
 .fleet-btn:active{transform:scale(.95);}
 
 /* ---------- Target card ---------- */

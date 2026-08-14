@@ -788,6 +788,84 @@ const chipBack = await waitFor(page,
 ok('and comes back when the sea is quiet again', chipBack);
 
 /* ---------------------------------------------------------------
+   a fleet that can be told to hold its fire
+
+   Reported: "the player has no way to call off other ships in their fleet to
+   stop firing if trying to capture a new ship, making boarding difficult if
+   you have a larger fleet." Exactly so — every order fired, HOLD included,
+   which slowed a consort to a crawl and went on shooting anything in range.
+   The bigger the squadron, the harder it was to take anything alive, which
+   is backwards.
+   --------------------------------------------------------------- */
+const holdTrial = h => G(hold => {
+  const g = window.__game, p = g.player;
+  if (g.mode === 'battle' && g.battle) g.battle.finish('fled');
+  if (g.mode === 'encounter') g.closeEncounter();
+  g.paused = false;
+  p.x = -1450; p.z = 200; p.hull = p.hullMax; p.speed = 0; p.dest = null; p.shot = 200;
+  for (let i = 0; i < 3; i++) {
+    const con = g.ships.find(s => !s.isPlayer && s.alive && !g.fleet.includes(s) && s.faction !== 'pirate')
+      || g.spawnNPC('merchant');
+    if (!con) continue;
+    con.faction = 'player'; con.role = 'consort'; con.isPlayer = false;
+    con.hostileToPlayer = false; con.fleeing = false; con.chaseHold = 0;
+    con.formSlot = i + 1; con.shot = 200; con.hull = con.hullMax;
+    con.crew.gunner += 6;
+    con.x = p.x - 60 + i * 40; con.z = p.z - 50;
+    if (!g.fleet.includes(con)) g.fleet.push(con);
+  }
+  g.setFleetOrder('engage', true);
+  g.setHoldFire(hold, true);
+  const foe = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s)) || g.spawnNPC('pirate');
+  foe.x = p.x + 70; foe.z = p.z; foe.hull = foe.hullMax; foe.speed = 0;
+  foe.hostileToPlayer = true; foe.target = p; foe.chaseHold = 0; foe.fleeing = false;
+  g.encounterCooling = 0;
+  for (let i = 0; i < 40 && g.mode === 'campaign'; i++) for (let k = 0; k < 30; k++) g.update(1 / 30);
+  if (g.mode === 'encounter') g.chooseEncounter('fight');
+  if (g.mode !== 'battle') return { err: 'no battle' };
+  const shots0 = g.stats.broadsides;
+  /* Count the shot out of the consorts' own lockers. Whether the prize
+     happens to sink in the window is an outcome with the whole duel in it —
+     56% hull on one run, nothing left on the next — and the toggle does not
+     control that. What it controls is whether they fire at all. */
+  const cons = g.fleet.filter(x => !x.isPlayer && x.alive);
+  const lockers0 = cons.reduce((a, x) => a + x.shot, 0);
+  g.target = foe;
+  g.playerBoard();                                  // close and grapple, guns silent
+  for (let i = 0; i < 70 * 30 && g.mode === 'battle'; i++) {
+    g.update(1 / 30);
+    if (p.boarding) break;
+  }
+  return {
+    alive: foe.alive, hull: Math.round(foe.hullFrac * 100), boarding: !!p.boarding,
+    playerFired: g.stats.broadsides - shots0,
+    consorts: cons.length,
+    consortShot: lockers0 - g.fleet.filter(x => !x.isPlayer && x.alive).reduce((a, x) => a + x.shot, 0),
+  };
+}, h);
+
+const gunsFree = await holdTrial(false);
+const gunsHeld = await holdTrial(true);
+ok(`left free, ${gunsFree.consorts} consorts spend their shot on your prize `
+  + `(${gunsFree.consortShot} rounds out of their lockers, her hull ${gunsFree.hull}%)`,
+!gunsFree.err && gunsFree.consortShot > 0);
+ok(`held, they fire not one round (${gunsHeld.consortShot} out of ${gunsHeld.consorts} lockers)`,
+  !gunsHeld.err && gunsHeld.consortShot === 0);
+ok(`so the prize is still afloat to be taken (her hull ${gunsHeld.hull}%, `
+  + `boarding ${gunsHeld.boarding}, you fired ${gunsHeld.playerFired})`,
+!gunsHeld.err && gunsHeld.alive && gunsHeld.boarding && gunsHeld.hull > 50);
+await G(() => {
+  const g = window.__game;
+  if (g.mode === 'battle' && g.battle) g.battle.finish('fled');
+  g.setHoldFire(false, true);
+  g.setFleetOrder('follow', true);
+  for (const s of g.fleet.slice(1)) { s.faction = 'freehold'; s.role = 'merchant'; s.x = 9e4; s.z = 9e4; }
+  g.fleet.length = 1;
+  g.paused = false;
+});
+for (let i = 0; i < 4 && await dismissModal(page); i++);
+
+/* ---------------------------------------------------------------
    last · an action never opens with somebody standing on the land
 
    Reported from play: "the instance spawned my boat in the middle of the

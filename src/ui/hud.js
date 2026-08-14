@@ -116,6 +116,15 @@ export class HUD {
           : Math.floor(p.provisions);
         ammo.querySelector('b').textContent = p.shot;
         cargo.querySelector('b').textContent = `${p.cargoUsed}/${p.cls.cargo}`;
+        /* Your own fighting weight, in the same units as the numbers over
+           everybody else's masts. Those pips told you how strong *they* were
+           and there was nothing to hold it against — the comparison only
+           existed on the target card, and only once you had marked somebody.
+           A player who can read 431 over a brig should be able to read their
+           own number without picking a fight to see it. Fleet weight, not
+           hull weight, because consorts turn up to the same action. */
+        const pw = $('mini-power');
+        if (pw) pw.querySelector('b').textContent = Math.round(g.fleetStrength);
         prov.classList.toggle('warn', mins < 8);
         ammo.classList.toggle('warn', p.shot < 6);
       }
@@ -491,7 +500,7 @@ export class HUD {
     const consorts = g.fleet.filter(s => !s.isPlayer && s.alive);
     if (consorts.length === 0) { bar.classList.add('hidden'); this.fleetKey = ''; return; }
     bar.classList.remove('hidden');
-    const key = consorts.length + '|' + g.fleetOrder;
+    const key = consorts.length + '|' + g.fleetOrder + '|' + (g.holdFire ? 'held' : 'free');
     if (key === this.fleetKey) return;
     this.fleetKey = key;
     clear(bar);
@@ -506,6 +515,15 @@ export class HUD {
       onTap(b, () => { g.setFleetOrder(o.id); this.fleetKey = ''; }, 560);
       bar.appendChild(b);
     }
+    /* And whether they shoot, which is a different question from where they
+       sail — so it is a toggle beside the three, not a fourth one of them.
+       Without it a captain trying to take a prize had her own squadron
+       sinking it, and the bigger the fleet the harder capturing anything
+       became, which is exactly backwards. */
+    const hf = el('button', 'fleet-btn hold-fire' + (g.holdFire ? ' on' : ''),
+      `<span class="fi">${g.holdFire ? '✋' : '⁂'}</span>${g.holdFire ? 'HELD' : 'FIRE'}`);
+    onTap(hf, () => { g.setHoldFire(!g.holdFire); this.fleetKey = ''; }, 460);
+    bar.appendChild(hf);
   }
 }
 

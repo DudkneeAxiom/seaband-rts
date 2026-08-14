@@ -112,6 +112,11 @@ export class Game {
     this.contractEpoch = {};       // bumped per port so the board turns over
     this.market = new Market();
     this.fleetOrder = 'follow';
+    /* Guns held so a prize survives long enough to be taken. Separate from
+       the formation order rather than a fourth one, because it composes with
+       all three: you can hold your fire while following, while engaging, or
+       while lying to. */
+    this.holdFire = false;
     /* Which layer the game is on. The ocean is the campaign; contact between
        hostile fleets makes an encounter; an encounter can make a battle. Only
        one of these owns the world at a time, and everything that asks "can I
@@ -192,6 +197,7 @@ export class Game {
     };
     this.world = {
       ships: this.ships, windAng: this.windAng, time: 0, limit: this.limit,
+      holdFire: false,
       market: this.market, player: null, playerTarget: null,
       onGround: (s, o) => this.onGround(s, o),
       onEdge: () => this.onEdge(),
@@ -234,6 +240,11 @@ export class Game {
     this.time = 0;
     this.hintState = {};
     this.fleetOrder = 'follow';
+    /* Guns held so a prize survives long enough to be taken. Separate from
+       the formation order rather than a fourth one, because it composes with
+       all three: you can hold your fire while following, while engaging, or
+       while lying to. */
+    this.holdFire = false;
     /* Which layer the game is on. The ocean is the campaign; contact between
        hostile fleets makes an encounter; an encounter can make a battle. Only
        one of these owns the world at a time, and everything that asks "can I
@@ -746,6 +757,7 @@ export class Game {
     this.windAng += angDiff(this.windAng, this.windTargetAng) * Math.min(1, dt * 0.06);
     this.world.windAng = this.windAng;
     this.world.playerTarget = this.target;
+    this.world.holdFire = this.holdFire;
     this.world.combatLive = this.ctx.combatLive;
     this.world.flagDocked = !!this.inPort;
     if (this._storyCool > 0) this._storyCool -= dt;   // the breath between chapter pages
@@ -1836,6 +1848,29 @@ export class Game {
        little, which is how it is actually done. */
     p.throttle = d < 46 ? clamp((t.speed + 3) / Math.max(1, p.cls.speed), 0.08, 1) : 1;
   }
+  /**
+   * Hold your fleet's fire.
+   *
+   * Every order a consort could be given fired her guns — FOLLOW, ENGAGE and
+   * even HOLD, which slowed her to a crawl and went on shooting anything in
+   * range. So a captain trying to take a prize had her own squadron sinking
+   * it: the bigger the fleet, the harder it was to capture anything, which is
+   * backwards. Boarding wants her afloat, her rig down and her deck thin, and
+   * that is a decision the guns can ruin in one broadside.
+   *
+   * A toggle rather than a fourth formation order, because it is a different
+   * question — where they sail and whether they shoot are not the same choice,
+   * and you may well want them alongside you and silent.
+   */
+  setHoldFire(on, silent = false) {
+    this.holdFire = !!on;
+    this.world.holdFire = this.holdFire;
+    if (silent) return;
+    toast(this.holdFire
+      ? 'Guns held across the fleet. Board her before she goes down.'
+      : 'The fleet may fire again.', this.holdFire ? 'gold' : '', 2200);
+  }
+
   setFleetOrder(o, silent = false) {
     this.fleetOrder = o;
     for (const s of this.fleet) if (!s.isPlayer) s.fleetOrder = o;
