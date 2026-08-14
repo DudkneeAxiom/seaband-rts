@@ -1228,9 +1228,17 @@ const rest = await G(() => {
      measuring a ship that had not moved. It passed with the fix reverted,
      which is the only reason it was caught. */
   p.boarding = null; p.lockTo = null; p.captured = false; p.route = null; p.dest = null;
-  p.x = 120; p.z = 60; p.speed = 0; p.alive = true; p.hull = p.hullMax;
-  const from = { x: p.x, z: p.z };
   for (const s of g.ships) { if (!s.isPlayer) { s.x = 9e4; s.z = 9e4; s.hostileToPlayer = false; } }
+  /* Let the residue out of the world *before* the course is laid, not only
+     before the tape measure comes out. Settling afterwards was not enough: the
+     first tick still moved her, and on one run in three she was set down far
+     enough away that she never fetched the mark at all and "throttle on
+     arrival" was read off a ship still under way. */
+  p.x = 120; p.z = 60; p.speed = 0; p.throttle = 0; p.alive = true; p.hull = p.hullMax;
+  for (let i = 0; i < 120; i++) { g.update(1 / 30); g.paused = false; }
+  p.boarding = null; p.lockTo = null; p.route = null; p.dest = null;
+  p.x = 120; p.z = 60; p.speed = 0; p.throttle = 0;
+  const from = { x: p.x, z: p.z };
   /* Hold the campaign layer for the measurement. Left free, the world sent
      somebody to find her during the five minutes, the encounter made a battle,
      and the deployment set her down 1805m away — which the check duly reported
@@ -1297,6 +1305,73 @@ await G(() => {
   document.getElementById('sheet').classList.add('hidden');
   window.__game.inPort = null; window.__game.paused = false;
 });
+
+/* (d) A gate she cannot fetch is a gate she gives up.
+   Reported twice with the same screenshot, and it survived three fixes because
+   none of them asked whether she was getting anywhere. A Sable guard whose post
+   lies across Greywake's breakwater beats at it for ever: every board runs her
+   at the masonry, `beatTo` comes about for the shore, and she gives back the
+   ground she made. Never aground, never stationary — invisible to every check
+   that counted either. Measured before: 98% of ten minutes within 60m of the
+   arm, closest approach sixteen metres, and never within 188m of her post. */
+const gate = await G(async () => {
+  const R = await import('/src/core/route.js');
+  const g = window.__game, T = window.__terrain;
+  g.paused = false;
+  const port = g.PORTS.find(p => p.id === 'greywake');
+  const s = g.ships.find(x => x.alive && !x.isPlayer && !g.fleet.includes(x));
+  if (!s) return { staged: false };
+  // everyone else away, and the player near enough that the world keeps her
+  for (const o of g.ships) {
+    if (o === s || o.isPlayer) continue;
+    o.x = port.x + 1500; o.z = port.z + 1500; o.target = null; o.hostileToPlayer = false;
+  }
+  const p = g.player;
+  p.x = port.x + 900; p.z = port.z + 900; p.speed = 0; p.throttle = 0;
+  p.dest = null; p.route = null; g.moveGoal = null; p.alive = true; p.hull = p.hullMax;
+
+  /* Put her one side of the harbour and her post the other, so the arm is
+     between the two — the scenario the rule exists for, built rather than
+     waited for. */
+  let here = null, there = null;
+  for (let r = 260; r <= 520 && !there; r += 40) {
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2;
+      const x1 = port.x + Math.sin(a) * r, z1 = port.z + Math.cos(a) * r;
+      const x2 = port.x - Math.sin(a) * r, z2 = port.z - Math.cos(a) * r;
+      if (T.depthAt(x1, z1) < 14 || T.depthAt(x2, z2) < 14) continue;
+      if (R.clearWater(x1, z1, x2, z2, 6.5)) continue;         // must be cut off
+      here = { x: x1, z: z1 }; there = { x: x2, z: z2 }; break;
+    }
+  }
+  if (!there) return { staged: false };
+  s.role = 'sable'; s.target = null; s.aggro = 0; s.fleeing = false;
+  s.chaseHold = 0; s.boarding = null; s.lockTo = null; s.captured = false;
+  s.hostileToPlayer = false; s.hull = s.hullMax; s.sails = s.sailMax; s.tack = 0;
+  s.x = here.x; s.z = here.z; s.speed = 4;
+  s.brain = { post: { x: there.x, z: there.z }, t: 0, cooldown: 0 };
+  const first = { x: there.x, z: there.z };
+  const startOff = Math.hypot(s.x - first.x, s.z - first.z);
+
+  let best = startOff;
+  for (let i = 0; i < 150 * 30; i++) {
+    g.update(1 / 30);
+    g.paused = false;
+    best = Math.min(best, Math.hypot(s.x - s.brain.post.x, s.z - s.brain.post.z));
+  }
+  return {
+    staged: true, startOff: Math.round(startOff),
+    movedGate: Math.hypot(s.brain.post.x - first.x, s.brain.post.z - first.z) > 40,
+    closest: Math.round(best),
+    postSeen: R.clearWater(s.x, s.z, s.brain.post.x, s.brain.post.z, R.keelFor(s.draft)),
+  };
+});
+ok(`a picket that cannot fetch her gate takes one she can (${gate.staged
+  ? `cut off by ${gate.startOff}m of harbour, ${gate.movedGate ? 'shifted her gate' : 'HELD THE SAME GATE'}, `
+    + `closed to ${gate.closest}m`
+  : 'could not stage'})`,
+  gate.staged && (gate.movedGate || gate.closest < 90));
+
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');

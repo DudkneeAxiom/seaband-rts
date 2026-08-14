@@ -315,6 +315,95 @@ const own = await G(() => {
 ok(`sinking her yourself pays the whole prize (◆${own.paid})`, own.paid > 0);
 ok('and pays it exactly once', own.after === own.paid);
 
+/* ---------- the harbour works are there to the hull, not only to the eye ----------
+
+   Reported twice with a screenshot: ships sitting on Greywake's left arm in
+   the same place. It was never the steering. The arms were stamped into the
+   baked height field, which is 384 cells across the whole world — a cell every
+   26 metres, against a breakwater block 22 by 26 — so a 21-metre footing wrote
+   about one cell and `heightAt` bilinearly smoothed that into a gentle ramp.
+   To the route grid, to `clearWater`, to `avoidLand` and to the hull's own
+   keel, two hundred metres of League masonry was open water. The works are
+   asked directly now, at their real size. */
+const walls = await G(async () => {
+  const R = await import('/src/core/route.js');
+  const g = window.__game, T = window.__terrain;
+  const port = g.PORTS.find(p => p.id === 'greywake');
+  const shore = window.__shore[port.id];
+  /* Walk out along both arms the way they are drawn — from the shore search's
+     own frame, so this measures the masonry that exists rather than a guess at
+     where it is. */
+  const bx = shore.x, bz = shore.z;
+  const inl = Math.atan2(shore.townX - bx, shore.townZ - bz);
+  const ix = Math.sin(inl), iz = Math.cos(inl);
+  const px = Math.cos(inl), pz = -Math.sin(inl);
+  const at = (side, t) => {
+    const out = 46 + t * 200, across = side * (128 - t * 48);
+    return { x: bx - ix * out + px * across, z: bz - iz * out + pz * across };
+  };
+  /* Can a hull cross the arm? Sampling the block centres is not the question —
+     the baked field is strongest exactly there, and this check passed with the
+     fix reverted because that is where it was looking. What a ship does is
+     cross *between* them, so cross between them: a line from forty metres
+     outside the arm to forty metres inside it, at the midpoint of every gap. */
+  let crossable = 0, tried = 0;
+  for (const side of [1, -1]) {
+    for (let i = 0; i < 12; i++) {
+      const a = at(side, i / 12), b = at(side, (i + 1) / 12);
+      const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+      // the arm runs along a->b, so cross it at right angles
+      const ang = Math.atan2(b.x - a.x, b.z - a.z) + Math.PI / 2;
+      const ox = mx + Math.sin(ang) * 40, oz = mz + Math.cos(ang) * 40;
+      const nx = mx - Math.sin(ang) * 40, nz = mz - Math.cos(ang) * 40;
+      tried++;
+      if (R.clearWater(ox, oz, nx, nz, 3.45)) crossable++;   // the player's draft
+    }
+  }
+  return { tried, crossable, mouth: +T.depthAt(bx - ix * 246, bz - iz * 246).toFixed(1) };
+});
+ok(`Greywake's arms cannot be sailed through (${walls.crossable} of ${walls.tried} `
+  + `gaps between blocks let a cutter across)`, walls.crossable === 0);
+ok(`and the mouth between them is still water (${walls.mouth}m in the gate)`,
+  walls.mouth > 8);
+
+/* And nothing was made unreachable by making them solid — the harbour is a
+   refuge, and a refuge every hull can reach is the whole point of one. */
+const reach = await G(async () => {
+  const R = await import('/src/core/route.js');
+  const g = window.__game, T = window.__terrain;
+  const out = {};
+  for (const port of g.PORTS) {
+    const bad = [];
+    for (const draft of [3.45, 4.6, 7.13, 8.97]) {
+      let from = null;
+      for (let d = 700; d <= 1300 && !from; d += 100) {
+        for (let i = 0; i < 24; i++) {
+          const a = i / 24 * Math.PI * 2;
+          const x = port.x + Math.sin(a) * d, z = port.z + Math.cos(a) * d;
+          if (T.depthAt(x, z) > 28) { from = { x, z }; break; }
+        }
+      }
+      if (!from) continue;
+      const rt = R.findRoute(from.x, from.z, port.x, port.z, g.limit, R.keelFor(draft));
+      const end = rt && rt.length ? rt[rt.length - 1] : null;
+      /* null means the rhumb line was already clear, which is also reachable.
+         The margin is deliberate: `smooth` ends a route in water and leaves
+         the last stretch to the hull's own land-avoidance, so a frigate
+         fetching Fort Escarra's road at 81m against a 74m dock radius has
+         arrived. What this is looking for is the failure that actually
+         happened — a port left 400m short and quietly unreachable. */
+      const off = end ? Math.hypot(end.x - port.x, end.z - port.z) : 0;
+      if (rt !== null && (!end || off > port.dockR + 90)) bad.push(draft + 'm@' + Math.round(off));
+    }
+    if (bad.length) out[port.id] = bad;
+  }
+  return out;
+});
+ok(`every port is still reachable by every hull afloat `
+  + `(${Object.keys(reach).length ? JSON.stringify(reach) : 'all five, all four drafts'})`,
+  Object.keys(reach).length === 0);
+
+
 console.log('');
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');

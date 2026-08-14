@@ -45,11 +45,22 @@ function build(limit) {
   for (let j = 0; j < gh; j++) {
     for (let i = 0; i < gw; i++) {
       const x = gx0 + i * CELL, z = gz0 + j * CELL;
-      // a cell is only as good as its shallowest cast: middle and four sides,
-      // which keeps the route off headlands the hull would clip on the way past
-      let m = depthAt(x, z);
-      m = Math.min(m, depthAt(x - CELL * 0.4, z), depthAt(x + CELL * 0.4, z),
-        depthAt(x, z - CELL * 0.4), depthAt(x, z + CELL * 0.4));
+      /* A cell is only as good as its shallowest cast, and five casts are not
+         enough to find a wall. The middle and four sides left three quarters
+         of a 48-metre cell unsounded, so Greywake's breakwater — 26 metres of
+         League masonry — slipped clean between them: the grid called the cell
+         open water and every route into the harbour was plotted straight
+         through the arm. That is the answer to "ships drift into the stone
+         walls in the same spot", asked twice.
+         A 5×5 lattice across the whole cell costs one bake of 160k casts, once,
+         and there is no gap left wide enough to hide a breakwater in. */
+      let m = Infinity;
+      for (let a = 0; a < 5; a++) {
+        for (let b = 0; b < 5; b++) {
+          const d = depthAt(x + (a / 4 - 0.5) * CELL, z + (b / 4 - 0.5) * CELL);
+          if (d < m) m = d;
+        }
+      }
       if (Math.hypot(x, z) >= limit * 0.99) m = -Infinity;   // off the edge of the world
       grid[j * gw + i] = m;
     }
@@ -188,10 +199,19 @@ export function findRoute(x0, z0, x1, z1, limit = 2000, need = KEEL) {
   if (!grid || gLimit !== limit) build(limit);
 
   /* A deep hull asks for her own depth first, and settles for the shallow
-     answer if the deep one does not exist. A frigate that can find no
+     answer if the deep one does not get her there. A frigate that can find no
      twelve-metre road to Fort Escarra is better off on the cutter's road,
      picking her way, than steering the rhumb line at a rock — and nothing in
-     this game may make a place unreachable. */
+     this game may make a place unreachable.
+
+     "Does not get her there" is the part this first got wrong. It only fell
+     back when the deep search *failed*, and at Fort Escarra it does not fail:
+     the mooring is 9.8m of water and a frigate wants 10.5, so `nearestWater`
+     reaches away up to eight cells, finds deep water somewhere off the
+     approach, and returns a perfectly good road to the wrong place. The route
+     came back 400m short of the quay and the port was quietly unreachable for
+     the biggest hull in the game. So the answer is judged by where it ends. */
+  let best = null;
   for (const want of need > KEEL ? [need, KEEL] : [KEEL]) {
     const s = nearestWater(...toCell(x0, z0), want);
     const t = nearestWater(...toCell(x1, z1), want);
@@ -199,7 +219,11 @@ export function findRoute(x0, z0, x1, z1, limit = 2000, need = KEEL) {
     const path = search(s[0], s[1], t[0], t[1], want);
     if (!path || path.length < 2) continue;
     // string-pulled from where she is, so the first leg is sounded like the rest
-    return smooth([{ x: x0, z: z0 }, ...path], x1, z1, want);
+    const out = smooth([{ x: x0, z: z0 }, ...path], x1, z1, want);
+    if (!out.length) continue;
+    const end = out[out.length - 1];
+    if (Math.hypot(end.x - x1, end.z - z1) <= CELL * 2.5) return out;
+    if (!best) best = out;             // keep the deepest road as the fallback
   }
-  return null;
+  return best;
 }

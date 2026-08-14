@@ -289,6 +289,91 @@ function refitGeos(cls, col, mods) {
 }
 
 /**
+ * What she is *for*, which is a different question from who built her.
+ *
+ * `build` is a faction's argument in timber and it is the only thing that had
+ * ever changed a silhouette — so a League merchant was a League warship, a
+ * Covenant merchant was a Covenant warship, and the only hull on the sea that
+ * looked like a trader was a Compact one, because the Compact happen to build
+ * like traders. Reported from the deck: the convoys "look like combat ships".
+ *
+ * A working cargo hull says so before you can count her guns: hatches big
+ * enough to strike a cask through, the derrick that does the striking, water
+ * and stores on deck because the hold is worth more full of freight, and a
+ * boat carried where a warship keeps her guns' crews. Faction and role are
+ * different axes and both are visible now — a Sable trader is unmistakably
+ * Sable *and* unmistakably a trader.
+ */
+function traderGeos(cls, col, build, rng) {
+  const L = cls.len, B = cls.beam, FB = B * 0.30;
+  const deckY = FB * 0.75;
+  const parts = [];
+  const timber = 0x6f5636, pale = 0x8a6f45, canvas = 0xa9a08a;
+
+  /* The Compact build already draws a cargo stack and a derrick amidships —
+     doubling them would put two derricks on one hatch. Hers stand; the rest of
+     this is what every trader gets on top of her builders' habits. */
+  if (build !== 'trader') {
+    // main hatch, coamings proud of the deck, tarpaulin battened over it
+    parts.push(prep(xf(new THREE.BoxGeometry(B * 0.50, 0.62, L * 0.20), { y: deckY + 0.30, z: -L * 0.01 }), timber, 0.03));
+    parts.push(prep(xf(new THREE.BoxGeometry(B * 0.54, 0.16, L * 0.23), { y: deckY + 0.66, z: -L * 0.01 }), canvas, 0.05));
+    // the derrick that strikes cargo through it, and its block
+    const boom = new THREE.CylinderGeometry(0.15, 0.19, L * 0.30, 5);
+    xf(boom, { y: deckY + L * 0.09, z: L * 0.03, rx: 0.72 });
+    parts.push(prep(boom, 0x8b6c44));
+    parts.push(prep(xf(new THREE.BoxGeometry(0.45, 0.62, 0.45), { y: deckY + L * 0.17, z: L * 0.13 }), 0x5f4a2c, 0.04));
+  }
+
+  // a second hatch forward — two holds is what "she carries things" looks like
+  parts.push(prep(xf(new THREE.BoxGeometry(B * 0.36, 0.5, L * 0.11), { y: deckY + 0.24, z: L * 0.26 }), timber, 0.03));
+
+  /* Casks standing along the waterways, inboard of the rail. Stood on end
+     rather than laid down: a barrel on its side reads as a spare spar at any
+     distance you actually see a hull from, and the whole point of this is to
+     be legible before the name is. */
+  const casks = Math.max(3, Math.round(L / 9));
+  for (const side of [1, -1]) {
+    for (let i = 0; i < casks; i++) {
+      const t = 0.30 + (i / Math.max(1, casks - 1)) * 0.32;
+      const r = B * 0.075 + rng() * B * 0.015;
+      const hgt = r * 2.6;
+      parts.push(prep(xf(new THREE.CylinderGeometry(r * 0.88, r, hgt, 8), {
+        x: side * B * 0.29, y: deckY + hgt * 0.5, z: (t - 0.5) * L,
+      }), i % 3 === 0 ? pale : 0x7d6440, 0.05));
+      // a hoop, so it is a cask and not a bollard
+      parts.push(prep(xf(new THREE.CylinderGeometry(r * 1.04, r * 1.04, 0.16, 8), {
+        x: side * B * 0.29, y: deckY + hgt * 0.62, z: (t - 0.5) * L,
+      }), 0x4c3a24, 0.04));
+    }
+  }
+
+  /* Crates stacked abaft the mainmast, two down and one across them — high
+     enough to break the line of the rail, which is the part of a deck load
+     you can see from the next ship over. */
+  for (let i = 0; i < 3; i++) {
+    const s = B * (0.24 + rng() * 0.06);
+    const top = i === 2;
+    parts.push(prep(xf(new THREE.BoxGeometry(s, s * 0.86, s), {
+      x: (top ? 0 : (i ? 1 : -1)) * B * 0.16, y: deckY + s * 0.43 + (top ? s * 0.86 : 0),
+      z: -L * (0.17 + (top ? 0.02 : i * 0.02)), ry: (rng() - 0.5) * 0.5,
+    }), i % 2 ? 0x8a6a44 : 0x74593a, 0.06));
+  }
+
+  /* Her boat, carried on deck. A warship stows hers to keep the gun crews
+     their room; a trader carries hers where the cargo is not, and it is the
+     clearest single tell at any distance you can read a hull at. */
+  const boatL = L * 0.20, boatB = B * 0.22;
+  parts.push(prep(xf(new THREE.BoxGeometry(boatB, boatB * 0.55, boatL), {
+    x: -B * 0.10, y: deckY + boatB * 0.34, z: -L * 0.30,
+  }), 0x7a6142, 0.05));
+  parts.push(prep(xf(new THREE.BoxGeometry(boatB * 0.78, 0.14, boatL * 0.9), {
+    x: -B * 0.10, y: deckY + boatB * 0.62, z: -L * 0.30,
+  }), col.trim, 0.04));
+
+  return parts;
+}
+
+/**
  * How a faction builds, before anyone refits anything.
  *
  * A League hull is fortification translated into naval architecture: heavy
@@ -768,6 +853,7 @@ export function buildShip(classId, factionId, opts = {}) {
     hullGeometry(cls, col, mods),
     ...detailGeos(cls, col, guns, mods),
     ...buildGeos(cls, col, build, rng, guns),
+    ...(opts.trader ? traderGeos(cls, col, build, rng) : []),
     ...refitGeos(cls, col, mods),
     ...historyGeos(cls, col, history, rng),
     ...rigParts.spars,
@@ -793,7 +879,7 @@ export function buildShip(classId, factionId, opts = {}) {
   group.userData = {
     cls, mastTop: rigParts.mastTop, deckY: rigParts.deckY,
     ports: gunPorts(cls, guns), bodyMesh, rigMesh, flagMesh,
-    upgrades: mods.slice(), guns, build,
+    upgrades: mods.slice(), guns, build, trader: !!opts.trader,
     scars: history ? history.scars | 0 : 0, prizes: history ? history.prizes | 0 : 0,
     rigUniforms: rigMat.userData.uniforms,
   };

@@ -120,6 +120,12 @@ export class Ship {
          stay heavy, Covenant hulls stay light, and a late fleet reads as a
          history of the campaign rather than five copies of one ship. */
       build: this.builtBy ? (FACTIONS[this.builtBy] || {}).build : undefined,
+      /* What she is for, which is a different axis from who built her. A
+         trader carries her hatches, her derrick, her casks and her boat on
+         deck whatever flag she was laid down under, so a convoy reads as a
+         convoy from as far off as you can read a hull. A prize keeps the
+         fittings she was taken with — she is still the trader she was. */
+      trader: this.role === 'merchant',
       seed: this.seed,
       history: { scars: this.scars | 0, prizes: this.prizes | 0 },
     };

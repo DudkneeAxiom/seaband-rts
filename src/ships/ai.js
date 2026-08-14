@@ -158,6 +158,30 @@ function steerVia(ship, x, z, dt, world) {
 }
 
 /**
+ * Run somebody down, round the land rather than into it.
+ *
+ * Chasing steered the rhumb line at whatever it was after, which is fine in
+ * open water and is how a Sable guard came to spend her life against
+ * Greywake's breakwater: the powers hostile to the player hunt her at 640m,
+ * the player was inside the harbour, and the straight line to her went through
+ * two hundred metres of League masonry. `avoidLand` bounced the bow off it and
+ * pointed her back at it, for ever, seventeen metres off the stone — never
+ * aground, so nothing that counted grounded hulls ever noticed.
+ *
+ * A hull she cannot see is a hull she has to work round. Reported twice as
+ * "ships stuck on the grey wall", and it only happens while the player is
+ * there, which is the reason it kept surviving a watch with nobody in it.
+ */
+function runDownTo(ship, x, z, dt, world) {
+  if (clearWater(ship.x, ship.z, x, z, keelFor(ship.draft))) {
+    if (ship.brain) { ship.brain.path = null; ship.brain.pathGoal = null; }
+    steerTo(ship, x, z, dt);
+    return;
+  }
+  steerVia(ship, x, z, dt, world);
+}
+
+/**
  * A waypoint a ship can actually sail to.
  *
  * Loitering stations were picked as a random bearing and range from a port
@@ -520,7 +544,7 @@ function pirateAI(ship, dt, world, ctx, hurt, crippled) {
        out there she closes to touching distance, which is what makes contact
        an event. Inside a battle she works the beam as before. */
     const runDown = !ctx.combatLive && (t.isPlayer || t.faction === 'player');
-    if (runDown || d > GUN_RANGE * 1.1) steerTo(ship, t.x, t.z, dt);
+    if (runDown || d > GUN_RANGE * 1.1) runDownTo(ship, t.x, t.z, dt, world);
     else combatSteer(ship, t, dt, 105);
     tryFire(ship, t, ctx, 62);
     // board weak prize
@@ -547,18 +571,95 @@ function pirateAI(ship, dt, world, ctx, hurt, crippled) {
 const SABLE_STATION = { x: -1450, z: -1280 };
 const SABLE_REACH = 900;
 
+/* A station with room to lie at, not merely a wet one.
+   Sounding the point alone put a gate-keeper twenty metres off Greywake's
+   breakwater — deep enough to float in, close enough to read as a ship stuck
+   on the wall, which is what it was reported as. A picket lies where she can
+   swing. */
+function openStation(cx, cz, rMin, rMax, need) {
+  for (let i = 0; i < 24; i++) {
+    const a = Math.random() * TAU, r = rMin + Math.random() * (rMax - rMin);
+    const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+    if (depthAt(x, z) <= need) continue;
+    let room = true;
+    for (let k = 0; k < 8 && room; k++) {
+      const t = (k / 8) * TAU;
+      if (depthAt(x + Math.sin(t) * 70, z + Math.cos(t) * 70) <= need) room = false;
+    }
+    if (room) return { x, z };
+  }
+  return null;
+}
+
 function sableAI(ship, dt, world, ctx, hurt) {
   const b = ship.brain;
   if (!b.post) {
-    // each of them keeps a different gate of the Sound — in water, and only
-    // where there is water: the bearing is hers, the depth is the sea's answer
+    // each of them keeps a different gate of the Sound — in water, with water
+    // round it: the bearing is hers, the room is the sea's answer
     const a = (ship.name.length * 1.7) % TAU;
     const want = { x: SABLE_STATION.x + Math.cos(a) * 380, z: SABLE_STATION.z + Math.sin(a) * 380 };
-    b.post = depthAt(want.x, want.z) > keelFor(ship.draft)
-      ? want
-      : (waterPoint(SABLE_STATION.x, SABLE_STATION.z, 300, 520, keelFor(ship.draft)) || want);
+    const need = keelFor(ship.draft);
+    let room = depthAt(want.x, want.z) > need;
+    for (let k = 0; k < 8 && room; k++) {
+      const t = (k / 8) * TAU;
+      if (depthAt(want.x + Math.sin(t) * 70, want.z + Math.cos(t) * 70) <= need) room = false;
+    }
+    b.post = room ? want : (openStation(SABLE_STATION.x, SABLE_STATION.z, 300, 560, need) || want);
   }
   const fromPost = dist(ship.x, ship.z, b.post.x, b.post.z);
+
+  /* A gate she cannot make is a gate she gives up on.
+     This is the fault behind the screenshot, and it survived three fixes
+     because none of them asked whether she was actually getting anywhere. Her
+     post is fine — 179m off the breakwater in 56m of water. She simply could
+     not fetch it: it lay to windward across the arm, so every board ran her at
+     the masonry, `beatTo` came about for the shore, and she gave back exactly
+     the ground she had made. Measured over ten minutes: 188m from her post at
+     best and 373m at worst, never arriving, and **98% of the time within 60m
+     of the breakwater**, closest approach sixteen metres. Never aground, never
+     stationary, and invisible to every check that counted either.
+     So: if she has not improved on her best in three quarters of a minute, the
+     gate is not hers today and she takes one she can actually lie at. */
+  /* Judged over a window, not against her best ever. Against her best, a hull
+     beating back and forth touches it on every board, resets the clock, and
+     the rule never fires — measured at 99% of ten minutes still on the wall.
+     The question is whether she is closer than she was three quarters of a
+     minute ago, which is what "getting anywhere" means. */
+  b.postT = (b.postT || 0) + dt;
+  if (b.postRef == null) b.postRef = fromPost;
+  if (b.postT > 45) {
+    if (b.postRef - fromPost < 25 && fromPost > 90) {
+      /* A ladder, because a stricter station is only an improvement if there
+         is always one left to take. Asking for sea room and finding none left
+         her holding the gate she could not reach, with the rule firing every
+         forty-five seconds and changing nothing — worse than before it existed.
+         Room first, then merely deep, and either way she has to be able to see
+         it from where she is: a gate she cannot fetch is what got her here. */
+      const need = keelFor(ship.draft);
+      let alt = null;
+      for (let i = 0; i < 10 && !alt; i++) {
+        const c = openStation(SABLE_STATION.x, SABLE_STATION.z, 260, 560, need + 4);
+        if (c && clearWater(ship.x, ship.z, c.x, c.z, need)) alt = c;
+      }
+      for (let i = 0; i < 10 && !alt; i++) {
+        const c = waterPoint(SABLE_STATION.x, SABLE_STATION.z, 260, 560, need + 2);
+        if (c && clearWater(ship.x, ship.z, c.x, c.z, need)) alt = c;
+      }
+      /* And a last rung that cannot fail: open water near where she already
+         is. Every rung above looks around the Sound, and a hull pinned on the
+         wrong side of the harbour can see almost none of it — so the ladder
+         ran out, she kept the gate she could not reach, and the rule fired
+         every forty-five seconds changing nothing. A picket keeping the
+         approaches from slightly the wrong place is a picket; one grinding on
+         a breakwater for ten minutes is a bug. */
+      for (let i = 0; i < 12 && !alt; i++) {
+        const c = openStation(ship.x, ship.z, 150, 320, need + 2);
+        if (c && clearWater(ship.x, ship.z, c.x, c.z, need)) alt = c;
+      }
+      if (alt) { b.post = alt; b.path = null; b.pathGoal = null; }
+    }
+    b.postRef = fromPost; b.postT = 0;
+  }
 
   if (hurt) {                                  // damaged ships go home to the yard
     const home = nearestPort(ship, p => p.faction === 'sable') || nearestPort(ship);
@@ -577,7 +678,7 @@ function sableAI(ship, dt, world, ctx, hurt) {
     if (theirFromPost > SABLE_REACH || fromPost > SABLE_REACH) { ship.target = null; }
     else {
       const d = dist(ship.x, ship.z, t.x, t.z);
-      if (d > GUN_RANGE || (!ctx.combatLive && (t.isPlayer || t.faction === 'player'))) steerTo(ship, t.x, t.z, dt);
+      if (d > GUN_RANGE || (!ctx.combatLive && (t.isPlayer || t.faction === 'player'))) runDownTo(ship, t.x, t.z, dt, world);
       else combatSteer(ship, t, dt, 118);
       tryFire(ship, t, ctx, 62);
       return;
@@ -590,8 +691,18 @@ function sableAI(ship, dt, world, ctx, hurt) {
      screenshot of exactly that: `Stone Arm` on the wall, 74m sailed and 6m
      gained in three minutes, with ten radians of helm in it. Her post was
      never the problem — it is in 56m of water. The road to it was. */
-  if (fromPost > 240) steerVia(ship, b.post.x, b.post.z, dt, world);
-  else {
+  /* Route to it whenever she cannot see it — distance is not the question,
+     the water between is. Reported a second time, with the same screenshot:
+     the ring below is where a hull steers by bearing alone, and a guard 189m
+     from a post on the far side of the breakwater sat 17 metres off the
+     masonry at five knots, bounced along it by `avoidLand`, indefinitely. She
+     was never aground — 6.5m of water under a 4.6m draft — which is why a
+     check that counted hulls on the ground never saw her, and why a picket
+     that sits at the wall for ever reads from the deck as a ship stuck on it. */
+  const seePost = clearWater(ship.x, ship.z, b.post.x, b.post.z, keelFor(ship.draft));
+  if (fromPost > 240 || (fromPost > 55 && !seePost)) {
+    steerVia(ship, b.post.x, b.post.z, dt, world);
+  } else {
     /* Holding the gate means lying to it, not circling it.
        This ran her at full throttle to a 120m ring and then at a flat quarter
        throttle inside it, which never settles: she was still making thirteen
@@ -748,7 +859,7 @@ function escortAI(ship, dt, world, ctx, hurt) {
        it should work — but it should cost the attacker the time it takes. */
     const off = dist(ship.x, ship.z, charge.x, charge.z);
     if (off > 700) { steerVia(ship, charge.x, charge.z, dt, world); return; }
-    if (d > GUN_RANGE * 1.05) steerTo(ship, foe.x, foe.z, dt);
+    if (d > GUN_RANGE * 1.05) runDownTo(ship, foe.x, foe.z, dt, world);
     else combatSteer(ship, foe, dt, 110);
     tryFire(ship, foe, ctx);
     return;
@@ -839,7 +950,7 @@ function consortAI(ship, dt, world, ctx) {
       if (flag.alive && d < GUN_RANGE * 1.5 && Math.abs(angDiff(toMe, toFlag)) < 1.1) {
         const far = toFlag + Math.PI;
         steerTo(ship, t.x + Math.sin(far) * 115, t.z + Math.cos(far) * 115, dt);
-      } else if (d > GUN_RANGE * 1.05) steerTo(ship, t.x, t.z, dt);
+      } else if (d > GUN_RANGE * 1.05) runDownTo(ship, t.x, t.z, dt, world);
       else combatSteer(ship, t, dt, 110);
       if (!silent) tryFire(ship, t, ctx, 62);
         /* Grapples are the action too. A consort that cannot fire out here must

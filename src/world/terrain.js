@@ -149,6 +149,7 @@ export function bakeHeights() {
    The stones used to be scenery: a 22-metre block of League masonry a cutter
    could sail through the middle of. */
 function raiseSeabed(x, z, r, top) {
+  addWork(x, z, r, top);
   const half = WORLD_SIZE * 0.5;
   const i0 = Math.max(0, Math.floor((x - r + half) / CELL)), i1 = Math.min(GRID - 1, Math.ceil((x + r + half) / CELL));
   const j0 = Math.max(0, Math.floor((z - r + half) / CELL)), j1 = Math.min(GRID - 1, Math.ceil((z + r + half) / CELL));
@@ -163,6 +164,57 @@ function raiseSeabed(x, z, r, top) {
   }
 }
 
+/* ---------------------------------------------------------------
+   The harbour works, at their real size rather than the grid's.
+
+   Stamping them into the baked field was the right idea and could not
+   work on its own: the bake is 384 cells across the world, which is a
+   cell every 26 metres, and a breakwater block is 22 by 26. A 21-metre
+   footing writes about one cell, and `heightAt` then bilinearly smooths
+   that single cell into a gentle 26-metre ramp — so the arm a player can
+   see is, to every rule that reads the depth, a slight shoal with open
+   water either side. That is why ships kept ending up sitting on
+   Greywake's left arm in the same place: the route grid plotted through
+   it, `clearWater` saw nothing in the way, `avoidLand` had nothing to
+   sound, and the hull never grounded because the water there was fine.
+
+   So the works are also kept as themselves and asked directly. A bucket
+   hash over 128-metre squares means open sea costs one failed Map lookup,
+   and only water actually beside a harbour pays for the disc tests.
+   --------------------------------------------------------------- */
+const WORK_BUCKET = 128;
+const WORKS = new Map();
+const workKey = (bx, bz) => ((bx + 512) << 12) | (bz + 512);
+
+function addWork(x, z, r, top) {
+  const w = { x, z, r2: r * r, r, top };
+  for (let bx = Math.floor((x - r) / WORK_BUCKET); bx <= Math.floor((x + r) / WORK_BUCKET); bx++) {
+    for (let bz = Math.floor((z - r) / WORK_BUCKET); bz <= Math.floor((z + r) / WORK_BUCKET); bz++) {
+      const k = workKey(bx, bz);
+      let a = WORKS.get(k);
+      if (!a) WORKS.set(k, a = []);
+      a.push(w);
+    }
+  }
+}
+
+/** How far the masonry stands above the seabed here, or -Infinity for open water. */
+function worksHeight(x, z) {
+  const a = WORKS.get(workKey(Math.floor(x / WORK_BUCKET), Math.floor(z / WORK_BUCKET)));
+  if (!a) return -Infinity;
+  let h = -Infinity;
+  for (let i = 0; i < a.length; i++) {
+    const w = a[i];
+    const dx = x - w.x, dz = z - w.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > w.r2) continue;
+    // same profile the footing stamps: core awash, toes on the bottom
+    const v = w.top - (d2 / w.r2) * (w.top + 11);
+    if (v > h) h = v;
+  }
+  return h;
+}
+
 /** Bilinear sample of the baked field. Fast enough to call per-ship per-frame. */
 export function heightAt(x, z) {
   const half = WORLD_SIZE * 0.5;
@@ -172,7 +224,9 @@ export function heightAt(x, z) {
   const tx = fx - i, tz = fz - j;
   const g = heightGrid, o = j * GRID + i;
   const a = g[o], b = g[o + 1], c = g[o + GRID], d = g[o + GRID + 1];
-  return lerp(lerp(a, b, tx), lerp(c, d, tx), tz);
+  const ground = lerp(lerp(a, b, tx), lerp(c, d, tx), tz);
+  const works = WORKS.size ? worksHeight(x, z) : -Infinity;
+  return works > ground ? works : ground;
 }
 export const depthAt = (x, z) => -heightAt(x, z);
 

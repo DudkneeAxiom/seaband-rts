@@ -324,6 +324,57 @@ ok('and it simply has two more powers in it than it did',
 ok('a ship with no recorded builder falls back to her own colours', !!opened.builtBy);
 ok(`and what she has been through comes back with her (${opened.scars} scars)`, opened.scars === 3);
 
+/* ---------- what she is for, not only who built her ----------
+   `build` is a faction's argument in timber, and it was the only thing that
+   had ever changed a silhouette — so a League merchant was a League warship
+   and the only trader-looking hull on the sea was a Compact one, because the
+   Compact happen to build like traders. Reported from the deck: the convoys
+   "look like combat ships". Faction and role are different axes. */
+const trade = await G(() => {
+  const B = window.__buildShip;
+  const count = m => {
+    let n = 0;
+    m.traverse(o => { if (o.geometry && o.geometry.attributes.position) n += o.geometry.attributes.position.count; });
+    return n;
+  };
+  const out = {};
+  for (const fac of ['sable', 'admiralty', 'veyra', 'compact', 'freehold', 'pirate']) {
+    const war = B('dhow', fac, { seed: 7 });
+    const trader = B('dhow', fac, { seed: 7, trader: true });
+    out[fac] = { war: count(war), trader: count(trader),
+      flagged: !!trader.userData.trader, warFlagged: !!war.userData.trader };
+  }
+  return out;
+});
+const gained = Object.entries(trade).filter(([, v]) => v.trader > v.war * 1.04);
+ok(`a trader is a trader whoever built her (${gained.length} of ${Object.keys(trade).length} `
+  + `powers put visible cargo on the same hull)`,
+  gained.length === Object.keys(trade).length);
+ok('and a warship of the same power and hull is not carrying it',
+  Object.values(trade).every(v => v.flagged && !v.warFlagged && v.trader > v.war));
+
+/* And the world actually asks for it. The check above builds hulls straight
+   from the factory, which proves the layer exists and not that anything uses
+   it — reverting the one line in `Ship.meshOpts` that reads her role left it
+   green. So: real spawns, read off the meshes the world made. */
+const spawned = await G(() => {
+  const g = window.__game;
+  const seen = {};
+  for (const kind of ['merchant', 'patrol', 'pirate']) {
+    for (let i = 0; i < 30 && !seen[kind]; i++) {
+      const s = g.spawnNPC(kind);
+      if (s) seen[kind] = { role: s.role, trader: !!(s.mesh && s.mesh.userData.trader) };
+    }
+  }
+  return seen;
+});
+ok(`the world's own merchants carry it and her warships do not `
+  + `(${Object.entries(spawned).map(([k, v]) => k + ':' + (v.trader ? 'laden' : 'bare')).join(', ')})`,
+  spawned.merchant && spawned.merchant.trader
+  && spawned.patrol && !spawned.patrol.trader
+  && spawned.pirate && !spawned.pirate.trader);
+
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

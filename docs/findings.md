@@ -5,6 +5,103 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 53. A trader looked like a warship because only her builders had a say  (P1, reported)
+
+**Symptom.** "Can we change merchant ships visuals to look more like a merchant
+ship than a combat ship?"
+
+**Root cause.** `build` — how a faction builds — was the only thing that had
+ever changed a silhouette. So a League merchant was a League warship, a
+Covenant merchant was a Covenant warship, and the one trader-looking hull on
+the sea was a Compact one, because the Compact happen to build like traders.
+What she is *for* had no expression at all.
+
+**Change.** A role layer on top of the faction's build: hatches with tarpaulins
+battened over them, the derrick that strikes cargo through them, casks standing
+along the waterways, crates stacked abaft the mainmast high enough to break the
+line of the rail, and her boat carried on deck where a warship keeps her gun
+crews' room. Faction and role are different axes and both are visible now — a
+Sable trader is unmistakably Sable *and* unmistakably a trader.
+
+The first pass laid the casks on their sides and kept the crates low, which at
+any distance you actually read a hull from is a spare spar and a flat deck.
+Looking at it is what fixed it: stood on end, with a hoop, and the crates
+stacked two-and-one.
+
+**Verification.** Two checks — every one of the six powers puts visibly more on
+the same hull when she is a trader, and the world's own spawned merchants carry
+it while her patrols and pirates do not. The second exists because the first
+passed with the wiring in `Ship.meshOpts` reverted: it built hulls straight from
+the factory, which proves the layer exists and not that anything uses it.
+
+## 52. Four fixes for one screenshot, and none of them was the fault  (P1, reported)
+
+**Symptom.** Reported a second time, with the same screenshot: "stone arm ship
+still seems to be stuck and they drift into the greywake stone walls in the
+same spot as last time."
+
+**Three wrong answers first, all of them measured, none of them it.**
+
+1. *The breakwater is not in the depth field.* It is — `raiseSeabed` stamps a
+   footing under every block, and the module comment already says why. It is a
+   26m grid against a 22×26m block, so I made the works exact at query time
+   instead of trusting the bake. Measured effect on the arm's own footprint:
+   **99.4% → 100%**. Real, principled, and not the fault.
+2. *The route grid plots through the arm.* A probe said it did — 20 foul
+   samples on a route into Greywake. The probe's own start point was **12.7m
+   above sea level**; every foul sample was on the leg leaving that hillside.
+   The routing had been right all along. (The grid is sounded on a 5×5 lattice
+   per cell now rather than 5 points, which is an argument from geometry — a
+   26m wall inside a 48m cell — and I could not isolate its effect in traffic.)
+3. *She is chasing the player through the harbour.* The powers hostile to the
+   player hunt at 640m and the chase steered the rhumb line, so this was worth
+   fixing and is fixed — `runDownTo` routes when the line is foul. She was not
+   chasing anyone.
+
+**The actual fault, and why four rounds of checks never caught it.** Track the
+hull rather than photograph her:
+
+```
+Stone Arm   post 179m off the arm, in 56m of water — a perfectly good gate
+            closest she ever came to it in ten minutes: 188m, worst 373m
+            98% of ten minutes within 60m of the breakwater, closest 16m
+            depth under her 7.8m against a 4.6m draft — never aground
+            speed 7.7 knots — never stationary
+```
+
+Her post lay to windward across the arm. Every board ran her at the masonry,
+`beatTo` correctly came about for the shore, and she gave back exactly the
+ground she had made. **Not aground and not stopped**, so the grounding metric
+(0.05%) and the going-nowhere metric (0 hulls) both reported a clean harbour
+while she sat on the wall in plain sight. I had been measuring two things that
+were fine and calling it fixed, twice.
+
+**Change.** A picket judges whether she is *getting anywhere*: if she has not
+closed her gate by 25m in forty-five seconds, the gate is not hers today and
+she takes one she can lie at. Judged over a window, not against her best ever —
+against her best, a hull beating back and forth touches it on every board and
+the rule never fires (measured: still 99%). The replacement gate needs sea room
+round it, not merely water under it, and a ladder of fallbacks ending in open
+water near where she already is, because every rung that looks around the Sound
+is invisible to a hull pinned on the wrong side of the harbour — without that
+last rung the rule fired every forty-five seconds and changed nothing.
+
+**Verification.**
+
+```
+                        before          after (4 runs)
+closest she came        188m            30m / 41m / 5m / 72m
+time within 60m of arm  96–99%          18–23%
+```
+
+The staged check puts a guard one side of the harbour and her gate the other
+and asks whether she shifts it. It fails with the rule reverted.
+
+**Lesson.** The complaint was "stuck at the wall". I measured *aground* and
+*going nowhere*, twice, because those were the metrics I already had. Neither
+is the same thing, and a hull can sit sixteen metres off masonry for ten
+minutes while both read clean. **Measure the words in the report.**
+
 ## 51. The harbours were full of ships that could not sail to windward  (P1, reported)
 
 **Symptom.** Reported from a phone with a screenshot: ships "glitching in

@@ -140,6 +140,21 @@ that is written down, and everything that asks "can I fire", "can I dock",
   "ships glitching in the harbour" turned out to be. Both now use the same
   beat. Ask this question *first* when the world misbehaves and the player does
   not.
+- **Measure the words in the report.** "Stuck at the wall" was chased twice
+  with the metrics already to hand — hulls *aground* and hulls *going nowhere*
+  — and both read clean while the ship in the screenshot sat sixteen metres off
+  Greywake's breakwater for ten minutes: 7.8m of water under a 4.6m draft, and
+  seven knots on the log. She was neither aground nor stopped. A metric you
+  already have is not evidence about a complaint it does not describe.
+- **A rule that gives up needs somewhere to give up to.** The picket's "this
+  gate is not mine today" fired every forty-five seconds and changed nothing,
+  because every candidate station it looked at was around the Sound and she
+  could see none of them from where she was pinned. Fallback ladders want a
+  last rung that cannot fail — here, open water near where she already is.
+- **Judge progress over a window, not against the best so far.** Against her
+  best ever, a hull beating back and forth touches it on every board and resets
+  the clock for ever; measured at 99% of ten minutes still on the wall. "Closer
+  than she was forty-five seconds ago" is what getting anywhere means.
 - **Look for the wind before the terrain.** Two guard ships pinned at Greywake
   looked exactly like a routing fault, and their posts were in 56m and 78m of
   water with a clear line the whole way. What they had in common was that the
