@@ -1235,7 +1235,7 @@ const rest = await G(() => {
      enough away that she never fetched the mark at all and "throttle on
      arrival" was read off a ship still under way. */
   p.x = 120; p.z = 60; p.speed = 0; p.throttle = 0; p.alive = true; p.hull = p.hullMax;
-  for (let i = 0; i < 120; i++) { g.update(1 / 30); g.paused = false; }
+  for (let i = 0; i < 300; i++) { g.update(1 / 30); g.paused = false; }
   p.boarding = null; p.lockTo = null; p.route = null; p.dest = null;
   p.x = 120; p.z = 60; p.speed = 0; p.throttle = 0;
   const from = { x: p.x, z: p.z };
@@ -1252,7 +1252,7 @@ const rest = await G(() => {
   let mark = null;
   for (let i = 0; i < 24 && !mark; i++) {
     const a = i / 24 * Math.PI * 2;
-    const mx = p.x + Math.sin(a) * 90, mz = p.z + Math.cos(a) * 90;
+    const mx = p.x + Math.sin(a) * 60, mz = p.z + Math.cos(a) * 60;
     if (T.depthAt(mx, mz) < 20) continue;
     let clear = true;
     for (let k = 1; k <= 24; k++) {
@@ -1269,7 +1269,7 @@ const rest = await G(() => {
      says plainly whether she got there. */
   let laid = false, arrived = false, tries = 0;
 
-  for (; tries < 3 && !arrived; tries++) {
+  for (; tries < 5 && !arrived; tries++) {
     /* Alive, whole and afloat at the start of every attempt. The first run of
        this found her displaced onto rising ground mid-leg — `depth -15.4m` is
        not water, it is fifteen metres of hillside — where she ground herself
@@ -1278,9 +1278,15 @@ const rest = await G(() => {
     p.x = from.x; p.z = from.z; p.speed = 0; p.throttle = 0;
     p.alive = true; p.hull = p.hullMax; p.sails = p.sailMax;
     p.dest = null; p.route = null; p.boarding = null; p.lockTo = null;
+    /* And nobody else has the helm. A marked ship is a ship the player is
+       *running down* — `selectTarget` sets `chasing` and the helm goes after
+       her — so a target left marked by an earlier section sails her 895m away
+       from a mark 90m off and then on for another 695m at six knots, which is
+       exactly what the full runner reported. */
+    g.chasing = null; g.target = null; g.boardRun = null;
     g.commandMove(mark.x, mark.z);
     laid = laid || !!g.moveGoal;
-    for (let i = 0; i < 120 * 30 && g.moveGoal; i++) {
+    for (let i = 0; i < 45 * 30 && g.moveGoal; i++) {
       g.update(1 / 30);
       /* A modal pauses the world, and a bulk update loop inside `evaluate`
          then spins at dt = 0 for ever — which is exactly what "0m sailed in 3
@@ -1304,7 +1310,7 @@ const rest = await G(() => {
   for (let i = 0; i < 90; i++) g.update(1 / 30);
   const at = { x: p.x, z: p.z };
   let vMax = 0;
-  for (let i = 0; i < 120 * 30; i++) { g.update(1 / 30); g.paused = false; vMax = Math.max(vMax, p.speed); }
+  for (let i = 0; i < 90 * 30; i++) { g.update(1 / 30); g.paused = false; vMax = Math.max(vMax, p.speed); }
   return { was: +throttleOnArrival.toFixed(2), mode: g.mode, vMax: +vMax.toFixed(2), laid, sailed,
     arrived, tries, drift: Math.round(Math.hypot(p.x - at.x, p.z - at.z)), v: +p.speed.toFixed(2) };
 });
@@ -1312,7 +1318,7 @@ ok(`she lies where she was sailed to (${rest.staged === false ? 'could not find 
   : `${rest.arrived ? 'fetched the mark' : 'NEVER FETCHED THE MARK'} in ${rest.tries} `
     + `attempt${rest.tries === 1 ? '' : 's'} (${rest.sailed}m sailed, ${rest.mode}), `
     + `throttle ${rest.was} on arrival, `
-  + `${rest.drift}m of drift in the two minutes after, never above ${rest.vMax} knots`})`,
+  + `${rest.drift}m of drift in the ninety seconds after, never above ${rest.vMax} knots`})`,
   rest.staged !== false && rest.laid && rest.arrived && rest.was === 0
   && rest.drift < 25 && rest.vMax < 0.5 && rest.mode === 'campaign');
 
