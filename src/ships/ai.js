@@ -121,6 +121,29 @@ function steerVia(ship, x, z, dt, world) {
   steerTo(ship, leg ? leg.x : x, leg ? leg.z : z, dt);
 }
 
+/**
+ * A waypoint a ship can actually sail to.
+ *
+ * Loitering stations were picked as a random bearing and range from a port
+ * with nothing asking whether the result was water, so a patrol working the
+ * roads off Tideglass would regularly set a course for the middle of the
+ * island and lean on `avoidLand` the whole way in. From the deck that is
+ * exactly what "the other ships steer themselves into the terrain around
+ * harbours" looks like — and no amount of routing helps a ship whose
+ * destination is a hill.
+ *
+ * Returns null if it cannot find water, and the caller keeps its old station
+ * rather than inventing a bad one.
+ */
+function waterPoint(cx, cz, rMin, rMax, need = 12) {
+  for (let i = 0; i < 20; i++) {
+    const a = Math.random() * TAU, r = rMin + Math.random() * (rMax - rMin);
+    const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+    if (depthAt(x, z) > need) return { x, z };
+  }
+  return null;
+}
+
 /** Station-keeping off the target's beam: the classic circling gun duel. */
 function combatSteer(ship, target, dt, range = 120) {
   const dx = target.x - ship.x, dz = target.z - ship.z;
@@ -294,6 +317,7 @@ export function updateAI(ship, dt, world, ctx) {
     case 'patrol': patrolAI(ship, dt, world, ctx, hurt); break;
     case 'sable': sableAI(ship, dt, world, ctx, hurt); break;
     case 'veyra': veyraAI(ship, dt, world, ctx, hurt); break;
+    case 'escort': escortAI(ship, dt, world, ctx, hurt); break;
     case 'consort': consortAI(ship, dt, world, ctx); break;
     default: idleAI(ship, dt, world);
   }
@@ -391,7 +415,7 @@ function fisherAI(ship, dt, world, ctx) {
   if (b.state === 'out') {
     const d = dist(ship.x, ship.z, b.ground.x, b.ground.z);
     if (d < 60) { b.state = 'work'; b.workT = 22 + Math.random() * 30; }
-    else steerTo(ship, b.ground.x, b.ground.z, dt);
+    else steerVia(ship, b.ground.x, b.ground.z, dt, world);
   } else if (b.state === 'work') {
     b.workT -= dt;
     ship.throttle = 0.22;
@@ -405,7 +429,7 @@ function fisherAI(ship, dt, world, ctx) {
       b.ground = FISH_GROUNDS[(Math.random() * FISH_GROUNDS.length) | 0];
       ship.cargo.fish = 0;
       if (world.market) world.market.addStock(h.id, 'fish', 8);
-    } else steerTo(ship, h.x, h.z, dt);
+    } else steerVia(ship, h.x, h.z, dt, world);
   }
   void ctx;
 }
@@ -451,10 +475,10 @@ function pirateAI(ship, dt, world, ctx, hurt, crippled) {
   }
   // patrol dangerous water
   if (!b.wpPos || dist(ship.x, ship.z, b.wpPos.x, b.wpPos.z) < 90) {
-    const a = Math.random() * TAU, r = 500 + Math.random() * 900;
-    b.wpPos = { x: Math.cos(a) * r, z: Math.sin(a) * r };
+    b.wpPos = waterPoint(0, 0, 500, 1400) || b.wpPos;
+    b.path = null; b.pathGoal = null;
   }
-  steerTo(ship, b.wpPos.x, b.wpPos.z, dt);
+  if (b.wpPos) steerVia(ship, b.wpPos.x, b.wpPos.z, dt, world);
 }
 
 /* ---------- Sable League: hold the water, do not chase it ----------
@@ -536,10 +560,10 @@ function veyraAI(ship, dt, world, ctx, hurt) {
   }
   // otherwise she is going somewhere, by a route she knows
   if (!b.wpPos || dist(ship.x, ship.z, b.wpPos.x, b.wpPos.z) < 110) {
-    const a = Math.random() * TAU, r = 260 + Math.random() * 620;
-    b.wpPos = { x: 1440 + Math.cos(a) * r, z: 1300 + Math.sin(a) * r };
+    b.wpPos = waterPoint(1440, 1300, 260, 880) || b.wpPos;
+    b.path = null; b.pathGoal = null;
   }
-  steerTo(ship, b.wpPos.x, b.wpPos.z, dt);
+  if (b.wpPos) steerVia(ship, b.wpPos.x, b.wpPos.z, dt, world);
   void ctx;
 }
 
@@ -570,11 +594,94 @@ function patrolAI(ship, dt, world, ctx, hurt) {
   }
   if (!b.wpPos || dist(ship.x, ship.z, b.wpPos.x, b.wpPos.z) < 110) {
     const home = nearestPort(ship, p => p.faction === ship.faction);
-    const a = Math.random() * TAU, r = 380 + Math.random() * 620;
-    const cx = home ? home.x : 0, cz = home ? home.z : 0;
-    b.wpPos = { x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r };
+    b.wpPos = waterPoint(home ? home.x : 0, home ? home.z : 0, 380, 1000) || b.wpPos;
+    b.path = null; b.pathGoal = null;
   }
-  steerTo(ship, b.wpPos.x, b.wpPos.z, dt);
+  if (b.wpPos) steerVia(ship, b.wpPos.x, b.wpPos.z, dt, world);
+}
+
+/* ---------- escorts: hired iron with something to protect ----------
+
+   An escort is not a patrol that happens to be nearby. Her whole job is one
+   hull, so she keeps her station on it, she goes where it goes, and she picks
+   a fight only when the fight is coming for her charge. That is what makes a
+   loaded convoy read as a decision from a mile off rather than as three ships
+   that happen to be in the same water: the shape of it tells you it is worth
+   something before you are close enough to read a name.
+
+   When the charge is gone — sunk, taken, or delivered and despawned — she has
+   no reason to be here and makes for the nearest port of her own colours. */
+function escortAI(ship, dt, world, ctx, hurt) {
+  const b = ship.brain;
+  const charge = ship.escortFor;
+  const chargeLost = !charge || !charge.alive || charge.captured;
+
+  if (chargeLost) {
+    ship.escortFor = null;
+    const home = nearestPort(ship, p => p.faction === ship.faction) || nearestPort(ship);
+    if (home) steerVia(ship, home.x, home.z, dt, world);
+    return;
+  }
+
+  /* Anyone closing on the charge is the escort's business, and so is anyone
+     already shooting at her. Range is generous — the point of an escort is
+     that she is met before she is alongside. */
+  let foe = ship.target;
+  if (!foe || !foe.alive || foe.captured) foe = null;
+  if (!foe && b.cooldown <= 0) {
+    b.cooldown = 0.7;
+    let best = null, bd = 620;
+    for (const o of world.ships) {
+      if (o === ship || o === charge || !o.alive || o.captured) continue;
+      const threat = isHostile(charge, o) || o.hostileToPlayer === true
+        || (o.target === charge) || (charge.lastAttacker === o);
+      if (!threat) continue;
+      // she answers to the player's flag as readily as to anyone else's
+      if (!isHostile(ship, o) && !(o.target === charge) && charge.lastAttacker !== o) continue;
+      const d = dist(o.x, o.z, charge.x, charge.z);
+      if (d < bd) { bd = d; best = o; }
+    }
+    foe = best;
+  }
+  ship.target = foe;
+
+  if (foe && !hurt) {
+    const d = dist(ship.x, ship.z, foe.x, foe.z);
+    /* Never so far off the charge that leaving was the attacker's plan. A
+       decoy that pulls both escorts nine hundred metres away is a tactic, and
+       it should work — but it should cost the attacker the time it takes. */
+    const off = dist(ship.x, ship.z, charge.x, charge.z);
+    if (off > 700) { steerVia(ship, charge.x, charge.z, dt, world); return; }
+    if (d > GUN_RANGE * 1.05) steerTo(ship, foe.x, foe.z, dt);
+    else combatSteer(ship, foe, dt, 110);
+    tryFire(ship, foe, ctx);
+    return;
+  }
+
+  /* Station on the charge: abeam and a little astern, one either side — but
+     only where there is water to do it in. A station is a point computed off
+     somebody else's hull, and a merchant hugging a headland puts her escort's
+     station in the cliff; steering at it faithfully is how three convoys
+     walked ashore together. Where the station is dry, fall in astern of the
+     charge instead, which is always water because she is floating in it. */
+  const side = ship.escortSlot || 1;
+  let sx = charge.x + Math.sin(charge.yaw + Math.PI / 2) * 78 * side - Math.sin(charge.yaw) * 46;
+  let sz = charge.z + Math.cos(charge.yaw + Math.PI / 2) * 78 * side - Math.cos(charge.yaw) * 46;
+  if (depthAt(sx, sz) < ship.draft * 2.2) {
+    sx = charge.x - Math.sin(charge.yaw) * 62;
+    sz = charge.z - Math.cos(charge.yaw) * 62;
+  }
+  if (depthAt(sx, sz) < ship.draft * 1.6) { sx = charge.x; sz = charge.z; }
+  const gap = dist(ship.x, ship.z, sx, sz);
+  if (gap < 34) {
+    // on station: match her course rather than circling the spot
+    ship.headingCmd = avoidLand(ship, charge.yaw, dt);
+    ship.dest = null;
+    ship.throttle = clamp(charge.speed / Math.max(1, ship.cls.speed), 0.25, 1);
+  } else {
+    steerTo(ship, sx, sz, dt);
+    if (gap > 240) ship.throttle = 1;
+  }
 }
 
 /* ---------- consorts under the player's flag ---------- */

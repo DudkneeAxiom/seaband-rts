@@ -159,7 +159,23 @@ export class Game {
       onBroadside: (sh, side, n) => this.onBroadside(sh, side, n),
       onGunFired: () => { },
       startBoarding: (a, b) => this.startBoarding(a, b),
-      onArrive: () => { },
+      /* A merchant who has delivered sells her hold and takes on the next
+         shipment, so the road is a standing trade rather than one leg per
+         hull per lifetime — and her escort is re-hired for what she is
+         carrying now, which is how an unescorted hull can be worth following
+         to a port and back out again heavy. */
+      onArrive: (sh, port) => {
+        if (!sh || sh.role !== 'merchant' || !sh.alive || sh.captured) return;
+        if (sh.manifest && port && port.id === sh.manifest.to) {
+          for (const g in sh.cargo) delete sh.cargo[g];
+          for (const e of this.ships) {
+            if (e.role === 'escort' && e.escortFor === sh) e.escortFor = null;
+          }
+          sh.escorts = [];
+          sh.manifest = null;
+        }
+        if (!sh.manifest) this.loadShipment(sh);
+      },
       onOutOfShot: (sh) => {
         if (sh.isPlayer) { toast('Shot lockers are empty.', 'bad'); return; }
         if (!this.fleet.includes(sh)) return;
@@ -605,7 +621,101 @@ export class Game {
     }
     s.brain.t = r() * 5;
     this.addShip(s);
+    if (role === 'merchant') this.loadShipment(s, r);
     return s;
+  }
+
+  /* =========================================================
+     shipments — the merchant road as something you can rob
+
+     A merchant used to be a hull with a role and an invented hold: whatever
+     she was carrying was rolled at the moment you took her, so there was
+     nothing to size up beforehand and no reason to prefer one to another.
+     She carries a real shipment now — a named cargo, bought where it is
+     cheap and bound for a port that pays for it, loaded into the hold the
+     game already models. What you take is what she had.
+
+     The escort follows from the manifest rather than from a die: a hold worth
+     a few hundred sails alone, and the heavy stuff travels with company. So
+     the fat prize on the horizon is the one with two sail around her, and
+     that is a decision rather than a lottery.
+     ========================================================= */
+  loadShipment(s, r = Math.random) {
+    const pick = arr => arr[(r() * arr.length) | 0];
+    const from = pick(PORTS);
+    let to = pick(PORTS), guard = 0;
+    while (to === from && guard++ < 6) to = pick(PORTS);
+    /* What is worth carrying between these two: cheap where she loaded,
+       dear where she is going. Read off the same price table the player
+       trades against, so a rich convoy is rich for a reason you can check. */
+    const goods = Object.keys(GOODS);
+    const ranked = goods
+      .map(g => ({
+        g,
+        margin: (((to.prices && to.prices[g]) || 1) - ((from.prices && from.prices[g]) || 1)) * GOODS[g].base,
+      }))
+      .sort((a, b) => b.margin - a.margin);
+    /* The best margin, usually — not always. Taking the top every time meant
+       every hull on the sea carried pepper, because pepper has the largest
+       base price and therefore the largest swing. A trade road carries salt
+       fish and timber too, and it should look like one. */
+    const roll = r();
+    const good = (roll < 0.45 ? ranked[0] : roll < 0.78 ? ranked[1] : pick(ranked.slice(2))).g;
+    /* Decide what the run is worth, then work out what that is made of —
+       rather than filling the hull and seeing what comes out. A fluyt holds
+       130 tons, and 130 tons at pepper prices is a prize worth more than the
+       ship carrying it: every merchant on the sea became a jackpot with two
+       brigs round her, and the traffic turned into a convoy-escort simulator.
+       Pricing the run first pins it to the band the rest of the economy works
+       in — a cargo contract pays ◆500 to ◆2300 — and it falls out of the
+       arithmetic that salt fish travels in bulk and pepper travels in a
+       corner of the hold, which is how it should look in the manifest. */
+    const room = Math.max(4, s.cls.cargo - 1);
+    const unit = Math.max(1, GOODS[good].base * ((to.prices && to.prices[good]) || 1));
+    const target = 260 + r() * 2100;
+    const amount = clamp(Math.round(target / unit), 3, room);
+    const value = Math.round(amount * unit);
+    s.cargo[good] = (s.cargo[good] || 0) + amount;
+    s.manifest = { good, amount, value, from: from.id, to: to.id, toName: to.name, fromName: from.name };
+    // and she sails the leg she is loaded for, rather than a random one
+    s.brain.route = [from.id, to.id];
+    s.brain.wp = 0;
+    s.brain.path = null; s.brain.pathGoal = null;
+    this.assignEscort(s, r);
+    return s.manifest;
+  }
+
+  /** How much iron a shipment is worth travelling with. */
+  assignEscort(m, r = Math.random) {
+    const v = m.manifest ? m.manifest.value : 0;
+    const want = v >= 1900 ? 2 : v >= 900 ? 1 : 0;
+    if (!want) return [];
+    const out = [];
+    for (let i = 0; i < want; i++) {
+      /* Her own people, in something that can fight: the Compact hire their
+         own hulls, the Freeholds buy the Admiralty's protection. */
+      const faction = m.faction === 'compact' ? 'compact' : 'admiralty';
+      const classId = v >= 2600 ? 'brig' : (r() > 0.5 ? 'lugger' : 'brig');
+      const names = faction === 'compact' ? NAMES.ship_compact : NAMES.ship_admiralty;
+      const used = new Set([...this.ships.map(x => x.name), ...this.reservedNames()]);
+      let name = names[(r() * names.length) | 0], g2 = 0;
+      while (used.has(name) && g2++ < 12) name = names[(r() * names.length) | 0];
+      if (used.has(name)) name += ' II';
+      const side = i === 0 ? 1 : -1;
+      const e = new Ship({
+        classId, faction, name, role: 'escort',
+        x: m.x + Math.sin(m.yaw + Math.PI / 2) * 70 * side - Math.sin(m.yaw) * 50,
+        z: m.z + Math.cos(m.yaw + Math.PI / 2) * 70 * side - Math.cos(m.yaw) * 50,
+        yaw: m.yaw,
+      });
+      e.escortFor = m;
+      e.escortSlot = side;
+      e.brain.t = r() * 4;
+      this.addShip(e);
+      out.push(e);
+    }
+    m.escorts = out;
+    return out;
   }
 
   /* =========================================================
@@ -1714,10 +1824,27 @@ export class Game {
     if (s.hostileToPlayer) return;
     s.hostileToPlayer = true;
     s.aggro = 1;
-    if (s.role === 'merchant' || s.role === 'fisher') {
-      this.infamy += 4;
-      this.standing[s.faction] = (this.standing[s.faction] || 0) - 8;
-      toast(`Word will get out. Infamy +4`, 'bad');
+    if (s.role === 'merchant' || s.role === 'fisher' || s.role === 'escort') {
+      /* Robbing strangers is a living; robbing people who trusted you is a
+         reputation. The heavier half of this scales with how well that power
+         thought of you — a captain the Compact had come to rely on costs
+         them more, and costs him more, than a stranger does. And a fat
+         shipment is a bigger scandal than a deck of salt fish. */
+      const st = this.standing[s.faction] || 0;
+      const friendly = clamp01(st / 30);
+      const worth = s.manifest ? clamp01(s.manifest.value / 2600) : 0;
+      const infamy = Math.round(4 + friendly * 5 + worth * 4);
+      const hit = Math.round(8 + friendly * 16 + worth * 8);
+      this.infamy += infamy;
+      this.standing[s.faction] = st - hit;
+      const fac = FACTIONS[s.faction];
+      toast(friendly > 0.45
+        ? `${fac ? fac.short : 'They'} counted you a friend. Infamy +${infamy}, standing −${hit}`
+        : `Word will get out. Infamy +${infamy}, standing −${hit}`, 'bad');
+      // her escorts are now your problem, whatever they were doing before
+      for (const e of this.ships) {
+        if (e.role === 'escort' && e.escortFor === s) { e.hostileToPlayer = true; e.target = this.player; }
+      }
     } else if (s.role === 'patrol') {
       this.infamy += 6;
       this.standing[s.faction] = (this.standing[s.faction] || 0) - 14;

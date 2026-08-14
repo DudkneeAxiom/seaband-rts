@@ -373,6 +373,80 @@ ok(`but changing tab starts at the top (${scrollReset.note || `${scrollReset.tab
 if (vpWas) await page.setViewportSize(vpWas);
 await sleep(200);
 
+/* ---------- the merchant road as something you can rob ----------
+   Merchants used to be hulls with a role and an invented hold: what they
+   carried was rolled at the moment you took them, so there was nothing to
+   size up and no reason to prefer one to another. They carry a real
+   shipment now, and the escort follows from the manifest rather than from
+   a die — which is the whole point, because it makes the fat one on the
+   horizon the one with two sail around her. */
+const road = await G(() => {
+  const g = window.__game;
+  const out = { manifests: [], spread: [] };
+  for (const m of g.ships.filter(s => s.role === 'merchant')) {
+    out.manifests.push({
+      name: m.name, good: m.manifest && m.manifest.good,
+      amount: m.manifest && m.manifest.amount, value: m.manifest && m.manifest.value,
+      inHold: m.manifest ? (m.cargo[m.manifest.good] || 0) : 0,
+      to: m.manifest && m.manifest.to, from: m.manifest && m.manifest.from,
+      escorts: (m.escorts || []).filter(e => e.alive).length,
+    });
+  }
+  // and the rule that decides an escort, over enough rolls to see its shape
+  for (let i = 0; i < 60; i++) {
+    const m = g.spawnNPC('merchant');
+    if (!m) continue;
+    out.spread.push({ value: m.manifest ? m.manifest.value : 0, escorts: (m.escorts || []).length });
+    for (const e of (m.escorts || [])) g.removeShip(e, true);
+    g.removeShip(m, true);
+  }
+  return out;
+});
+ok(`every merchant is carrying a real shipment (${road.manifests.map(m => `${m.amount} ${m.good} ~◆${m.value}`).join(', ')})`,
+  road.manifests.length > 0 && road.manifests.every(m => m.good && m.amount > 0 && m.value > 0));
+ok('and what she is carrying is in her hold, not invented when you take her',
+  road.manifests.every(m => m.inHold === m.amount));
+ok('and she is bound somewhere other than where she loaded',
+  road.manifests.every(m => m.from && m.to && m.from !== m.to));
+
+const rich = road.spread.filter(s => s.value >= 1900);
+const poor = road.spread.filter(s => s.value < 900);
+const avg = a => (a.reduce((x, s) => x + s.escorts, 0) / Math.max(1, a.length));
+ok(`iron travels with the money (${poor.length} runs under ◆900 average ${avg(poor).toFixed(2)} escorts, `
+  + `${rich.length} over ◆1900 average ${avg(rich).toFixed(2)})`,
+poor.length > 0 && rich.length > 0 && avg(poor) < 0.4 && avg(rich) > 1.4);
+/* A range, not a jackpot: a hull carrying more than the ship is worth turned
+   every merchant on the sea into a prize with two brigs round her. */
+const vals = road.spread.map(s => s.value).sort((a, b) => a - b);
+ok(`and a shipment is worth about what a contract pays (◆${vals[0]} to ◆${vals[vals.length - 1]})`,
+  vals[0] > 100 && vals[vals.length - 1] < 3200);
+
+/* Robbing strangers is a living; robbing people who trusted you is a
+   reputation. Both cost, and the second costs more. */
+const price = await G(() => {
+  const g = window.__game;
+  const ms = g.ships.filter(s => s.role === 'merchant' && !s.hostileToPlayer);
+  if (ms.length < 2) return null;
+  const [a, b] = ms;
+  g.standing[a.faction] = 40;                       // a power that had come to trust you
+  const s0 = g.standing[a.faction], i0 = g.infamy;
+  g.provoke(a);
+  const friend = { standing: s0 - g.standing[a.faction], infamy: g.infamy - i0 };
+  g.standing[b.faction] = 0;                        // and one that had no opinion
+  const s1 = g.standing[b.faction], i1 = g.infamy;
+  g.provoke(b);
+  const stranger = { standing: s1 - g.standing[b.faction], infamy: g.infamy - i1 };
+  return { friend, stranger, escortsTurned: (a.escorts || []).filter(e => e.hostileToPlayer).length,
+    hadEscorts: (a.escorts || []).length };
+});
+ok(`firing on a merchant costs standing and infamy (${price ? `stranger −${price.stranger.standing} standing` : 'no pair to test'})`,
+  !!price && price.stranger.standing > 0 && price.stranger.infamy > 0);
+ok(`and costs more from a power that trusted you (friend −${price ? price.friend.standing : '?'} `
+  + `vs stranger −${price ? price.stranger.standing : '?'})`,
+!!price && price.friend.standing > price.stranger.standing);
+ok(`and her escort takes it personally (${price ? `${price.escortsTurned} of ${price.hadEscorts}` : '?'})`,
+  !!price && (price.hadEscorts === 0 || price.escortsTurned === price.hadEscorts));
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

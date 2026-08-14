@@ -1,7 +1,7 @@
 /* The heads-up display. Contextual: buttons exist only while they mean
    something, so the ocean keeps the screen. */
 import { $, el, clear, onTap, toast, setNoticesLow } from './dom.js';
-import { AMMO, FACTIONS } from '../data/gamedata.js';
+import { AMMO, FACTIONS, GOODS } from '../data/gamedata.js';
 import { clamp, clamp01, fmtCoin, normAng, TAU } from '../core/util.js';
 import { worldToScreen } from '../core/input.js';
 
@@ -425,7 +425,20 @@ export class HUD {
     $('tc-crew').style.width = (t.crewFrac * 100) + '%';
     const d = Math.hypot(t.x - g.player.x, t.z - g.player.z);
     $('tc-who').textContent = `${fac ? fac.short + ' · ' : ''}${t.cls.name}`;
-    $('tc-range').textContent = `${Math.round(d)}m · ${t.gunsPort + t.gunsStb} guns`;
+    /* What a loaded merchant is worth, and what is travelling with her.
+       A convoy should be a decision made at a distance rather than a surprise
+       found in the hold afterwards — so the manifest and the escort count are
+       on the card the moment you mark her, and the second line falls back to
+       her battery for anything that is not carrying cargo. */
+    const m = t.manifest;
+    if (m) {
+      const good = GOODS[m.good];
+      const guard = (t.escorts || []).filter(e => e && e.alive && !e.captured).length;
+      $('tc-range').textContent = `${Math.round(d)}m · ${m.amount} ${good ? good.name : m.good}`
+        + ` · ~◆${m.value}${guard ? ` · ${guard} escort${guard > 1 ? 's' : ''}` : ' · unescorted'}`;
+    } else {
+      $('tc-range').textContent = `${Math.round(d)}m · ${t.gunsPort + t.gunsStb} guns`;
+    }
 
     // how she measures against everything under your flag
     const w = g.weighUp(t);

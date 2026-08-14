@@ -135,6 +135,12 @@ that is written down, and everything that asks "can I fire", "can I dock",
   on steering the rhumb line into headlands — the exact fault the route module
   was written to cure, still live for every hull but one. When a fix lands on
   the player's path, ask what else takes that path.
+- **A rule about position must cover what is actually drawn.** Placement
+  sounded the nominal footprint while `building()` draws past it, so buildings
+  were approved whose geometry hung over the harbour. Each kind declares its
+  drawn extent now. The same trap caught the AI twice: a route is no help to a
+  ship whose *destination* is a hill, so loitering stations and escort
+  stations are sounded before they are taken.
 - **One control per job.** The town page briefly carried a WHERE TO GO list —
   a row and a GO button per counter — directly beneath a tab strip with one
   tab per counter. Navigation written out twice is not twice as navigable; it

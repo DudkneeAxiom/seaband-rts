@@ -5,6 +5,129 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 34. The market was a slab with two sheets of paper beside it  (P2, reported)
+
+**Symptom.** Reported: "the market building visuals look terrible". Framed
+close, it was one pale block with two thin plates cantilevered off it — all
+the same colour as the walls, indistinguishable from a warehouse that had lost
+its roof, with a tree growing through it.
+
+**Change.** What makes a market legible is repetition and colour. Three or
+four stalls in a row on a flagged square, each with four legs, a counter with
+goods heaped on it, and a **pitched** canopy — two slopes meeting at a ridge
+pole. Barrels, crates and sacks around their feet.
+
+Two things had to be measured rather than guessed:
+- **The canopy colours are one warm against cream, never two from the same
+  bag.** Rolling both freely gave Tideglass two pale canopies on pale sand,
+  which is a market you cannot see.
+- **The pitch has to be steep.** At the first value the two halves read as one
+  flat plate on legs, which is a table; a market full of tables is what it
+  looked like from the quay.
+
+## 33. Changing the market moved every building dealt after it  (P1)
+
+**Symptom.** After rebuilding the market, `shore` failed *"no building stands
+in open water (2 suspect points)"* — at Greywake and Tideglass, neither of
+which I had touched. Shrinking the market changed nothing: the two points
+stayed at exactly the same coordinates.
+
+**Root cause, in three layers.**
+1. The market draws a different number of random numbers than it used to, and
+   a town deals every building from **one stream**. So changing it reshuffled
+   every position after it. CLAUDE.md already says *a seed per thing, not one
+   stream for everything*; this is that rule collecting again.
+2. Underneath, the real fault: placement sounded the **nominal** footprint
+   `w × d`, while `building()` draws past it — a tavern 1.25 across, a yard
+   frame 1.36. Positions were approved whose actual geometry hung over the
+   next thing along, which on a waterfront is the harbour. The reshuffle only
+   changed *which* building was standing in the wrong place.
+3. And the audit had been sampling every 97th vertex, so it had never happened
+   to look at the offending one before.
+
+**Change.** Each kind declares how far past its footprint it draws, and the
+ground is sounded for *that*. One worst-case margin for everything was tried
+first and cost Fort Escarra its tavern and its market — on a rock that tight,
+the margin is the difference between a public building and none — so two more
+rules came with it: the public buildings may fall back to the second row where
+the front will not have them, and a builder short of ground builds a **smaller
+house** rather than none at all.
+
+**And one honest exception.** The last floating point was the quay crane's
+jib, which reaches out over the water because that is what a quay crane is
+for. It has moved into the `seaworks` mesh alongside the breakwaters, which
+the audit exempts for exactly that reason. It had been hanging there correctly
+all along; only the sampling shift made it visible.
+
+## 32. Merchants worth robbing  (feature, requested)
+
+**Asked for.** Merchant ships that run cargo port to port, escorted or not
+depending on the shipment, that the player can loot at a price in reputation —
+Bannerlord's caravans, at sea.
+
+**What was there.** A `merchant` role that sailed between random nodes, and a
+hold that was **invented at the moment you took her** (`rollLoot` conjured a
+random good if her cargo was empty). So there was nothing to size up before
+committing, and no reason to prefer one hull to another.
+
+**What she carries now.** A real shipment: a good chosen for the margin
+between where she loaded and where she is bound, in an amount that is actually
+in her hold, on the leg her manifest names. Take her and you take what she
+had.
+
+**Pricing the run, not the hull.** The first cut filled the hull and priced the
+result — and a fluyt holds 130 tons, which at pepper prices is a prize worth
+more than the ship carrying it. Every merchant became a jackpot with two brigs
+round her: 43% of shipments drew a double escort and the traffic turned into a
+convoy-escort simulator. Deciding what the run is *worth* first and working
+back to the tonnage pins it to the band the rest of the economy uses (a cargo
+contract pays ◆500–2300), and it falls out of the arithmetic that salt fish
+travels in bulk and pepper travels in a corner of the hold.
+
+Measured after: ◆264–2341, median ◆1122 — **39% sail unescorted, 49% with one,
+12% with two**. Which is the point: the fat one on the horizon is the one with
+two sail around her, and that is a decision rather than a lottery.
+
+**The escort** keeps station abeam and a little astern, matches her charge's
+course, and picks a fight only when one is coming for the charge — with a
+leash, so a decoy that pulls both escorts away works but costs the attacker
+the time it takes. When the charge is gone she has no reason to be there and
+makes for the nearest port of her own colours.
+
+**The price of taking one** scales with how well that power thought of you and
+with what she was carrying. Robbing a stranger costs −12 standing and +7
+infamy; robbing a power that had come to trust you costs −27 and +10, and the
+toast says so in those words. Her escorts take it personally immediately.
+
+**And you can see it coming.** The target card carries the manifest and the
+escort count the moment you mark her — `47 Salt Fish · ~◆816 · unescorted` —
+because a convoy should be judged at a distance, not discovered in the hold
+afterwards.
+
+## 31. Loitering ships set course for the middle of the island  (P1, reported)
+
+**Symptom.** Reported, after the routing fix: "the other ships also still
+steer themselves into terrain around harbors".
+
+**Root cause.** Finding 30 gave NPC captains the route grid, which fixes a
+ship whose *course* crosses land. It does nothing for a ship whose
+**destination is a hill** — and three behaviours picked their loitering
+stations as a random bearing and range from a port with nothing asking whether
+the result was water. A patrol working the roads off Tideglass would set a
+course for the middle of the island and lean on `avoidLand` all the way in.
+
+**Change.** `waterPoint()` sounds a station before taking it, and returns null
+rather than inventing a bad one. The fisher's runs out to the banks and home,
+and all three loitering stations, now route as well.
+
+**And a regression I made and caught by measuring.** The new escorts station
+themselves on a point computed off their charge's hull — with, at first, no
+water check either, which is the identical bug one level along. Grounding
+across the whole world went from 0.02% of samples to **0.64%**. Sounding the
+station and falling in astern where it is dry brought it to 0.24%, against a
+world carrying two more ships than the baseline; what is left are brief grazes
+the grounded-helm rule clears, not the sticking that was reported.
+
 ## 30. Only the player knew how to sail round an island  (P1, reported)
 
 **Symptom.** Reported: "Ships seem to get stuck next to the left grey arm at
