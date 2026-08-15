@@ -2,17 +2,23 @@
    plus the log/menu. Everything is a tall scrolling list of big rows —
    the shape thumbs are happiest with. */
 import { $, el, clear, onTap, toast, modal } from './dom.js';
-import { GOODS, RANKS, RANK_ORDER, OFFICER_ROLES, HULLS, FACTIONS } from '../data/gamedata.js';
+import { GOODS, RANKS, RANK_ORDER, OFFICER_ROLES, HULLS, FACTIONS, tonsOf } from '../data/gamedata.js';
 import { repairCost, recruitCost, PROVISION_PRICE, SHOT_PRICE } from '../sim/economy.js';
 import { drawPortrait, officerLabel, officerEffect } from '../sim/officers.js';
 import { AMBITIONS, CHAPTERS } from '../data/origins.js';
 import { KEYMAP } from '../core/keys.js';
+import { PORT_IDENTITY, NOTABLES, notablesAt, tiesFor, NOTABLE_BY_ID } from '../data/notables.js';
+import { greetingFor, tierOf } from '../sim/social.js';
+import { COLOURS_STANDING, COLOURS_INFAMY } from '../sim/encounter.js';
 import { fmtCoin, clamp } from '../core/util.js';
-import { sfxCoin, toggleMute, audio } from '../core/audio.js';
+import { sfxCoin, toggleMute, audio, getMix, setMixLevel, mixDefaults } from '../core/audio.js';
 
 let G = null;
 let current = null;     // {tabs, tab, port}
 let qtyMult = 1;
+/* Which deck new hands join. Reset when a port opens, so it can never point
+   at a ship you sold or a prize in another harbour. */
+let recruitTo = null;
 
 export function initSheet(game) {
   G = game;
@@ -48,33 +54,509 @@ function renderTabs() {
     box.appendChild(b);
   }
 }
-function renderTab() {
+function renderTab(keepScroll = false) {
   const c = $('sheet-content');
+  /* Switching tabs starts at the top; redrawing the tab you are already on
+     must not move your eye. Every purchase, recruitment and refit calls
+     refresh(), which rebuilds the whole list — and that used to throw the
+     player back to the top of a long market or tavern, so buying the last
+     goods on the page meant scrolling all the way down again to buy more. */
+  const y = keepScroll ? c.scrollTop : 0;
   clear(c);
-  c.scrollTop = 0;
   const t = current.tabs.find(x => x.id === current.tab);
   t && t.render(c);
+  // clamp: the list can be shorter after a purchase than it was before
+  c.scrollTop = Math.max(0, Math.min(y, c.scrollHeight - c.clientHeight));
 }
-function refresh() { renderTab(); }
+function refresh() { renderTab(true); }
 
 /* =========================================================
    PORT
    ========================================================= */
 export function openPort(port) {
   current = { port };
+  recruitTo = null;   // this harbour's fleet, not the last one's
   const svc = port.services;
   const tabs = [];
+  /* The town before the transactions.
+     A port used to open on a row of shop counters, which is how a place
+     becomes a dashboard. It opens on the place now — where you are, where you
+     could go from here, and who is about — and the counters are still one tap
+     away for anybody who just wants to buy shot.
+
+     Every port has this. It used to be only the two written up with people,
+     on the reasoning that a town page without notables would be half a
+     feature; what that actually shipped was three harbours that were a wall
+     of counters and no place at all, and no WHERE TO GO anywhere in them. The
+     page is built from what every port already has — its own name for itself,
+     its own description, its faction's colour and a photograph of the real
+     buildings — and the people section simply is not drawn where there is
+     nobody yet. */
+  tabs.push({ id: 'town', label: 'THE TOWN', icon: '⌂', render: n => townTab(n, port) });
   tabs.push({ id: 'harbour', label: 'HARBOUR', icon: '⚓', render: n => harbourTab(n, port) });
   if (svc.includes('market')) tabs.push({ id: 'market', label: 'MARKET', icon: '▣', render: n => marketTab(n, port) });
   if (svc.includes('crew')) tabs.push({ id: 'crew', label: 'CREW', icon: '☰', render: n => crewTab(n, port) });
   if (svc.includes('shipyard')) tabs.push({ id: 'yard', label: 'SHIPYARD', icon: '⚒', render: n => yardTab(n, port) });
   if (svc.includes('tavern')) tabs.push({ id: 'tavern', label: 'TAVERN', icon: '☕', render: n => tavernTab(n, port) });
   const fac = FACTIONS[port.faction];
-  openSheet(port.name, `${port.tagline.toUpperCase()} · ${fac.short}`, tabs, 'harbour');
+  openSheet(port.name, `${port.tagline.toUpperCase()} · ${fac.short}`, tabs, 'town');
+}
+
+/** A view of the part of the town you are standing in. Every port, now that
+    every port has a town built well enough to be photographed. */
+function placeStrip(n, port, place, label) {
+  const shot = portPortrait(port, place);
+  if (!shot) return;
+  const fac = FACTIONS[port.faction];
+  const strip = el('div', 'townscene small');
+  strip.style.setProperty('--banner', (PORT_IDENTITY[port.id] || {}).banner
+    || `#${(fac.flag >>> 0).toString(16).padStart(6, '0')}`);
+  if (shot) strip.style.backgroundImage = `url(${shot})`;
+  else strip.classList.add('noshot');
+  strip.innerHTML = `<div class="ts-grade"></div>
+    <div class="ts-name">${label}<span>${port.name}</span></div>`;
+  n.appendChild(strip);
+}
+
+/* ---------------- the town ----------------
+   Place, then people, then opportunities — in that order, because that is the
+   order a person arriving somewhere actually takes it in. */
+function townTab(n, port) {
+  /* Authored where there is prose, derived where there is not. A port has
+     always known what to call itself and how to describe itself; the two
+     written-up towns add a mood, a worry and their own people on top. */
+  const fac = FACTIONS[port.faction];
+  const auth = PORT_IDENTITY[port.id];
+  const idn = auth || {
+    role: port.tagline,
+    line: port.desc,
+    banner: `#${(fac.flag >>> 0).toString(16).padStart(6, '0')}`,
+  };
+  const S = G.social;
+
+  /* The place, photographed rather than drawn.
+     A real render of this harbour from the water — the same buildings and the
+     same light the player just sailed past — with the town's name and its
+     power's colour over it. Cached per port for the life of the session: the
+     view does not change while you are standing in it, and re-rendering the
+     world every time a tab redraws would be absurd. */
+  const scene = el('div', 'townscene');
+  scene.style.setProperty('--banner', idn.banner);
+  const shot = portPortrait(port);
+  if (shot) scene.style.backgroundImage = `url(${shot})`;
+  else scene.classList.add('noshot');
+  scene.innerHTML = `<div class="ts-grade"></div>
+    <div class="ts-name">${port.name}<span>${idn.role}</span></div>
+    <div class="ts-flag"></div>`;
+  n.appendChild(scene);
+  if (idn.tone) n.appendChild(el('div', 'town-role', `${idn.tone}`));
+  n.appendChild(el('div', 'note', idn.line));
+
+  // what the town is worried about — the reason there is work here at all
+  if (idn.problem) {
+    const prob = el('div', 'town-problem');
+    prob.innerHTML = `<span class="tp-k">TALK ON THE QUAY</span><span>${idn.problem}</span>`;
+    n.appendChild(prob);
+  }
+
+  /* No list of ways further in.
+     There was one — a WHERE TO GO row per counter, each with its own GO
+     button — and it was the tab strip written out longhand directly beneath
+     the tab strip. Two controls for one job, and the duplicate was the one
+     that pushed the people and everything else down the page. The tabs are
+     the navigation; this page is the place. */
+
+  /* What the harbour is actually for, which is the one thing a captain wants
+     to know on arrival and is not a second copy of the tabs. Read off the
+     port's own price table, so it cannot disagree with the market. */
+  const cheap = [], dear = [];
+  for (const [id, mult] of Object.entries(port.prices || {})) {
+    const good = GOODS[id];            // keyed by id, not a list
+    if (!good) continue;
+    if (mult <= 0.9) cheap.push(good.name);
+    else if (mult >= 1.14) dear.push(good.name);
+  }
+  if (cheap.length || dear.length) {
+    const tr = el('div', 'town-problem');
+    tr.innerHTML = `<span class="tp-k">THE TRADE HERE</span><span>`
+      + `${cheap.length ? `Goes out cheap: <b>${cheap.join(', ')}</b>. ` : ''}`
+      + `${dear.length ? `Wanted, and paid for: <b>${dear.join(', ')}</b>.` : ''}</span>`;
+    n.appendChild(tr);
+  }
+
+  /* the people, at the places they actually stand. A port nobody has been
+     written for says nothing here rather than showing an empty heading. */
+  const people = notablesAt(port.id);
+  if (people.length) {
+    n.appendChild(el('div', 'sec-title', 'PEOPLE HERE'));
+    for (const who of people) n.appendChild(notableRow(who, port));
+  }
+  void S;
+}
+
+/* One render per port *and place* per session. Pressing TAVERN should move
+   the view to a building in the town, not merely relabel the same picture. */
+const PORTRAITS = {};
+// the QA harnesses look at these pictures; nothing in the game reads it
+if (typeof window !== 'undefined') window.__portraitCache = PORTRAITS;
+
+/** Which of the town's own buildings belongs to which part of the port.
+    Chosen by hashing the place name against the list the settlement recorded,
+    so a given town always puts its tavern in the same building — and two
+    different towns put theirs somewhere different. */
+function spotFor(port, place) {
+  const shore = (window.__shore || {})[port.id];
+  if (!shore) return null;
+  if ((place === 'harbour' || place === 'crew') && shore.piers && shore.piers.length) {
+    return { ...shore.piers[0], quay: true };
+  }
+  const spots = shore.spots || [];
+  if (!spots.length) return null;
+  /* The actual building. The town builds a real tavern, a real market stall
+     and a real shipyard frame on its waterfront and records which is which,
+     so THE TAVERN frames the thing with the sign and the barrels outside it
+     rather than a house that happened to hash to that slot. */
+  const named = spots.find(s => s.kind === place);
+  if (named) return named;
+  let h = 0x9e37;
+  for (let i = 0; i < place.length; i++) h = Math.imul(h ^ place.charCodeAt(i), 0x01000193) >>> 0;
+  const front = spots.filter(s => s.front);
+  const rank = (front.length >= 3 ? front : spots)
+    .slice().sort((a, b) => (b.w * b.h) - (a.w * a.h)).slice(0, 8);
+  return rank.length ? rank[h % rank.length] : null;
+}
+/**
+ * Where to stand to photograph a building.
+ *
+ * Pointing the lens at the building's own front is right in principle and not
+ * sufficient in practice: these towns are built up hillsides, so the bearing
+ * that faces a door can also be the bearing with forty metres of hill in the
+ * way, and two of the first three shots taken that way were a green slope
+ * with a roof behind it.
+ *
+ * So the stand is measured rather than chosen. Swing around the building's
+ * front, stand further back as needed, and for each candidate ask the terrain
+ * two questions: is the camera in open air rather than inside a hill, and is
+ * the line from it to the upper half of the building clear? Take the first
+ * stand that answers yes to both, else the least obstructed one.
+ */
+function standFor(spot) {
+  const H = (window.__terrain || {}).heightAt;
+  const top = (spot.y || 0) + (spot.h || 10);
+  const size = Math.max(spot.w || 12, spot.d || 12, spot.h || 10);
+  const front = spot.ry !== undefined ? spot.ry : 0;
+  const aimY = (spot.y || 0) + (spot.h || 10) * 0.6;
+  /* Score a stand by how much of the building it can actually see, not by
+     whether one ray to the middle of it happens to get through: a hummock
+     that hides the door and the barrels while leaving the roof visible is
+     exactly the shot that kept coming back, and a single centre ray calls it
+     clear. Six points — the corners at eaves height, the ridge, and the door
+     — say how much of the thing is really in view. */
+  const hw = (spot.w || 12) * 0.5, hd = (spot.d || 12) * 0.5;
+  const c = Math.cos(front), s = Math.sin(front);
+  const marks = [];
+  for (const [ox, oz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    marks.push({ x: spot.x + (ox * hw * c + oz * hd * s), z: spot.z + (-ox * hw * s + oz * hd * c), y: aimY });
+  }
+  marks.push({ x: spot.x, z: spot.z, y: top });
+  marks.push({ x: spot.x, z: spot.z, y: (spot.y || 0) + 2.5 });
+
+  let best = null;
+  // the building's front first, then progressively further round it
+  for (const swing of [0.55, -0.55, 0.95, -0.95, 0.2, -0.2, 1.35, -1.35, 1.9, -1.9]) {
+    for (const mult of [4.4, 5.8, 7.4, 9.5]) {
+      const dist = Math.max(54, size * mult);
+      const ang = front + swing;
+      const cx = spot.x + Math.sin(ang) * dist, cz = spot.z + Math.cos(ang) * dist;
+      /* Above the roofline and looking slightly down. A lens level with the
+         building sees every rise between it and the subject edge-on, and
+         these towns are built up hillsides; from too far above it becomes a
+         plan of the rooftops and the silhouettes that were the whole point of
+         typing the buildings go flat. This is the middle of the two. */
+      const camY = top + 10 + dist * 0.22;
+      if (!H) return { ang, dist, camY };
+      // not inside the hillside, and with air under the lens
+      if (H(cx, cz) > camY - 7) continue;
+      let seen = 0;
+      for (const m of marks) {
+        let clear = true;
+        for (let t = 0.1; t < 0.96; t += 0.06) {
+          const px = cx + (m.x - cx) * t, pz = cz + (m.z - cz) * t;
+          if (H(px, pz) > camY + (m.y - camY) * t + 1.2) { clear = false; break; }
+        }
+        if (clear) seen++;
+      }
+      // most of the building visible wins; among equals the nearest stand,
+      // so the subject fills as much of the strip as it can
+      if (!best || seen > best.seen) best = { ang, dist, camY, seen };
+      if (seen === marks.length) return best;
+    }
+  }
+  return best || { ang: front + 0.55, dist: Math.max(54, size * 5.8), camY: top + 24 };
+}
+
+/** The angle each harbour actually looks best from — chosen by eye, not by
+    formula: a town wants to be seen from the water it is entered from. */
+const PORTRAIT_VIEW = {
+  ilovantu: { dist: 165, high: 52 },
+  escarra: { dist: 130, high: 44 },
+};
+function portPortrait(port, place = 'town') {
+  const key = `${port.id}:${place}`;
+  if (PORTRAITS[key] !== undefined) return PORTRAITS[key];
+  const v = PORTRAIT_VIEW[port.id] || {};
+  if (typeof window === 'undefined' || !window.__portrait) { PORTRAITS[key] = null; return null; }
+  /* A named place in the town: stand close to that building, from the water
+     side, so the player sees the actual thing they just chose. */
+  if (place !== 'town') {
+    const spot = spotFor(port, place);
+    if (spot) {
+      const sh = (window.__shore || {})[port.id];
+      if (spot.quay) {
+        const ang = sh ? Math.atan2(sh.x - sh.townX, sh.z - sh.townZ) : 0;
+        PORTRAITS[key] = window.__portrait(spot.x, spot.z, {
+          w: 720, h: 240, fov: 30, ang, dist: 108, high: 22, lookY: 3,
+        });
+        return PORTRAITS[key];
+      }
+      /* A building, photographed from a stand the terrain was asked about. */
+      const st = standFor(spot);
+      PORTRAITS[key] = window.__portrait(spot.x, spot.z, {
+        /* A long lens, and the single biggest change to how these read.
+           Three.js takes the *vertical* angle and these strips are 3:1, so
+           the 46° this used to pass was 104° across: an ultra-wide, which is
+           why every building came out small and far with a third of the frame
+           empty sky and the near corner of a wall stretched over the rest.
+           At 24° the subject fills the strip from a stand that is still
+           outside the hedge, and the compression flatters flat-shaded
+           geometry the way a telephoto flatters a face. */
+        w: 720, h: 240, fov: 24,
+        ang: st.ang, dist: st.dist, high: st.camY,
+        lookY: (spot.y || 0) + (spot.h || 10) * 0.5,
+      });
+      return PORTRAITS[key];
+    }
+  }
+  /* Aim between the harbour and the town it belongs to, and stand off on the
+     seaward side. Pointed at the port marker alone the camera looks at open
+     water with the buildings shoved into one corner — the harbour is the
+     water, but the *town* is what a picture of a town should be about. */
+  const shore = (window.__shore || {})[port.id];
+  const tx = shore ? port.x + (shore.x - port.x) * 0.45 : port.x;
+  const tz = shore ? port.z + (shore.z - port.z) * 0.45 : port.z;
+  const ang = shore ? Math.atan2(port.x - shore.x, port.z - shore.z) : (v.ang || 0);
+  /* The wide shot wants a longer lens too, but not as long: a town is a
+     spread-out thing and 38° still takes in the harbour either side of it. */
+  PORTRAITS[key] = window.__portrait(tx, tz, {
+    w: 720, h: 260, fov: 38, dist: 250, high: 78, ...v, ang: v.ang ?? ang,
+  });
+  return PORTRAITS[key];
+}
+
+/** One person, as they would appear to somebody standing on the quay. */
+function notableRow(who, port) {
+  const S = G.social;
+  const v = S.of(who.id);
+  const t = tierOf(v);
+  const r = el('div', 'row notable');
+  const pc = document.createElement('canvas');
+  pc.className = 'npc-face';
+  drawPortrait(pc, { seed: who.seed }, 44);
+  r.appendChild(pc);
+  const known = S.hasMet(who.id);
+  r.appendChild(el('div', 'rmain',
+    `<div class="rtitle">${who.name}</div>
+     <div class="rsub">${who.title} · <span class="rel ${t.id}">${known ? t.name : 'Stranger'}</span></div>
+     <div class="statline"><span>${who.blurb}</span></div>`));
+  const b = el('button', 'btn' + (known ? '' : ' gold'), known ? 'SPEAK' : 'INTRODUCE');
+  onTap(b, () => openNotable(who, port), 520);
+  r.appendChild(b);
+  return r;
+}
+
+/**
+ * What standing with this person is still worth earning.
+ *
+ * Read off the same gates the conversation uses, in the same order, so the
+ * promise and the mechanic cannot drift apart — the rule this codebase applies
+ * to the origin chips and the key list. Says nothing once there is nothing
+ * left to open: a finished relationship should not nag.
+ */
+function nextRungFor(who, S) {
+  const rungs = [
+    /* "they", not "he" or "she": the cast's pronouns are not written down in
+       `notables.js`, and guessing them off a name is how you misgender half a
+       harbour. */
+    ['acquainted', 'Acquainted', 'they will talk about the other people here'],
+    ['friendly', 'Friendly', 'they will put work your way, and say what is wrong'],
+    ['trusted', 'Trusted', 'they will tell you what they are really after'],
+  ];
+  for (const [tier, name, what] of rungs) {
+    if (!S.atLeast(who.id, tier)) return `<b>${name}</b> — ${what}.`;
+  }
+  return null;
+}
+
+/* ---------------- a conversation ----------------
+   Restrained: a face, a name, what they think of you, one thing they say, and
+   a few things worth asking. Not every simulation variable — what they want is
+   theirs until you earn it.
+
+   Two things this got wrong for a long time, both reported as "the dialogue
+   and progression with the people needs work", and both measurable.
+
+   A topic paid every time it was asked. The only option available to a
+   stranger was "Ask about the port" at +1 a press, so the road from a first
+   meeting to `trusted` — where the personal talk and the port's boon live —
+   was **sixty-six presses of the same button**, reading the same sentence
+   sixty-six times. Twelve to be `acquainted`. That is not a relationship, it
+   is a progress bar with a face on it. A topic pays the first time it is
+   raised and after that it is a thing you already know; the standing moves
+   because you *did* something.
+
+   And there was nothing to do. `Friendly` opened nothing at all over
+   `acquainted` — the middle of the ladder was empty — and the work these
+   people actually want doing sat on the harbourmaster's board with their name
+   in the small print, where you took it from a notice instead of from them.
+   They ask you themselves now, in their own voice, and that is the deed that
+   moves the standing. */
+function openNotable(who, port) {
+  const S = G.social;
+  const first = S.meet(who.id);
+  if (first) S.bump(who.id, 3, 'helped');
+  const g = greetingFor(who, S);
+  const t = tierOf(S.of(who.id));
+
+  const body = [];
+  body.push(`<div class="npc-card">
+      <canvas class="npc-face big" data-seed="${who.seed}"></canvas>
+      <div class="npc-id">
+        <div class="npc-name">${who.name}</div>
+        <div class="npc-title">${who.title} — ${port.name}</div>
+        <div class="npc-rel"><span class="rel ${t.id}">${t.name}</span></div>
+      </div>
+    </div>`);
+  body.push(`<p class="npc-say">“${g.line}”</p>`);
+  if (g.memory) body.push(`<p class="npc-mem">${g.memory}</p>`);
+  /* Where you stand with them and what the next rung opens, read off the same
+     gates the options below use, so the promise cannot drift from the code. */
+  const nextStep = nextRungFor(who, S);
+  if (nextStep) body.push(`<p class="npc-next">${nextStep}</p>`);
+
+  const acts = [];
+  // what they know about the town — always available, and how rumours travel
+  /* Their own view of the place, not the town's press release. Ten people
+     reciting one sentence about the harbour is how a cast of characters turns
+     back into a menu — so each of them answers this in their own voice, and
+     what the town at large is worried about is on the town screen where it
+     belongs. */
+  acts.push({
+    label: S.knows(who.id, 'town') ? `${port.name}, again` : `Ask about ${port.name}`,
+    fn: () => {
+      // asked once is asked: the first telling is worth something, the
+      // sixtieth is the player pressing a button at a wall
+      if (S.learn(who.id, 'town')) S.bump(who.id, 2, 'helped');
+      modal({
+        title: who.name, dismissable: true,
+        text: `<p class="npc-say">“${who.onTown || PORT_IDENTITY[port.id].problem}”</p>`,
+        actions: [{ label: 'BACK', fn: () => openNotable(who, port) }],
+      });
+    },
+  });
+  // who they cannot stand — earned, not given
+  if (S.atLeast(who.id, 'acquainted')) {
+    acts.push({
+      label: S.knows(who.id, 'ties') ? 'The others, again' : 'Ask about the others',
+      fn: () => {
+        const ties = tiesFor(who.id);
+        if (S.learn(who.id, 'ties')) S.bump(who.id, 2, 'helped');
+        const txt = ties.length
+          ? ties.map(ti => `<p class="npc-mem">${ti.line}</p>`).join('')
+          : '<p class="npc-mem">“I keep to my own business.”</p>';
+        modal({
+          title: `${who.name} on the town`, dismissable: true, text: txt,
+          actions: [{ label: 'BACK', fn: () => openNotable(who, port) }],
+        });
+      },
+    });
+  }
+  /* Work, from the person whose problem it is.
+     Their name was already in the small print of the harbourmaster's notice —
+     `makeBounty` picks the local who would actually care and writes the brief
+     in their voice — and the player took it off a board without ever speaking
+     to them. Asked for face to face it is the same objective and a different
+     game, and it is what fills the empty middle of the ladder: `friendly` used
+     to open nothing whatever over `acquainted`. */
+  const theirs = G.contractsAt(port).filter(q => q.owner === who.id && !q.active && !q.done);
+  if (S.atLeast(who.id, 'friendly') && theirs.length) {
+    const q = theirs[0];
+    acts.push({
+      label: 'Is there work?', cls: 'gold',
+      fn: () => {
+        modal({
+          title: who.name, dismissable: true,
+          text: `<p class="npc-say">“${q.brief}”</p>`
+            + `<p class="npc-mem">Pays ◆${q.reward} · prestige ${q.prestige}</p>`,
+          actions: [
+            { label: 'I WILL DO IT', cls: 'gold', fn: () => {
+              G.acceptQuest(q, port);
+              S.bump(who.id, 4, 'helped');
+              S.remember(who.id, `asked_${q.id}`, 'You took this on when they asked you to their face.', G.time);
+              refresh();
+            } },
+            { label: 'NOT TODAY', fn: () => openNotable(who, port) },
+          ],
+        });
+      },
+    });
+  }
+  /* What they actually want. This sat behind `trusted` — sixty-six presses
+     away — so almost nobody ever heard it. A friend tells you what is wrong;
+     it takes a trusted one to tell you what they are *for*. */
+  if (S.atLeast(who.id, 'friendly') && who.hidden) {
+    const deep = S.atLeast(who.id, 'trusted');
+    acts.push({
+      label: deep ? 'Personal matters' : 'Ask what is wrong',
+      cls: 'gold',
+      fn: () => {
+        if (S.learn(who.id, 'problem')) S.bump(who.id, 2, 'helped');
+        if (deep) S.learn(who.id, 'ambition');
+        modal({
+          title: who.name, dismissable: true,
+          text: `<p class="npc-say">“${who.hidden.problem}”</p>`
+            + (deep ? `<p class="npc-mem">What they want: ${who.hidden.ambition}</p>`
+              : '<p class="npc-mem">There is more they are not saying.</p>'),
+          actions: [{ label: 'BACK', fn: () => openNotable(who, port) }],
+        });
+      },
+    });
+  }
+  // the one thing this port can give you, if the right person likes you
+  const boon = PORT_IDENTITY[port.id].boon;
+  if (boon && boon.from === who.id && S.atLeast(who.id, boon.need) && !S.hasFlag(boon.id)) {
+    acts.push({
+      label: boon.name.toUpperCase(), cls: 'gold',
+      fn: () => {
+        S.flag(boon.id);
+        G.grantBoon(boon, who);
+        toast(`${boon.name} — ${who.name} owes you nothing now.`, 'gold', 5200);
+      },
+    });
+  }
+  acts.push({ label: 'Leave', cls: 'dim', fn: () => { } });
+
+  modal({ title: null, dismissable: true, text: body.join(''), actions: acts });
+  // portraits draw after the modal exists
+  setTimeout(() => {
+    for (const c of document.querySelectorAll('canvas.npc-face[data-seed]')) {
+      drawPortrait(c, { seed: +c.dataset.seed }, 64);
+    }
+  }, 0);
 }
 
 /* ---------------- harbour ---------------- */
 function harbourTab(n, port) {
+  placeStrip(n, port, 'harbour', 'The Quay');
   const p = G.player;
   n.appendChild(el('div', 'note', port.desc));
 
@@ -92,9 +574,9 @@ function harbourTab(n, port) {
   onTap(b, () => {
     if (G.coin < cost) return toast('Not enough coin.', 'bad');
     G.coin -= cost;
-    p.hull = p.hullMax; p.sails = p.sailMax;
-    p.gunsPort = p.gunsMax; p.gunsStb = p.gunsMax;
-    sfxCoin(); toast('Refitted and watertight.', 'good');
+    const marked = G.repair(p);
+    sfxCoin();
+    toast(marked ? 'Refitted — and she carries the marks of it.' : 'Refitted and watertight.', 'good');
     G.save(); refresh();
   });
   row.appendChild(b);
@@ -106,12 +588,11 @@ function harbourTab(n, port) {
     const c2 = repairCost(s);
     if (c2 <= 0) continue;
     const r2 = el('div', 'row');
-    r2.appendChild(el('div', 'rmain', `<div class="rtitle">${s.name}</div><div class="rsub">${s.cls.name} · hull ${Math.round(s.hull)}/${s.hullMax}</div>`));
+    r2.appendChild(el('div', 'rmain', `<div class="rtitle">${s.name}</div><div class="rsub">${s.cls.name} · ${tonsOf(s.cls)}t · hull ${Math.round(s.hull)}/${s.hullMax}</div>`));
     const b2 = el('button', 'btn gold', `◆ ${c2}`);
     b2.disabled = G.coin < c2;
     onTap(b2, () => {
-      G.coin -= c2; s.hull = s.hullMax; s.sails = s.sailMax;
-      s.gunsPort = s.gunsMax; s.gunsStb = s.gunsMax;
+      G.coin -= c2; G.repair(s);
       sfxCoin(); toast(`${s.name} refitted.`, 'good'); G.save(); refresh();
     });
     r2.appendChild(b2);
@@ -124,10 +605,65 @@ function harbourTab(n, port) {
   n.appendChild(supplyRow('Shot &amp; Powder', '◉', `Each broadside burns a few. ${p.shot} aboard.`,
     SHOT_PRICE, () => { p.shot += 10 * qtyMult; }, 10));
 
+  /* Powder for the rest of the fleet.
+     Stores only ever went aboard the flagship, and nothing anywhere refilled a
+     consort — so a prize taken into the fleet fired off what was in her lockers
+     when you took her and was a hull with sails after that. A captain with four
+     ships had one ship and three witnesses. This fills every locker in the
+     fleet at the same price a barrel costs the flagship. */
+  const stores = G.fleetStores();
+  if (stores.consorts.length) {
+    const { short, dry, cost } = stores;
+    const r = el('div', 'row');
+    r.appendChild(el('div', 'rmain',
+      `<div class="rtitle">Powder for the Consorts</div>
+       <div class="rsub">${short
+        ? `${stores.consorts.length} consort${stores.consorts.length > 1 ? 's' : ''}, ${short} short between them`
+          + `${dry ? ` · <b>${dry} with empty lockers</b>` : ''}`
+        : 'Every locker in the fleet is full.'}</div>`));
+    const bb = el('button', 'btn' + (short ? ' gold' : ' dim'), short ? `◆ ${cost}` : 'FULL');
+    bb.disabled = !short || G.coin < cost;
+    onTap(bb, () => {
+      if (!G.storeFleet()) return toast('Not enough coin.', 'bad');
+      sfxCoin(); toast('The fleet is stored.', 'good'); refresh();
+    });
+    r.appendChild(bb);
+    n.appendChild(r);
+  }
+
   const contracts = G.contractsAt(port);
+  const carrying = contracts.filter(q => q.kind !== 'bounty');
+  const bounties = contracts.filter(q => q.kind === 'bounty');
   n.appendChild(el('div', 'sec-title', 'HARBOURMASTER'));
-  if (!contracts.length) n.appendChild(el('div', 'note', 'No work on the board today. Try the tavern.'));
-  for (const q of contracts) n.appendChild(questRow(q, port));
+  if (!carrying.length) n.appendChild(el('div', 'note', 'No work on the board today. Try the tavern.'));
+  for (const q of carrying) n.appendChild(questRow(q, port));
+
+  /* The other half of the board. A bounty names a ship already out there, so
+     the row says who and how heavy — enough to judge whether she is worth the
+     powder before you sail. */
+  if (bounties.length) {
+    n.appendChild(el('div', 'sec-title', 'NOTICES POSTED'));
+    for (const q of bounties) {
+      const t = G.ships.find(x => x.id === q.targetId);
+      const gone = !t || !t.alive || t.captured;
+      const r = el('div', 'row');
+      const bearing = t && !gone ? G.bearingWords(t.x, t.z) : null;
+      r.appendChild(el('div', 'rmain',
+        `<div class="rtitle">${q.title}${q.active ? ' <span class="pill">TAKEN</span>' : ''}</div>
+         <div class="rsub">${q.brief}</div>
+         <div class="statline">
+           <span>pays <b>◆${q.reward}</b></span>
+           <span>prestige <b>${q.prestige}</b></span>
+           ${bearing ? `<span>last word <b>${bearing}</b></span>` : '<span>no word of her</span>'}
+         </div>`));
+      if (!q.active && !gone) {
+        const b = el('button', 'btn gold', 'TAKE IT');
+        onTap(b, () => { G.acceptQuest(q, port); refresh(); });
+        r.appendChild(b);
+      }
+      n.appendChild(r);
+    }
+  }
 
   const activeQ = G.quests.filter(q => q.active);
   if (activeQ.length) {
@@ -178,6 +714,7 @@ function questRow(q, port) {
 
 /* ---------------- market ---------------- */
 function marketTab(n, port) {
+  placeStrip(n, port, 'market', 'The Market');
   const p = G.player;
   const head = el('div', 'row');
   head.appendChild(el('div', 'rmain', `<div class="rtitle">Hold: ${p.cargoUsed}/${p.cls.cargo}</div><div class="rsub">Buy where it is common. Sell where it is not.</div>`));
@@ -204,26 +741,45 @@ function marketTab(n, port) {
       `<div class="rtitle">${good.icon} ${good.name} ${cheap
         ? '<span class="pill g">SOLD HERE</span>' : dear ? '<span class="pill r">WANTED HERE</span>' : ''}</div>
        <div class="rsub">Buy ◆${buy} · Sell ◆${sell} · ${stock} in store${have ? ` · <b style="color:var(--parch)">${have} aboard</b>` : ''}</div>`));
+    /* Both handlers price and count the deal from the ship and the store as
+       they are *at the tap*, never from what the row said when it was drawn.
+       Every trade calls `refresh()`, which throws the row away and builds a
+       new one — and a tap already on its way lands on the old node, whose
+       handler still closes over the quantities from before. Selling sixteen
+       fish you no longer have runs `p.cargo.fish -= 16` on an entry that was
+       deleted a moment ago: `undefined - 16` is NaN, `NaN <= 0` is false so it
+       is never cleaned up, and from there it is four steps to a NaN hold, a
+       NaN purchase, NaN coin, and a port whose fish stock is NaN for the rest
+       of the voyage. Reproduced in two port visits; on a phone, tapping faster
+       than the screen redraws is just how people buy things.
+
+       `!(cnt > 0)` rather than `cnt <= 0`, because the second is false for NaN
+       — which is exactly how a poisoned quantity got through the door the
+       first time. */
     const q = el('div', 'qty');
     const nb = Math.min(qtyMult, stock, p.cargoFree, Math.floor(G.coin / buy));
     const bb = el('button', 'btn' + (nb > 0 ? ' gold' : ' dim'), `BUY`);
-    bb.disabled = nb <= 0;
+    bb.disabled = !(nb > 0);
     onTap(bb, () => {
-      const cnt = Math.min(qtyMult, stock, p.cargoFree, Math.floor(G.coin / buy));
-      if (cnt <= 0) return toast(p.cargoFree <= 0 ? 'Hold is full.' : 'Not enough coin.', 'bad');
-      G.coin -= buy * cnt;
+      const price = G.market.buyPrice(port.id, gid);
+      const cnt = Math.min(qtyMult, Math.floor(G.market.stock(port.id, gid)),
+        p.cargoFree, Math.floor(G.coin / Math.max(1, price)));
+      if (!(cnt > 0)) return toast(p.cargoFree <= 0 ? 'Hold is full.' : 'Not enough coin.', 'bad');
+      G.coin -= price * cnt;
       p.cargo[gid] = (p.cargo[gid] || 0) + cnt;
       G.market.takeStock(port.id, gid, cnt);
       G.onGoodsBought(gid, cnt, port);
       sfxCoin(); G.save(); refresh();
     });
     const sb = el('button', 'btn' + (have > 0 ? '' : ' dim'), `SELL`);
-    sb.disabled = have <= 0;
+    sb.disabled = !(have > 0);
     onTap(sb, () => {
-      const cnt = Math.min(qtyMult, have);
-      G.coin += sell * cnt;
-      p.cargo[gid] -= cnt;
-      if (p.cargo[gid] <= 0) delete p.cargo[gid];
+      const aboard = p.cargo[gid] || 0;
+      const cnt = Math.min(qtyMult, aboard);
+      if (!(cnt > 0)) return;
+      G.coin += G.market.sellPrice(port.id, gid) * cnt;
+      p.cargo[gid] = aboard - cnt;
+      if (!(p.cargo[gid] > 0)) delete p.cargo[gid];
       G.market.addStock(port.id, gid, cnt);
       G.onGoodsSold(gid, cnt, port);
       sfxCoin(); G.save(); refresh();
@@ -236,6 +792,7 @@ function marketTab(n, port) {
 
 /* ---------------- crew ---------------- */
 function crewTab(n, port) {
+  placeStrip(n, port, 'crew', 'The Hiring Steps');
   const p = G.player;
   n.appendChild(el('div', 'note',
     `Your people are <em>${p.crewTotal}</em> of a possible ${p.cls.crewMax}. Sailors work the rig, gunners the battery, marines the rail.`));
@@ -255,11 +812,32 @@ function crewTab(n, port) {
   n.appendChild(el('div', 'note', `Sea time earned: <em>${xp}</em>. Crew are rated up between voyages — every fight and every league sailed counts.`));
 
   n.appendChild(el('div', 'sec-title', 'RECRUITING'));
+  /* Hands can be signed straight onto any ship in the fleet that is in this
+     harbour with you. A prize goes out with a thin prize crew, and this is
+     how she is manned properly afterwards — without it, the only berths you
+     could ever fill were your own, and a big ship you had captured stayed
+     unusable no matter how much coin you had. */
+  const berths = G.fleet.filter(s => s.alive && !s.captured);
+  if (!recruitTo || !berths.includes(recruitTo)) recruitTo = G.player;
+  if (berths.length > 1) {
+    const pickRow = el('div', 'row');
+    pickRow.appendChild(el('div', 'rmain',
+      `<div class="rtitle">Sign them aboard</div><div class="rsub">Which deck these hands join.</div>`));
+    const wrap = el('div', 'fwrap');
+    for (const s of berths) {
+      const b = el('button', 'btn' + (s === recruitTo ? ' gold' : ' dim'),
+        `${s.isPlayer ? '⚑ ' : ''}${s.name.split(' ')[0]} ${s.crewTotal}/${s.cls.crewMax}`);
+      onTap(b, () => { recruitTo = s; refresh(); });
+      wrap.appendChild(b);
+    }
+    pickRow.appendChild(wrap);
+    n.appendChild(pickRow);
+  }
   const avail = port.size === 'major' ? ['deckhand', 'sailor', 'gunner', 'marine', 'rigger'] : ['deckhand', 'sailor'];
   for (const rid of avail) {
     const rk = RANKS[rid];
     const cost = recruitCost(rid, port.id);
-    const full = p.crewTotal >= p.cls.crewMax;
+    const full = recruitTo.crewTotal >= recruitTo.cls.crewMax;
     const r = el('div', 'row');
     r.appendChild(el('div', 'rmain',
       `<div class="rtitle">${rk.name}</div>
@@ -267,16 +845,26 @@ function crewTab(n, port) {
     const b = el('button', 'btn gold', `◆${cost}`);
     b.disabled = full || G.coin < cost;
     onTap(b, () => {
-      if (full) return toast('No berths left aboard.', 'bad');
+      if (full) return toast(`No berths left aboard ${recruitTo.name}.`, 'bad');
       if (G.coin < cost) return toast('Not enough coin.', 'bad');
-      G.coin -= cost; p.crew[rid]++;
+      G.coin -= cost; recruitTo.crew[rid]++;
       sfxCoin(); G.save(); refresh();
     });
     r.appendChild(b);
     n.appendChild(r);
   }
-  if (p.crewTotal >= p.cls.crewMax) n.appendChild(el('div', 'note', 'Every berth is taken. A bigger hull would take more hands.'));
+  if (recruitTo.crewTotal >= recruitTo.cls.crewMax) {
+    n.appendChild(el('div', 'note',
+      `Every berth aboard ${recruitTo.name} is taken. A bigger hull would take more hands.`));
+  }
 }
+/** Skill as something you read rather than parse. */
+function stars(n) {
+  // skill runs 1..3; a hand-picked veteran shows as four or five, not always five
+  const k = Math.max(1, Math.min(5, (n | 0) + 2));
+  return `<span class="stars">${'★'.repeat(k)}${'☆'.repeat(5 - k)}</span>`;
+}
+
 function describeRank(id) {
   return {
     deckhand: 'Willing, green, cheap. They learn.',
@@ -290,6 +878,7 @@ function describeRank(id) {
 
 /* ---------------- shipyard ---------------- */
 function yardTab(n, port) {
+  placeStrip(n, port, 'yard', 'The Yard');
   n.appendChild(el('div', 'sec-title', 'YOUR FLEET'));
   for (const s of G.fleet) n.appendChild(fleetRow(s, port));
 
@@ -300,7 +889,7 @@ function yardTab(n, port) {
       const r = el('div', 'row');
       r.appendChild(el('div', 'rmain',
         `<div class="rtitle">${pr.name}</div>
-         <div class="rsub">${cls.name} · hull ${Math.round(pr.hull)}/${cls.hull} · ${pr.guns} guns · needs ${cls.crewMin} hands and a captain</div>`));
+         <div class="rsub">${cls.name} · ${tonsOf(cls)}t · hull ${Math.round(pr.hull)}/${cls.hull} · ${pr.guns} guns · a prize crew of ${G.prizeCrewFor(cls)} and a captain; ${cls.crewMin} hands to work her properly</div>`));
       const b = el('button', 'btn', 'SELL ◆' + Math.round(cls.value * 0.55 * (pr.hull / cls.hull)));
       onTap(b, () => {
         G.coin += Math.round(cls.value * 0.55 * (pr.hull / cls.hull));
@@ -317,7 +906,7 @@ function yardTab(n, port) {
 
   n.appendChild(el('div', 'sec-title', 'YARD WORK'));
   const p = G.player;
-  for (const up of G.upgradesFor(p)) {
+  for (const up of G.upgradesFor(p, port)) {
     const r = el('div', 'row');
     r.appendChild(el('div', 'rmain', `<div class="rtitle">${up.name}</div><div class="rsub">${up.desc}</div>`));
     if (up.owned) r.appendChild(el('span', 'pill g', 'FITTED'));
@@ -336,17 +925,45 @@ function fleetRow(s, port) {
   const capt = s.captain ? s.captain.name : (s.isPlayer ? 'You' : '— no captain —');
   r.appendChild(el('div', 'rmain',
     `<div class="rtitle">${s.name} ${s.isPlayer ? '<span class="pill">FLAGSHIP</span>' : ''}</div>
-     <div class="rsub">${s.cls.name} · ${capt}</div>
+     <div class="rsub">${s.cls.name} · ${tonsOf(s.cls)}t · ${capt}</div>
      <div class="statline">
        <span>hull <b>${Math.round(s.hull)}/${s.hullMax}</b></span>
        <span>guns <b>${s.gunsPort + s.gunsStb}</b></span>
-       <span>crew <b>${s.crewTotal}/${s.cls.crewMax}</b></span>
+       <span>crew <b>${s.crewTotal}/${s.cls.crewMax}</b>${
+  s.crewTotal < s.cls.crewMin ? ` <em class="warn">needs ${s.cls.crewMin}</em>` : ''}</span>
        <span>speed <b>${s.cls.speed.toFixed(1)}</b></span>
      </div>`));
   if (!s.isPlayer) {
     const b = el('button', 'btn dim', 'CREW');
     onTap(b, () => transferFlow(s));
     r.appendChild(b);
+    /* Take her yourself. A captain who has just taken a ship worth ten of her
+       own should not have to keep sailing the cutter — that was most of the
+       point of taking it. Only in harbour, and only if she can be worked:
+       the hull carries the hands, but the captain carries the skill. */
+    /* Not disabled when she is short-handed. A greyed button gives no reason,
+       and on a phone there is no tooltip to give one either — so it stays live
+       and says what she wants, which is a thing the player can then go and do
+       on the crew page two taps away. */
+    const cmd = el('button', 'btn gold', 'COMMAND');
+    const short = s.crewTotal < s.cls.crewMin;
+    if (short) cmd.classList.add('dim');
+    onTap(cmd, () => {
+      if (short) {
+        return toast(`${s.name} wants ${s.cls.crewMin} hands to answer the helm — `
+          + `she has ${s.crewTotal}. Sign more on at the crew page.`, 'bad', 4200);
+      }
+      modal({
+        title: `Shift your flag?`,
+        text: `You will command <b>${s.name}</b>, and <b>${G.player.name}</b> falls in`
+          + ` as a consort. Your own skill goes with you.`,
+        actions: [
+          { label: 'SHIFT MY FLAG', cls: 'gold', fn: () => { G.takeCommand(s); refresh(); } },
+          { label: 'STAY WHERE I AM', cls: 'dim', fn: () => { } },
+        ],
+      });
+    });
+    r.appendChild(cmd);
   }
   void port;
   return r;
@@ -393,7 +1010,16 @@ function commissionFlow(prize, port) {
 
 /* ---------------- tavern ---------------- */
 function tavernTab(n, port) {
+  placeStrip(n, port, 'tavern', 'The Tavern');
   n.appendChild(el('div', 'note', 'Smoke, salt-fish stew, and every rumour in the Shoals — most of them wrong.'));
+
+  /* Who is in tonight. The tavern's own notables stand here, so the room has
+     faces in it before the hiring board does. */
+  const inRoom = notablesAt(port.id).filter(w => w.at === 'tavern');
+  if (inRoom.length) {
+    n.appendChild(el('div', 'sec-title', 'IN TONIGHT'));
+    for (const w of inRoom) n.appendChild(notableRow(w, port));
+  }
 
   n.appendChild(el('div', 'sec-title', 'OFFICERS SEEKING A BERTH'));
   const pool = G.tavernPool(port);
@@ -405,10 +1031,18 @@ function tavernTab(n, port) {
     pt.appendChild(cv);
     drawPortrait(cv, o, 46);
     r.appendChild(pt);
-    r.appendChild(el('div', 'rmain',
-      `<div class="rtitle">${o.name}</div>
-       <div class="rsub">${officerLabel(o)} · <span class="pill">skill ${o.skill}</span> ${o.canCaptain ? '<span class="pill g">CAN COMMAND</span>' : ''}</div>
-       <div class="rsub">${officerEffect(o)} — <em style="color:var(--parch)">${o.trait.name}</em>, ${o.trait.tip}</div>`));
+    /* An authored officer is introduced as a person: what he is called, what
+       he is like, what he has done and what he is still after. The numbers are
+       underneath, where they belong — you recruit Mercer, not Navigator +8%. */
+    r.appendChild(el('div', 'rmain', o.namedId
+      ? `<div class="rtitle">${o.name}${o.epithet ? ` <span class="epithet">“${o.epithet}”</span>` : ''}</div>
+         <div class="rsub">${officerLabel(o)} · ${stars(o.skill)} ${o.canCaptain ? '<span class="pill g">CAN COMMAND</span>' : ''}</div>
+         <div class="rsub trait-line">${o.namedTraits.map(t => `<span class="tr">${t}</span>`).join('')}</div>
+         <div class="npc-mem">${o.bio}</div>
+         <div class="statline"><span>wants <b>${o.ambition}</b></span><span>wage <b>◆${o.wage}</b>/wk</span></div>`
+      : `<div class="rtitle">${o.name}</div>
+         <div class="rsub">${officerLabel(o)} · <span class="pill">skill ${o.skill}</span> ${o.canCaptain ? '<span class="pill g">CAN COMMAND</span>' : ''}</div>
+         <div class="rsub">${officerEffect(o)} — <em style="color:var(--parch)">${o.trait.name}</em>, ${o.trait.tip}</div>`));
     const b = el('button', 'btn gold', `◆${o.hire}`);
     b.disabled = G.coin < o.hire;
     onTap(b, () => { G.hireOfficer(o, port); refresh(); });
@@ -447,13 +1081,95 @@ function tavernTab(n, port) {
 /* =========================================================
    LOG / MENU
    ========================================================= */
+/* ---------------- who you know ----------------
+   Once the Shoals contain named people, the player needs somewhere to ask
+   "who was that, and what did I do to them". Only people actually met are
+   listed — a roster of strangers is a spoiler, not a journal. */
+function peopleTab(n) {
+  const S = G.social;
+  const met = NOTABLES.filter(w => S.hasMet(w.id));
+  if (!met.length) {
+    n.appendChild(el('div', 'note',
+      'You have not stopped to speak to anyone yet. Dock somewhere and go into the town.'));
+    return;
+  }
+  // best-regarded first: the people who would actually take your call
+  met.sort((a, b) => S.of(b.id) - S.of(a.id));
+  for (const w of met) {
+    const t = tierOf(S.of(w.id));
+    const mem = S.memories(w.id);
+    const ties = tiesFor(w.id);
+    const r = el('div', 'row notable');
+    const pc = document.createElement('canvas');
+    pc.className = 'npc-face';
+    drawPortrait(pc, { seed: w.seed }, 44);
+    r.appendChild(pc);
+    const knownAmb = S.knows(w.id, 'ambition');
+    const knownTies = S.knows(w.id, 'ties');
+    r.appendChild(el('div', 'rmain',
+      `<div class="rtitle">${w.name}</div>
+       <div class="rsub">${w.title} · ${(G.PORTS.find(p => p.id === w.port) || {}).name || w.port}
+         · <span class="rel ${t.id}">${t.name}</span></div>
+       <div class="trait-line">${w.traits.map(x => `<span class="tr">${x}</span>`).join('')}</div>
+       ${knownTies && ties.length ? `<div class="npc-mem">${ties.map(x => x.line).join(' ')}</div>` : ''}
+       ${knownAmb && w.hidden ? `<div class="npc-mem">Wants: ${w.hidden.ambition}</div>` : ''}
+       ${mem.length ? mem.map(m => `<div class="statline"><span>${m.text}</span></div>`).join('') : ''}
+       ${!knownAmb ? '<div class="statline"><span class="dimtxt">You do not know what they are after.</span></div>' : ''}`));
+    n.appendChild(r);
+  }
+}
+
 export function openMenu() {
   const tabs = [
     { id: 'log', label: 'VOYAGE', icon: '✦', render: logTab },
+    { id: 'people', label: 'PEOPLE', icon: '☺', render: peopleTab },
     { id: 'help', label: 'HELM', icon: '⎈', render: helpTab },
     { id: 'set', label: 'SETTINGS', icon: '⚙', render: settingsTab },
   ];
   openSheet('Ship’s Log', 'THE VANTU SHOALS', tabs, 'log');
+}
+
+/**
+ * Where you stand with each power, and what it buys you.
+ *
+ * The heading said STANDING and then showed the player their own coin. With
+ * six powers in the water — two of whom price their water off this number —
+ * that was a page about nothing. Each row says the word, the number, and
+ * whether your colours will be taken, and the threshold it tests is the one
+ * the encounter rules test, imported rather than retyped, so the page cannot
+ * promise something the sea will not honour.
+ */
+function standingWord(v) {
+  if (v >= 45) return { word: 'Trusted', cls: 'g' };
+  if (v >= COLOURS_STANDING) return { word: 'Known', cls: 'g' };
+  if (v >= 5) return { word: 'Civil', cls: '' };
+  if (v > -5) return { word: 'A stranger', cls: '' };
+  if (v > -25) return { word: 'Watched', cls: 'b' };
+  return { word: 'Unwelcome', cls: 'r' };
+}
+
+function factionStanding(n) {
+  const ids = Object.keys(G.standing).filter(id => FACTIONS[id]);
+  if (!ids.length) return;
+  n.appendChild(el('div', 'sec-title', 'THE POWERS'));
+  const known = G.infamy < COLOURS_INFAMY;
+  for (const id of ids) {
+    const fac = FACTIONS[id];
+    const v = Math.round(G.standing[id] || 0);
+    const s = standingWord(v);
+    const takes = known && v >= COLOURS_STANDING;
+    const row = el('div', 'row');
+    row.appendChild(el('div', 'rmain',
+      `<div class="rtitle">${fac.name}</div>
+       <div class="rsub">${s.word}${takes ? ' · they will take your colours' : ''}</div>`));
+    row.appendChild(el('span', 'pill' + (s.cls ? ' ' + s.cls : ''), `${v >= 0 ? '+' : ''}${v}`));
+    n.appendChild(row);
+  }
+  if (!known) {
+    n.appendChild(el('div', 'note',
+      `A name like yours travels. At <em>infamy ${Math.round(G.infamy)}</em> nobody is
+       taking your word for anything, whatever the books say.`));
+  }
 }
 
 function logTab(n) {
@@ -464,12 +1180,13 @@ function logTab(n) {
   const r = el('div', 'row');
   r.appendChild(el('div', 'rmain',
     `<div class="rtitle">${p.name}</div>
-     <div class="rsub">${p.cls.name} under your own colours</div>
+     <div class="rsub">${p.cls.name} · ${tonsOf(p.cls)}t, under your own colours</div>
      <div class="statline">
       <span>coin <b>◆${fmtCoin(G.coin)}</b></span><span>prestige <b>${Math.round(G.prestige)}</b></span>
       <span>infamy <b>${Math.round(G.infamy)}</b></span><span>fleet <b>${G.fleet.length}</b></span>
      </div>`));
   n.appendChild(r);
+  factionStanding(n);
 
   n.appendChild(el('div', 'sec-title', 'TALLY'));
   const st = G.stats;
@@ -590,11 +1307,47 @@ function helpTab(n) {
 
 function settingsTab(n) {
   const r = el('div', 'row');
-  r.appendChild(el('div', 'rmain', `<div class="rtitle">Sound</div><div class="rsub">Waves, guns and a little music.</div>`));
+  r.appendChild(el('div', 'rmain', `<div class="rtitle">Sound</div><div class="rsub">Waves, guns and the score.</div>`));
   const b = el('button', 'btn', audio.muted ? 'OFF' : 'ON');
   onTap(b, () => { const m = toggleMute(); b.textContent = m ? 'OFF' : 'ON'; });
   r.appendChild(b);
   n.appendChild(r);
+
+  /* Four faders, because one volume control cannot settle an argument between
+     the sea and the score — and that argument was real: ambience shipped at
+     nearly twice the music. Live: you hear the change as you drag, which is
+     the only way to set a level honestly. */
+  const mix = getMix();
+  const FADERS = [
+    ['music', 'Music', 'The score.'],
+    ['amb', 'Sea &amp; weather', 'Swell, wind, gulls, the harbour.'],
+    ['sfx', 'Guns &amp; ship', 'Broadsides, timber, steel.'],
+    ['master', 'Overall', 'Everything at once.'],
+  ];
+  for (const [key, label, sub] of FADERS) {
+    const row = el('div', 'row fader');
+    row.appendChild(el('div', 'rmain', `<div class="rtitle">${label}</div><div class="rsub">${sub}</div>`));
+    const val = el('span', 'fval', `${Math.round(mix[key] * 100)}`);
+    const sl = document.createElement('input');
+    sl.type = 'range'; sl.min = '0'; sl.max = '100'; sl.step = '1';
+    sl.value = String(Math.round(mix[key] * 100));
+    sl.className = 'slider';
+    sl.setAttribute('aria-label', label.replace('&amp;', 'and'));
+    const move = () => { val.textContent = sl.value; setMixLevel(key, +sl.value / 100); };
+    sl.addEventListener('input', move);
+    sl.addEventListener('change', move);
+    const wrap = el('div', 'fwrap');
+    wrap.appendChild(sl); wrap.appendChild(val);
+    row.appendChild(wrap);
+    n.appendChild(row);
+  }
+  const reset = el('button', 'btn wide dim', 'RESET THE MIX');
+  onTap(reset, () => {
+    const d = mixDefaults();
+    for (const k in d) setMixLevel(k, d[k]);
+    refresh();
+  });
+  n.appendChild(reset);
 
   const r2 = el('div', 'row');
   r2.appendChild(el('div', 'rmain', `<div class="rtitle">Graphics</div><div class="rsub">Lower this if the sea stutters.</div>`));

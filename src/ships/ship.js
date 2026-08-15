@@ -11,6 +11,10 @@ import { depthAt } from '../world/terrain.js';
 let NEXT_ID = 1;
 const _tilt = { x: 0, z: 0 };
 
+/** Half the no-go cone: ~47° either side of the wind's eye. Inside it a square
+    rig makes no useful way, so the helm beats across it rather than into it. */
+const NO_GO = 0.82;
+
 export function emptyCrew() {
   return { deckhand: 0, sailor: 0, gunner: 0, marine: 0, rigger: 0, veteran: 0 };
 }
@@ -19,6 +23,14 @@ export function crewCount(c) {
 }
 export function crewPower(c, key) {
   let p = 0; for (const k in c) p += c[k] * (RANKS[k]?.[key] || 0); return p;
+}
+
+/** A ship's name is the one thing about her that never changes, so it is what
+    her procedural details are drawn from: reload a save and she is herself. */
+function nameSeed(name) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < (name || '').length; i++) h = Math.imul(h ^ name.charCodeAt(i), 0x01000193);
+  return h >>> 0;
 }
 
 export class Ship {
@@ -35,8 +47,10 @@ export class Ship {
     this.yaw = opts.yaw ?? 0;
     this.speed = 0;
     this.dest = null;                    // {x,z}
+    this.route = null;                   // remaining waypoints, when one was needed
     this.headingCmd = null;              // radians, used when no dest
     this.throttle = 1;                   // 0..1 sail set
+    this.tack = 0;                       // -1/+1 while beating, 0 when she can fetch
 
     this.hullMax = this.cls.hull; this.hull = opts.hull ?? this.hullMax;
     this.sailMax = this.cls.sails; this.sails = opts.sails ?? this.sailMax;
@@ -75,12 +89,85 @@ export class Ship {
     this.visible = true;
     this.wakeStrength = 0;
 
-    this.mesh = buildShip(this.classId, this.faction, opts.colors);
+    this.colors = opts.colors || null;
+    /** The yard she came out of. Never changes hands, whoever owns her. */
+    this.builtBy = opts.builtBy || this.faction;
+    /* Her history, kept as two counts and nothing else.
+       `scars` is the number of times she has been brought in badly hurt and
+       put back together; `prizes` is what she has taken. Everything the
+       player sees of either is derived in the factory, so a save carries two
+       small numbers and reopens on the same ship. */
+    this.scars = opts.scars | 0;
+    this.prizes = opts.prizes | 0;
+    /** Her own thread of the variation stream: the same hull every time. */
+    this.seed = nameSeed(this.name);
+    this.mesh = buildShip(this.classId, this.faction, this.meshOpts());
     this.mesh.position.set(this.x, 0, this.z);
     this.mesh.rotation.y = this.yaw;
     this.mesh.userData.ship = this;
     this.baseSailOpacity = 1;
     this._hitFlash = 0;
+  }
+
+  /** Everything the factory needs to draw this particular ship. */
+  meshOpts() {
+    return {
+      ...(this.colors || {}),
+      upgrades: this.upgrades || [],
+      guns: this.gunsMax ? this.gunsMax * 2 : undefined,
+      /* Where she was built, which is not where she sails from. A prize taken
+         into the fleet flies your colours and keeps her bones: League hulls
+         stay heavy, Covenant hulls stay light, and a late fleet reads as a
+         history of the campaign rather than five copies of one ship. */
+      build: this.builtBy ? (FACTIONS[this.builtBy] || {}).build : undefined,
+      /* What she is for, which is a different axis from who built her. A
+         trader carries her hatches, her derrick, her casks and her boat on
+         deck whatever flag she was laid down under, so a convoy reads as a
+         convoy from as far off as you can read a hull. A prize keeps the
+         fittings she was taken with — she is still the trader she was. */
+      trader: this.role === 'merchant',
+      seed: this.seed,
+      history: { scars: this.scars | 0, prizes: this.prizes | 0 },
+    };
+  }
+
+  /**
+   * Mark what she has been through, and redraw her if it shows.
+   *
+   * Returns true when the hull needs rebuilding, so the caller can do it once
+   * at the moment it happens — in harbour, where a refit belongs — rather than
+   * the renderer checking every ship every frame for a number that changes
+   * perhaps five times in a campaign.
+   */
+  recordHistory({ scar = 0, prize = 0 } = {}) {
+    const was = `${Math.min(3, this.scars)}/${Math.min(3, this.prizes)}`;
+    this.scars += scar; this.prizes += prize;
+    return was !== `${Math.min(3, this.scars)}/${Math.min(3, this.prizes)}`;
+  }
+
+  /**
+   * Rebuild her hull from her current state, in place.
+   *
+   * A refit is not a new ship: she keeps her name, her crew, her damage and
+   * her place in the world, and the only thing that changes is what she looks
+   * like. The old geometry is disposed rather than orphaned, because a captain
+   * who refits a fleet of six should not pay for it in memory.
+   */
+  refitMesh(scene) {
+    const old = this.mesh;
+    const next = buildShip(this.classId, this.faction, this.meshOpts());
+    next.position.copy(old.position);
+    next.rotation.copy(old.rotation);
+    next.scale.copy(old.scale);
+    next.visible = old.visible;
+    next.userData.ship = this;
+    if (scene) { scene.add(next); scene.remove(old); }
+    old.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
+    });
+    this.mesh = next;
+    return next;
   }
 
   /* ---------- derived ---------- */
@@ -122,16 +209,91 @@ export class Ship {
     if (this.hasOfficer('mate')) t *= 1.12;
     return t * Math.PI / 180;
   }
-  /** 0.38 (beating into it) .. 1.0 (running before it) */
+  /* A square-rigger's polar, not a cosine.
+
+     The cosine this used to be had exactly one good heading and one bad one,
+     which put 35% of all headings in the HUD's red band and — because a slow
+     leg eats more of the clock than a fast one — half of every voyage's
+     *minutes* under a red wind label. That is why an unbiased wind read as a
+     wind that was always against you: the compass was fair, the stopwatch
+     was not.
+
+     A real ship of this rig is quickest on a broad reach (TWA ~120°), a
+     little slower dead before the wind where the sails blanket each other,
+     good on a beam reach, and pinched inside about 47° of the wind's eye.
+     That shape puts the punishment where it belongs — in a narrow no-go cone
+     you can tack out of — instead of spreading it over half the rose.
+
+     Tuned once after playtest: the first cut of this curve had a 0.15 floor,
+     and any fight that drifted upwind of the player turned into a crawl
+     nobody enjoyed. The floor is now 0.28 — beating is still the wrong way
+     to travel, but no longer a punishment for being in the wrong fight. The
+     mean over all headings is 0.688 against the old cosine's 0.690, so the
+     fleet as a whole neither quickened nor slowed. */
   windFactor(windAng, yaw = this.yaw) {
-    const a = Math.cos(angDiff(windAng, yaw));
-    return 0.38 + 0.62 * (0.5 + 0.5 * a);
+    // angle off the wind's eye: 0 = head to wind, π = dead run
+    const twa = Math.PI - Math.abs(angDiff(windAng, yaw));
+    const run = 0.5 - 0.5 * Math.cos(twa);          // 0 in irons .. 1 running
+    const reach = Math.pow(Math.sin(twa), 1.2);     // peaks on the beam
+    return 0.28 + 0.44 * Math.pow(run, 0.8) + 0.28 * reach;
+  }
+
+  /* Beating to windward.
+
+     A mark inside the no-go cone cannot be sailed at, so the helm lays the
+     nearest edge of the cone instead and crosses over when the mark has drawn
+     far enough onto the other bow. Because the crossing point is an *angle*,
+     the zig-zag converges on its own: every board brings the mark closer to
+     the bow until it falls outside the cone and she can fetch it straight.
+     The distance cap on top of that keeps a long leg from wandering half an
+     ocean off the rhumb line before she comes about.
+
+     Returns the heading to steer for a mark bearing `brg`, `d` away. */
+  beatTo(brg, d, windAng) {
+    const eye = windAng + Math.PI;          // where the wind is blowing from
+    const off = angDiff(eye, brg);          // signed: how far the mark sits off the eye
+    // outside the cone she fetches it; inside 90m there is nothing left to gain
+    if (Math.abs(off) >= NO_GO || d < 90) { this.tack = 0; return brg; }
+    if (!this.tack) {
+      /* Open on the making board — the one that points nearest the mark. Only
+         when the mark is dead in the eye is there nothing to choose between
+         them, and then the smaller turn from her present heading decides. */
+      if (Math.abs(off) > 0.09) this.tack = Math.sign(off);
+      else {
+        const a = angDiff(this.yaw, eye + NO_GO), b = angDiff(this.yaw, eye - NO_GO);
+        this.tack = Math.abs(a) <= Math.abs(b) ? 1 : -1;
+      }
+    } else if (Math.sign(off) === -this.tack &&
+               (Math.abs(off) > 0.34 || Math.abs(d * Math.sin(off)) > 150)) {
+      this.tack = -this.tack;               // she has run far enough: come about
+    }
+    /* She also comes about for the shore. A beat swings wide of the rhumb line
+       the route was plotted along, and no board is worth holding into the
+       ground — so sound ahead, and if the water goes thin, take the other
+       board early. Both thin means a cove the route should never have entered:
+       give the helm the plain bearing and let the lead line argue with it. */
+    const need = this.draft * 1.9 + 3;
+    const look = 64 + this.speed * 4;
+    const sound = a => depthAt(this.x + Math.sin(a) * look, this.z + Math.cos(a) * look);
+    if (sound(eye + NO_GO * this.tack) < need) {
+      if (sound(eye - NO_GO * this.tack) > need) this.tack = -this.tack;
+      else { this.tack = 0; return brg; }
+    }
+    return eye + NO_GO * this.tack;
   }
 
   /* ---------- orders ---------- */
-  setDestination(x, z) { this.dest = { x, z }; this.headingCmd = null; }
-  setHeading(a) { this.headingCmd = a; this.dest = null; }
-  stop() { this.dest = null; this.headingCmd = this.yaw; this.throttle = 0; }
+  setDestination(x, z) { this.dest = { x, z }; this.headingCmd = null; this.route = null; this.tack = 0; }
+  /** A course that works its way round the islands instead of into them. */
+  setRoute(pts) {
+    if (!pts || !pts.length) return;
+    this.route = pts.slice();
+    this.dest = this.route.shift();
+    this.headingCmd = null;
+    this.tack = 0;
+  }
+  setHeading(a) { this.headingCmd = a; this.dest = null; this.route = null; this.tack = 0; }
+  stop() { this.dest = null; this.route = null; this.headingCmd = this.yaw; this.throttle = 0; this.tack = 0; }
 
   /* ---------- update ---------- */
   update(dt, world) {
@@ -146,15 +308,66 @@ export class Ship {
       const dx = this.dest.x - this.x, dz = this.dest.z - this.z;
       const d = Math.hypot(dx, dz);
       if (d < Math.max(9, this.cls.len * 0.6)) {
-        // arrived: hold the heading but take the way off her
-        this.dest = null; this.headingCmd = this.yaw;
-        if (this.isPlayer) this.throttle = 0.12;
+        if (this.route && this.route.length) {
+          // a waypoint, not the destination — round it and carry on
+          this.dest = this.route.shift();
+        } else {
+          /* Arrived: hold the heading and take *all* the way off her.
+             This left 12% of throttle on, which was meant to read as "taking
+             the way off" and instead read as a ship that never stops — she
+             sailed 239m clear of the mark in the five minutes after reaching
+             it, still making half a knot, for ever. Reported from the deck as
+             the ship not anchoring when you tapped to slow her down. A mark
+             you sailed to is a place you meant to be. */
+          this.dest = null; this.headingCmd = this.yaw;
+          // unless the mark she was sent to turns out to be a shoal: taking
+          // the way off there would pin her on it, and the escape steering
+          // above needs sail to work with
+          if (this.isPlayer && depthAt(this.x, this.z) >= this.draft) this.throttle = 0;
+        }
       }
-      else want = Math.atan2(dx, dz);
+      else {
+        /* Inside a battle the tap is a tactical order, the distances are a few
+           ship-lengths, and a helm that answers "somewhere else first" reads
+           as a helm that ignored you — so the beat is a campaign manoeuvre
+           only. In the action she sails the line you gave her, pinched or
+           not, and the 0.28 floor keeps even that line honest. */
+        want = world.combatLive ? Math.atan2(dx, dz) : this.beatTo(Math.atan2(dx, dz), d, world.windAng);
+      }
     } else if (this.headingCmd != null) want = this.headingCmd;
 
+    /* Aground: the ground is answered before the orders are.
+     *
+     * Easing the drag was not enough on its own. A hull hard on a shoal is
+     * still being *steered* by whatever course she was given, and if that
+     * course points further into the shallows she grinds there until the sea
+     * has her — which is how a battle fought over a reef pinned the player
+     * 253m from an arena she needed to be 640m clear of, on 1.7m of water
+     * under a 3.4m draft, with the helm dutifully holding her on it.
+     *
+     * So while she is aground the helm looks for water instead: the deepest
+     * of eight short casts. Her orders are not forgotten and she takes them
+     * up again the moment she floats. No captain sails deeper aground on
+     * purpose, and nothing in this game may block the player permanently.
+     */
+    if (!this.lockTo && depthAt(this.x, this.z) < this.draft) {
+      let bestA = want, bestD = -Infinity;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * TAU;
+        let m = Infinity;
+        for (const r of [12, 24, 38]) {
+          m = Math.min(m, depthAt(this.x + Math.sin(a) * r, this.z + Math.cos(a) * r));
+        }
+        if (m > bestD) { bestD = m; bestA = a; }
+      }
+      want = bestA;
+    }
+
     const diff = angDiff(this.yaw, want);
-    const maxTurn = this.turnSpeed * dt * (0.35 + 0.65 * clamp01(this.speed / Math.max(2, this.cls.speed * 0.5)));
+    /* 0.55 at a standstill: she answers the helm from bare steerage way. The
+       old 0.35 floor made every slow ship feel like she was ignoring the
+       wheel, and slow is what a battle mostly is. */
+    const maxTurn = this.turnSpeed * dt * (0.55 + 0.45 * clamp01(this.speed / Math.max(2, this.cls.speed * 0.5)));
     const turn = clamp(diff, -maxTurn, maxTurn);
     this.yaw += turn;
     this.turnRateSmoothed = damp(this.turnRateSmoothed || 0, turn / Math.max(dt, 0.0001), 6, dt);
@@ -167,7 +380,20 @@ export class Ship {
     const dep = depthAt(this.x, this.z);
     if (dep < this.draft) {
       const over = clamp01((this.draft - dep) / Math.max(1, this.draft));
-      targetSpeed *= (1 - over * 0.92);
+      /* Aground, but not condemned to it.
+
+         The drag alone took a hull to eight per cent of her speed, and a ship
+         that slow cannot always steer herself off — a battle fought over a
+         reef could pin the player on it with full sail set and no way out
+         while the shoal ate her hull. Nothing in this game is allowed to
+         block the player permanently.
+
+         So: sound ahead, and if her head is toward deeper water the drag
+         eases. Steering off works; steering on does not. The hazard is
+         entirely intact for a captain who ignores it. */
+      const ahead = depthAt(this.x + Math.sin(this.yaw) * 26, this.z + Math.cos(this.yaw) * 26);
+      if (ahead > dep + 0.5) targetSpeed *= (1 - over * 0.55);
+      else targetSpeed *= (1 - over * 0.92);
       this.groundedT += dt;
       if (this.groundedT > 0.55) {
         this.groundedT = 0;
@@ -267,9 +493,23 @@ export class Ship {
     res.sails = amount * a.sail * 0.9;
     this.sails = Math.max(0, this.sails - res.sails);
 
-    // crew casualties
+    /* Crew casualties, with a floor.
+
+       Grape used to be able to sweep a ship to literally nobody: twelve
+       broadsides took a full complement to zero, which made boarding odds
+       exactly 1.0 and turned "capture the prize" into a formality with one
+       correct answer. It is also nonsense — you cannot shoot every hand off
+       a ship from across the water. The last of them are below the
+       waterline, behind the guns, in the hold, and they are precisely the
+       ones you will meet coming over the rail.
+
+       So gunnery cannot reduce a company below a working core. Boarding
+       melee can and does kill to the last man; that path calls killCrew
+       directly and is untouched. */
     let losses = Math.round(amount * a.crew * 0.28 * (0.6 + Math.random() * 0.8));
     if (this.hasOfficer('surgeon')) losses = Math.round(losses * 0.65);
+    const core = Math.ceil(this.cls.crewMin * 0.35);
+    losses = Math.min(losses, Math.max(0, this.crewTotal - core));
     if (losses > 0) res.crew = this.killCrew(losses);
 
     // guns
@@ -320,7 +560,7 @@ export class Ship {
 
   sink() {
     if (!this.alive) return;
-    this.alive = false; this.sinking = 0; this.dest = null;
+    this.alive = false; this.sinking = 0; this.dest = null; this.route = null;
     this.speed *= 0.4;
   }
 
@@ -339,6 +579,7 @@ export class Ship {
       shot: this.shot, provisions: this.provisions, gunsPort: this.gunsPort, gunsStb: this.gunsStb,
       officers: this.officers.map(o => o.id), captain: this.captain ? this.captain.id : null,
       role: this.role, isPlayer: this.isPlayer,
+      scars: this.scars | 0, prizes: this.prizes | 0,
     };
   }
 }

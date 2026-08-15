@@ -38,7 +38,11 @@ export async function launch(vp = 'phone') {
   await ensureServer();
   const browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH || undefined,
-    args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage', '--no-sandbox'],
+    args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+      '--disable-dev-shm-usage', '--no-sandbox',
+      // the audio suite has to hear something, and there is no thumb here to
+      // satisfy the gesture requirement before the context will start
+      '--autoplay-policy=no-user-gesture-required'],
   });
   const cfg = VIEWPORTS[vp];
   if (!cfg) throw new Error('unknown viewport ' + vp);
@@ -47,6 +51,35 @@ export async function launch(vp = 'phone') {
   const errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text()); });
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')));
+  /* Kill entrance animations for the duration of a QA run. Under software GL
+     the document timeline does not advance — every animation sits at its first
+     frame, playState "running", currentTime 0 — so anything that fades in from
+     opacity 0 (the modal card, the sheet) stays invisible forever. Screenshots
+     of a story scene were coming back as an empty dimmed screen. Without the
+     animations the elements render in their settled state, which is the state
+     worth looking at anyway.
+
+     As an init script rather than a style tag, because several suites reload
+     the page to test the save, and a style tag does not survive navigation —
+     which would have quietly put the animations back for the rest of the run. */
+  await page.addInitScript(() => {
+    const kill = () => {
+      const st = document.createElement('style');
+      st.textContent = '*, *::before, *::after { animation: none !important; }';
+      (document.head || document.documentElement).appendChild(st);
+    };
+    if (document.head) kill();
+    else document.addEventListener('DOMContentLoaded', kill, { once: true });
+  });
+  /* QA_SLOW=6 runs the browser at a sixth speed.
+     Three separate flakes have now passed on this machine and failed on a
+     hosted runner, every one of them a fixed sleep that was long enough here
+     and not there. This makes that difference reproducible instead of
+     something you find out about from CI twenty minutes later. */
+  if (process.env.QA_SLOW) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: +process.env.QA_SLOW });
+  }
   await page.goto(URL, { waitUntil: 'networkidle' });
   return { browser, page, errors };
 }
@@ -90,8 +123,14 @@ export async function newVoyage(page, picks = null) {
   // rolls whatever is still unanswered; gone once every question has an answer
   if (await page.isVisible('#og-skip')) { await page.click('#og-skip'); await sleep(250); }
   await page.click('.og-go');
-  // the opening scene: wait for it, then dismiss it like a player would
-  await waitFor(page, () => !document.getElementById('modal').classList.contains('hidden'));
+  /* The opening scene: wait for it, then dismiss it like a player would.
+     Generously. Answering the last question is what builds the world — five
+     settlements, their islands and every hull on the water — and under
+     software GL that measures 7 to 8 seconds against what used to be a 9
+     second wait. Every suite starts this way, so that margin was one slow
+     runner away from failing all sixteen of them at once, and it narrowed
+     every time a port gained buildings. */
+  await waitFor(page, () => !document.getElementById('modal').classList.contains('hidden'), 40000);
   await page.click('#modal-actions .btn');
   await sleep(300);
 }
@@ -105,11 +144,100 @@ export async function dismissModal(page) {
   return true;
 }
 
-/** Poll for a condition in the page. Fixed sleeps lie on a software renderer. */
-export async function waitFor(page, fn, ms = 9000) {
+/**
+ * Get into a live fleet action, the way the game gets you into one.
+ *
+ * Guns only fire inside a battle instance now, so any suite that wants to
+ * test gunnery has to arrive there through the campaign: a hostile closes,
+ * contact raises an encounter, and FIGHT opens the action. Staged rather than
+ * flagged — `mode` is never written by hand.
+ *
+ * Returns the enemy that came for you, or null if she never arrived.
+ */
+export async function intoBattle(page, opts = {}) {
+  await page.evaluate(o => {
+    const g = window.__game, p = g.player;
+    // clear of any harbour: a raider sheers off under the shore guns
+    p.x = o.x ?? 120; p.z = o.z ?? 60; p.dest = null; p.speed = 0; p.throttle = 0;
+    p.hull = p.hullMax; p.sails = p.sailMax; p.shot = Math.max(p.shot, 90); p.alive = true;
+    let h = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+    for (let i = 0; i < 20 && !h; i++) h = g.spawnNPC('pirate');
+    h.x = p.x + 110; h.z = p.z + 30;
+    h.hull = h.hullMax * (o.enemyHull ?? 1); h.sails = h.sailMax;
+    h.hostileToPlayer = true; h.target = p; h.aggro = 40;
+    h.chaseHold = 0; h.fleeing = false; h.captured = false;
+    h.brain = { state: 'hunt', t: 0, cooldown: 0 };
+    g.encounterCooling = 0; g.paused = false;
+  }, opts);
+  for (let i = 0; i < 60; i++) {
+    await ff(page, 1);
+    if (await page.evaluate(() => window.__game.mode !== 'campaign')) break;
+  }
+  await page.evaluate(() => {
+    const g = window.__game;
+    if (g.mode === 'encounter') g.chooseEncounter('fight');
+  });
+  const inIt = await waitFor(page, () => window.__game.mode === 'battle', 8000);
+  if (!inIt) return null;
+  return page.evaluate(() => {
+    const g = window.__game, e = g.battle.enemies[0];
+    return e ? { name: e.name, cls: e.cls.name } : null;
+  });
+}
+
+/**
+ * Come out of an action and hand the campaign back.
+ *
+ * The counterpart to intoBattle. A suite that goes into a fight and then
+ * carries on testing something else has to leave properly — the reckoning
+ * card is a screen like any other and holds the world while it is up, so
+ * closing the battle without closing the card leaves a frozen simulation
+ * behind for every check that follows.
+ */
+export async function leaveBattle(page) {
+  await page.evaluate(() => {
+    const g = window.__game;
+    if (g.mode === 'battle' && g.battle) g.battle.finish('fled');
+    if (g.mode === 'encounter') g.closeEncounter();
+  });
+  await page.click('.enc-opt[data-opt="done"]').catch(() => { });
+  await page.evaluate(() => {
+    const g = window.__game;
+    document.getElementById('encounter').classList.add('hidden');
+    g.paused = false;
+    for (const s of g.ships) {
+      if (s.isPlayer || g.fleet.includes(s)) continue;
+      s.hostileToPlayer = false; s.target = null; s.chaseHold = 300;
+    }
+    g.encounterCooling = 600;
+  });
+  return waitFor(page, () => window.__game.mode === 'campaign', 6000);
+}
+
+/** Poll for a condition in the page. Fixed sleeps lie on a software renderer.
+    `arg` is passed through to the page, since the predicate is serialised and
+    cannot close over anything out here. */
+/**
+ * Walk to a part of a port.
+ *
+ * The two authored towns open on THE TOWN rather than on a counter, so a
+ * check that wants the harbourmaster's board has to go to the quay first —
+ * which is what a player does. Tabs that do not exist are a no-op, so this is
+ * safe to call for any port.
+ */
+export async function goPortTab(page, label) {
+  await page.evaluate(l => {
+    const t = [...document.querySelectorAll('#sheet-tabs .tab')]
+      .find(x => new RegExp(l, 'i').test(x.textContent));
+    if (t && !t.classList.contains('on')) t.click();
+  }, label);
+  await sleep(420);
+}
+
+export async function waitFor(page, fn, ms = 9000, arg = undefined) {
   const t0 = Date.now();
   for (;;) {
-    if (await page.evaluate(fn)) return true;
+    if (await page.evaluate(fn, arg)) return true;
     if (Date.now() - t0 > ms) return false;
     await sleep(120);
   }

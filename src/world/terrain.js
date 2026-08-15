@@ -58,6 +58,35 @@ function analyticHeight(x, z) {
     if (val > h) h = val;
   }
 
+  /* An apron of level ground behind each beach.
+     People do not build a harbour town up a 25° slope; they build it on the
+     flattest ground near the water and terrace what is left. These islands
+     were pure blobs, so two of the five ports had their waterfront on rock
+     falling twenty-five metres across a single house — which is buildable
+     only in the sense that a wall can be stood on it, and reads from the
+     water as sheds glued to a cliff.
+
+     So the island gets the shelf the town would have levelled. It only
+     touches ground that is already dry, and fades out as it approaches the
+     waterline, so the coastline, the beaches and every depth a hull cares
+     about are exactly what they were. */
+  /* Written out flat on purpose. This is the innermost line of the bake —
+     150k samples — and the first version cost 1.4 seconds of load all by
+     itself: a `for…of` allocates an iterator every call and `Math.hypot`
+     carries overflow handling nothing here needs. A plain indexed loop over
+     squared distances is the same arithmetic for a fraction of the time. */
+  if (h > 0.5) {
+    for (let i = 0; i < TOWN_PADS.length; i++) {
+      const pad = TOWN_PADS[i];
+      const dx2 = x - pad.x, dz2 = z - pad.z;
+      const d2 = dx2 * dx2 + dz2 * dz2;
+      if (d2 > pad.r2) continue;
+      // strongest in the middle of the apron, and absent at the tideline
+      const t = smoothstep(pad.r2, pad.rIn2, d2) * smoothstep(1.0, 7.0, h);
+      h = lerp(h, pad.level, t * 0.76);
+    }
+  }
+
   // carve harbours flat & deep enough to sail into
   for (const p of PORTS) {
     const d = Math.hypot(x - p.x, z - p.z);
@@ -69,8 +98,39 @@ function analyticHeight(x, z) {
   return h;
 }
 
+/* ---------------- town aprons ----------------
+   Worked out once, from the raw islands, before anything is baked — the shore
+   sweep reads the analytic height, so the pads have to be absent while it
+   runs or each port would be siting its town on the shelf it is about to cut.
+   Cheap: five ports, one sweep each, at load. */
+const TOWN_PADS = [];
+function planTownPads() {
+  TOWN_PADS.length = 0;                   // measure the island, not the terrace
+  const pads = [];
+  for (const p of PORTS) {
+    const s = nearestShore(p.x, p.z, p.ang);
+    const major = p.size === 'major';
+    // the middle of where the rows will go, a little way up the beach
+    const cx = s.point.x + s.dir.x * (major ? 60 : 44);
+    const cz = s.point.y + s.dir.y * (major ? 60 : 44);
+    /* Take the ground down toward the water without flattening the island:
+       a third of what is there, so a rock still stands and a low shore stays
+       low, bounded so no town sits on a plinth or in a quarry. */
+    const raw = heightAtAnalytic(cx, cz);
+    const r = major ? 168 : 124;
+    // squared radii, because the sample loop compares squared distances
+    pads.push({
+      x: cx, z: cz,
+      r2: r * r, rIn2: (r * 0.3) * (r * 0.3),
+      level: clamp(raw * 0.34 + 7, 9, 26),
+    });
+  }
+  for (const p of pads) TOWN_PADS.push(p);
+}
+
 /* ---------------- bake ---------------- */
 export function bakeHeights() {
+  planTownPads();                 // before the field is sampled anywhere
   heightGrid = new Float32Array(GRID * GRID);
   const half = WORLD_SIZE * 0.5;
   for (let j = 0; j < GRID; j++) {
@@ -82,6 +142,79 @@ export function bakeHeights() {
   return heightGrid;
 }
 
+/* Raise the baked field around a point — a rubble footing stamped in after the
+   bake, because harbour works are laid out from the shore search, which needs
+   the bake done first. Everything that reads heightAt (hulls, the AI's probes,
+   the route grid, the water shader's texture) then agrees the works are there.
+   The stones used to be scenery: a 22-metre block of League masonry a cutter
+   could sail through the middle of. */
+function raiseSeabed(x, z, r, top) {
+  addWork(x, z, r, top);
+  const half = WORLD_SIZE * 0.5;
+  const i0 = Math.max(0, Math.floor((x - r + half) / CELL)), i1 = Math.min(GRID - 1, Math.ceil((x + r + half) / CELL));
+  const j0 = Math.max(0, Math.floor((z - r + half) / CELL)), j1 = Math.min(GRID - 1, Math.ceil((z + r + half) / CELL));
+  for (let j = j0; j <= j1; j++) {
+    for (let i = i0; i <= i1; i++) {
+      const d = Math.hypot(-half + i * CELL - x, -half + j * CELL - z);
+      if (d > r) continue;
+      const v = top - (d / r) * (d / r) * (top + 11);   // core awash, toes on the bottom
+      const o = j * GRID + i;
+      if (v > heightGrid[o]) heightGrid[o] = v;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------
+   The harbour works, at their real size rather than the grid's.
+
+   Stamping them into the baked field was the right idea and could not
+   work on its own: the bake is 384 cells across the world, which is a
+   cell every 26 metres, and a breakwater block is 22 by 26. A 21-metre
+   footing writes about one cell, and `heightAt` then bilinearly smooths
+   that single cell into a gentle 26-metre ramp — so the arm a player can
+   see is, to every rule that reads the depth, a slight shoal with open
+   water either side. That is why ships kept ending up sitting on
+   Greywake's left arm in the same place: the route grid plotted through
+   it, `clearWater` saw nothing in the way, `avoidLand` had nothing to
+   sound, and the hull never grounded because the water there was fine.
+
+   So the works are also kept as themselves and asked directly. A bucket
+   hash over 128-metre squares means open sea costs one failed Map lookup,
+   and only water actually beside a harbour pays for the disc tests.
+   --------------------------------------------------------------- */
+const WORK_BUCKET = 128;
+const WORKS = new Map();
+const workKey = (bx, bz) => ((bx + 512) << 12) | (bz + 512);
+
+function addWork(x, z, r, top) {
+  const w = { x, z, r2: r * r, r, top };
+  for (let bx = Math.floor((x - r) / WORK_BUCKET); bx <= Math.floor((x + r) / WORK_BUCKET); bx++) {
+    for (let bz = Math.floor((z - r) / WORK_BUCKET); bz <= Math.floor((z + r) / WORK_BUCKET); bz++) {
+      const k = workKey(bx, bz);
+      let a = WORKS.get(k);
+      if (!a) WORKS.set(k, a = []);
+      a.push(w);
+    }
+  }
+}
+
+/** How far the masonry stands above the seabed here, or -Infinity for open water. */
+function worksHeight(x, z) {
+  const a = WORKS.get(workKey(Math.floor(x / WORK_BUCKET), Math.floor(z / WORK_BUCKET)));
+  if (!a) return -Infinity;
+  let h = -Infinity;
+  for (let i = 0; i < a.length; i++) {
+    const w = a[i];
+    const dx = x - w.x, dz = z - w.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > w.r2) continue;
+    // same profile the footing stamps: core awash, toes on the bottom
+    const v = w.top - (d2 / w.r2) * (w.top + 11);
+    if (v > h) h = v;
+  }
+  return h;
+}
+
 /** Bilinear sample of the baked field. Fast enough to call per-ship per-frame. */
 export function heightAt(x, z) {
   const half = WORLD_SIZE * 0.5;
@@ -91,7 +224,9 @@ export function heightAt(x, z) {
   const tx = fx - i, tz = fz - j;
   const g = heightGrid, o = j * GRID + i;
   const a = g[o], b = g[o + 1], c = g[o + GRID], d = g[o + GRID + 1];
-  return lerp(lerp(a, b, tx), lerp(c, d, tx), tz);
+  const ground = lerp(lerp(a, b, tx), lerp(c, d, tx), tz);
+  const works = WORKS.size ? worksHeight(x, z) : -Infinity;
+  return works > ground ? works : ground;
 }
 export const depthAt = (x, z) => -heightAt(x, z);
 
@@ -123,7 +258,32 @@ const C_ROCK = new THREE.Color(0x8d8577);
 const C_ROCK_D = new THREE.Color(0x6b655c);
 const C_SEABED = new THREE.Color(0x93825e);
 
-function shadeLand(h, slope, out) {
+/* The Iron Sound is dark wet rock with almost nothing growing on it, and the
+   Glass Reach is pale sand barely out of the water. Both are the same shading
+   function with a different palette, because the geography is the argument
+   each of those factions makes and it should be legible from a mile off. */
+const C_IRON = new THREE.Color(0x4a4f55);
+const C_IRON_D = new THREE.Color(0x33383d);
+const C_IRON_SCRUB = new THREE.Color(0x4f5a4a);
+const C_PALE = new THREE.Color(0xe8dcbb);
+const C_PALE_SCRUB = new THREE.Color(0x9fb383);
+
+function shadeLand(h, slope, out, ground) {
+  if (ground === 'iron') {
+    if (h < -1.2) out.copy(C_SEABED).lerp(C_IRON_D, clamp01((h + 14) / 13));
+    else if (h < 3) out.copy(C_IRON_D).lerp(C_IRON, clamp01((h + 1.2) / 4.2));
+    else if (h < 40) out.copy(C_IRON).lerp(C_IRON_SCRUB, clamp01((h - 3) / 37) * 0.5);
+    else out.copy(C_IRON).lerp(C_IRON_D, clamp01((h - 40) / 60));
+    if (slope > 0.5) out.lerp(C_IRON_D, clamp01((slope - 0.5) / 0.34) * 0.9);
+    return out;
+  }
+  if (ground === 'pale') {
+    if (h < -1.2) out.copy(C_SEABED).lerp(C_PALE, clamp01((h + 14) / 13) * 0.7);
+    else if (h < 4) out.copy(C_PALE);
+    else out.copy(C_PALE).lerp(C_PALE_SCRUB, clamp01((h - 4) / 20));
+    if (slope > 0.7) out.lerp(C_ROCK, clamp01((slope - 0.7) / 0.3) * 0.5);
+    return out;
+  }
   if (h < -1.2) out.copy(C_SEABED).lerp(C_WETSAND, clamp01((h + 14) / 13));
   else if (h < 2.2) out.copy(C_WETSAND).lerp(C_SAND, clamp01((h + 1.2) / 3.4));
   else if (h < 8) out.copy(C_SAND).lerp(C_GRASS, clamp01((h - 2.2) / 5.8));
@@ -133,13 +293,47 @@ function shadeLand(h, slope, out) {
   return out;
 }
 
-function islandMesh(isl) {
-  // bounds
+/* What this one island's own blobs raise at (x, z) — the same maths as the
+   island term in analyticHeight, so the comparison below is exact. */
+function islandContribution(isl, x, z) {
+  let best = -1e9;
+  for (const b of isl.blobs) {
+    const cx = isl.x + b.x, cz = isl.z + b.z;
+    const dx = x - cx, dz = z - cz;
+    let d = Math.hypot(dx, dz);
+    const a = Math.atan2(dz, dx);
+    d += fbm(Math.cos(a) * 2.1 + isl.seed, Math.sin(a) * 2.1 - isl.seed, 3) * b.r * 0.24;
+    if (d > b.r * 1.35) continue;
+    const t = smoothstep(b.r, b.r * 0.12, d);
+    const val = -24 + (b.h + 24) * Math.pow(t, 1.55);
+    if (val > best) best = val;
+  }
+  return best;
+}
+
+function islandBounds(isl) {
   let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
   for (const b of isl.blobs) {
     minX = Math.min(minX, isl.x + b.x - b.r * 1.6); maxX = Math.max(maxX, isl.x + b.x + b.r * 1.6);
     minZ = Math.min(minZ, isl.z + b.z - b.r * 1.6); maxZ = Math.max(maxZ, isl.z + b.z + b.r * 1.6);
   }
+  return { minX, maxX, minZ, maxZ };
+}
+
+function islandMesh(isl) {
+  const { minX, maxX, minZ, maxZ } = islandBounds(isl);
+
+  /* Neighbours whose bounding boxes cross ours. Where boxes overlap, both
+     meshes used to build the same shared ground — Bellcurrent's mesh rebuilt
+     Sable Head's mound in grass green on top of the iron original, and the
+     two copies z-fought as coloured shards up the hillside. Each patch of
+     ground now belongs to whichever island raises it highest, and only the
+     owner builds it. */
+  const rivals = ISLANDS.filter(o => {
+    if (o === isl) return false;
+    const b = islandBounds(o);
+    return b.minX < maxX && b.maxX > minX && b.minZ < maxZ && b.maxZ > minZ;
+  });
   const step = 11;
   const nx = Math.ceil((maxX - minX) / step), nz = Math.ceil((maxZ - minZ) / step);
   const sx = (maxX - minX) / nx, sz = (maxZ - minZ) / nz;
@@ -164,11 +358,18 @@ function islandMesh(isl) {
   const tri = (p0, p1, p2) => {
     const hMax = Math.max(p0[1], p1[1], p2[1]);
     if (hMax < CUT) return;
+    if (rivals.length) {
+      const mx = (p0[0] + p1[0] + p2[0]) / 3, mz = (p0[2] + p1[2] + p2[2]) / 3;
+      const mine = islandContribution(isl, mx, mz);
+      // strictly greater: where neither owns it (open reef, shelf), keep it —
+      // a hole is worse than the harmless double-build this used to be
+      for (const o of rivals) if (islandContribution(o, mx, mz) > mine) return;
+    }
     tmpN.set(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
       .cross(new THREE.Vector3(p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2])).normalize();
     const slope = 1 - Math.abs(tmpN.y);
     const hAvg = (p0[1] + p1[1] + p2[1]) / 3;
-    shadeLand(hAvg, slope, cA);
+    shadeLand(hAvg, slope, cA, isl.ground);
     const j2 = 1 + (Math.random() - 0.5) * 0.11;
     for (const p of [p0, p1, p2]) { pos.push(p[0], p[1], p[2]); col.push(cA.r * j2, cA.g * j2, cA.b * j2); }
   };
@@ -253,13 +454,220 @@ function scatterProps(isl, group) {
 const WALLS = [0xe8ddc6, 0xdcc9a8, 0xcbb896, 0xe3d2b0];
 const ROOFS = [0xa8503a, 0x8c4331, 0x7a5a3a, 0xb35f42, 0x5d6b6e];
 
-function building(rng, w, h, d) {
+/* ---- buildings that say what they are ----
+
+   Every building in the Shoals used to be one shape: a tapered box under a
+   four-sided cone. That is a perfectly good house, and it was also the
+   shipyard, the tavern, the market and the harbourmaster's office. Now that
+   the port screen frames a *particular* building and calls it The Tavern, the
+   picture has to earn the caption.
+
+   Each kind is built from the same handful of primitives in the same style —
+   nothing here is a new art pipeline — but the silhouettes are distinct
+   enough to read at a glance and from a distance: a chimney and a hanging
+   sign, an open awning over crates, a hull on a slipway inside a timber
+   frame, a signal mast over a tall narrow office.
+
+   The `y` of every part is measured from the ground under the building, and
+   the caller places the whole lot. */
+const TIMBER = 0x6b4a2c, DARKWOOD = 0x4e3722, CANVAS = 0xdfd3ba, STONE = 0x9a9384;
+
+/* ---- roofs that fit the building under them ----
+
+   Both of these were wrong in a way that is invisible from two hundred metres
+   and obvious the moment a screen frames one building.
+
+   The hip roof was `ConeGeometry(max(w,d) * 0.79, …, 4)` turned 45°, which is
+   a *square* pyramid: on a house fifteen wide and seven deep it overhung the
+   short axis by nearly ten metres, clipping into whatever stood behind. The
+   gable was a three-segment cylinder, whose vertices sit where the geometry
+   puts them and not where a ridge belongs, so the pitch landed at an angle
+   nobody built.
+
+   Both are tapered boxes now — the same helper the hulls use. A hip is a box
+   whose top shrinks on both axes; a ridge is a box whose top shrinks on one.
+   They take the footprint they are given, with a hand's width of eave, and
+   they cannot overhang what they are not sitting on. */
+function roofHip(w, d, h, roof, y) {
+  const rh = Math.max(2.2, h * 0.5);
+  return prep(xf(taperedBox(w * 1.08, rh, d * 1.08, 0.16, 0.16), { y: y + rh / 2 }), roof, 0.08);
+}
+/** A long ridge rather than a peak: shrinks across the building, not along it. */
+function roofGable(w, d, h, roof, y) {
+  const rh = Math.max(2, h * 0.42);
+  return prep(xf(taperedBox(w * 1.05, rh, d * 1.1, 1, 0.05), { y: y + rh / 2 }), roof, 0.07);
+}
+function post(x, z, h, y, col = TIMBER, r = 0.5) {
+  return prep(xf(new THREE.CylinderGeometry(r, r, h, 5), { x, y: y + h / 2, z }), col, 0.06);
+}
+
+function building(rng, w, h, d, kind = 'house') {
   const parts = [];
   const wall = WALLS[(rng() * WALLS.length) | 0];
   const roof = ROOFS[(rng() * ROOFS.length) | 0];
+
+  if (kind === 'tavern') {
+    /* Low, broad, gabled, with a chimney and a sign on a bracket. The two
+       barrels by the door are what actually sells it at a distance. */
+    const bw = w * 1.25, bh = h * 0.82, bd = d * 1.1;
+    parts.push(prep(xf(taperedBox(bw, bh, bd, 0.99, 0.99), { y: bh / 2 }), wall, 0.07));
+    parts.push(roofGable(bw, bd, bh, roof, bh));
+    parts.push(prep(xf(new THREE.BoxGeometry(1.7, bh * 0.55, 1.7),
+      { x: bw * 0.3, y: bh + bh * 0.3, z: bd * 0.22 }), STONE, 0.06));   // chimney
+    // sign: a bracket off the front wall and a board hanging from it
+    const fz = bd * 0.5 + 0.5;
+    parts.push(prep(xf(new THREE.BoxGeometry(0.35, 0.35, 2.6), { x: -bw * 0.28, y: bh * 0.78, z: fz + 0.9 }), DARKWOOD, 0));
+    parts.push(prep(xf(new THREE.BoxGeometry(2.4, 1.7, 0.25), { x: -bw * 0.28, y: bh * 0.55, z: fz + 1.9 }), 0x8c5a2b, 0.05));
+    for (const bx of [bw * 0.22, bw * 0.34]) {
+      parts.push(prep(xf(new THREE.CylinderGeometry(0.85, 0.85, 1.7, 7), { x: bx, y: 0.85, z: fz + 0.7 }), 0x7a5a3a, 0.08));
+    }
+    return parts;
+  }
+
+  if (kind === 'market') {
+    /* A market is a row of stalls, not a shed.
+       This used to be one pale slab with two thin sheets cantilevered off it,
+       and framed close it read as exactly that: a flat block with two pieces
+       of paper floating beside it, all the same colour, the whole thing
+       indistinguishable from a warehouse that had lost its roof.
+
+       What makes a market legible is repetition and colour — several small
+       stalls in a line, each with a pitched canopy on four legs, and the
+       clutter of trade around their feet. So: a stone-flagged floor to sit
+       them on, three or four stalls in a row with alternating canopies, a
+       counter under each, and barrels, crates and sacks between them. */
+    /* Strictly inside the footprint the placement sounded. `ground()` samples
+       the corners of exactly w by d before it will build here, so anything
+       drawn past that is unsounded ground — and a market sits on the
+       waterfront by design, where the very next metre is the harbour. Drawn
+       at 1.5x it put canopies over open water at two ports, and the shore
+       audit caught both. The stalls and their clutter are laid out inside
+       these, so the whole thing stays on ground somebody checked. */
+    const bw = w * 0.92, bd = d * 0.86;
+    // the flagged floor, so the stalls stand on a market square and not on grass
+    parts.push(prep(xf(new THREE.BoxGeometry(bw, 0.5, bd), { y: 0.25 }), 0x9a9080, 0.05));
+
+    const stalls = 3 + ((rng() * 2) | 0);
+    const sw = bw / (stalls + 0.35);            // stall width, with a gap between
+    const sh = Math.max(3.4, h * 0.42);         // canopy height: a person walks under it
+    /* Two canopy colours alternating down the row. Colour is never the only
+       signal here — the pitched canopies on legs carry it — but a row that
+       alternates reads as stalls at a glance where one flat tone reads as a
+       roof. */
+    /* One warm colour against cream, always — never two colours drawn from
+       the same bag. Rolling both freely gave Tideglass two pale canopies on
+       pale sand, which is a market you cannot see. */
+    const AWN = [0xc2604a, 0xd8b26a, 0x7d8f6a, 0xa8503a];
+    const a1 = AWN[(rng() * AWN.length) | 0];
+    const a2 = CANVAS;
+
+    for (let i = 0; i < stalls; i++) {
+      const cx = -bw * 0.5 + sw * (i + 0.6);
+      const cz = rngRange(rng, -bd * 0.12, bd * 0.12);
+      const tw = sw * 0.78, td = bd * 0.44;
+      // four legs
+      for (const lx of [-1, 1]) for (const lz of [-1, 1]) {
+        parts.push(post(cx + lx * tw * 0.42, cz + lz * td * 0.42, sh, 0.4, TIMBER, 0.28));
+      }
+      // the counter: a board across the front on trestles
+      parts.push(prep(xf(new THREE.BoxGeometry(tw, 0.34, td * 0.42),
+        { x: cx, y: 1.5, z: cz + td * 0.24 }), 0x8a6a44, 0.05));
+      // goods heaped on the counter
+      for (let k = 0; k < 3; k++) {
+        const gs = 0.34 + rng() * 0.3;
+        parts.push(prep(xf(new THREE.BoxGeometry(gs, gs, gs), {
+          x: cx + rngRange(rng, -tw * 0.34, tw * 0.34), y: 1.67 + gs / 2,
+          z: cz + td * 0.24 + rngRange(rng, -0.2, 0.2), ry: rng(),
+        }), rng() > 0.5 ? 0x9c7546 : 0x7f6b4a, 0.07));
+      }
+      /* A pitched canopy rather than a flat plate: two slopes meeting at a
+         ridge, which is what tells the eye it is cloth over a frame and not
+         a slab hanging in the air. */
+      const cCol = i % 2 === 0 ? a1 : a2;
+      // a proper pitch. At 0.9 over this span the two slopes were near enough
+      // flat, and a flat plate on legs is a table, not a stall.
+      /* Steep enough to be cloth over a ridge. Shallower than this and the
+         two halves read as one flat plate on legs — which is a table, and a
+         market full of tables is what this looked like from the quay. */
+      const rise = Math.max(1.9, td * 0.5);
+      for (const side of [-1, 1]) {
+        const g = new THREE.BoxGeometry(tw * 1.08, 0.16, td * 0.72);
+        parts.push(prep(xf(g, {
+          x: cx, y: sh + rise * 0.5, z: cz + side * td * 0.26,
+          rx: side * 0.95,
+        }), cCol, 0.04));
+      }
+      // the ridge pole along the top
+      parts.push(prep(xf(new THREE.BoxGeometry(tw * 1.18, 0.2, 0.2),
+        { x: cx, y: sh + rise, z: cz }), DARKWOOD, 0.03));
+    }
+
+    // the clutter of trade: barrels, crates and sacks around the stalls' feet
+    for (let i = 0; i < 7; i++) {
+      const bx = rngRange(rng, -bw * 0.46, bw * 0.46);
+      const bz = rngRange(rng, -bd * 0.46, bd * 0.46);
+      if (rng() > 0.45) {
+        const br = 0.42 + rng() * 0.2;
+        parts.push(prep(xf(new THREE.CylinderGeometry(br, br * 0.92, br * 2.2, 7),
+          { x: bx, y: 0.5 + br * 1.1, z: bz }), 0x7a5a3a, 0.07));
+      } else {
+        const cs = 0.9 + rng() * 0.7;
+        parts.push(prep(xf(new THREE.BoxGeometry(cs, cs, cs),
+          { x: bx, y: 0.5 + cs / 2, z: bz, ry: rng() * 1.5 }), 0x9c7546, 0.08));
+      }
+    }
+    return parts;
+  }
+
+  if (kind === 'yard') {
+    /* A shipyard is a frame, not a wall: uprights, a crossbeam, a half-built
+       hull on the slipway and stacked timber. Skeletal on purpose. */
+    const bw = w * 1.3, bd = d * 1.2, fh = h * 1.15;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) parts.push(post(sx * bw * 0.45, sz * bd * 0.4, fh, 0, TIMBER, 0.72));
+    for (const sz of [-1, 1]) {
+      parts.push(prep(xf(new THREE.BoxGeometry(bw, 0.7, 0.7), { y: fh, z: sz * bd * 0.4 }), TIMBER, 0.05));
+    }
+    parts.push(prep(xf(new THREE.BoxGeometry(bw * 1.05, 0.5, bd * 0.95), { y: fh + 0.5 }), DARKWOOD, 0.05));
+    // the hull under construction: a tapered box with ribs over it
+    const hl = bw * 0.82, hh = h * 0.44;
+    parts.push(prep(xf(taperedBox(hl, hh, bd * 0.44, 0.72, 0.55), { y: hh * 0.62 + 0.6, ry: Math.PI / 2 }), 0x8a6a4a, 0.07));
+    for (let i = -2; i <= 2; i++) {
+      parts.push(prep(xf(new THREE.BoxGeometry(0.4, hh * 1.15, bd * 0.5),
+        { x: i * hl * 0.19, y: hh * 0.66 + 0.6 }), DARKWOOD, 0.05));
+    }
+    for (let i = 0; i < 3; i++) {
+      parts.push(prep(xf(new THREE.BoxGeometry(bw * 0.7, 0.55, 0.85),
+        { x: -bw * 0.1, y: 0.3 + i * 0.6, z: -bd * 0.62 }), 0x9c7546, 0.07));
+    }
+    return parts;
+  }
+
+  if (kind === 'harbour') {
+    /* The office: taller than its neighbours, narrow, stone-based, with a
+       signal mast and a lantern. It should look official and slightly smug. */
+    const bw = w * 0.85, bh = h * 1.45, bd = d * 0.85;
+    parts.push(prep(xf(taperedBox(bw * 1.12, bh * 0.22, bd * 1.12, 1, 1), { y: bh * 0.11 }), STONE, 0.05));
+    parts.push(prep(xf(taperedBox(bw, bh, bd, 0.95, 0.95), { y: bh * 0.22 + bh / 2 }), wall, 0.06));
+    parts.push(roofHip(bw, bd, bh * 0.72, roof, bh * 1.22));
+    parts.push(post(0, -bd * 0.2, bh * 0.95, bh * 1.2, DARKWOOD, 0.34));      // signal mast
+    parts.push(prep(xf(new THREE.BoxGeometry(2.2, 1.3, 0.2), { x: 1.1, y: bh * 1.95, z: -bd * 0.2 }), 0xc94f2f, 0.05));
+    parts.push(prep(xf(new THREE.BoxGeometry(0.9, 1.1, 0.9), { x: bw * 0.42, y: bh * 0.95, z: bd * 0.5 }), 0xe8c96a, 0.04));
+    return parts;
+  }
+
+  if (kind === 'warehouse') {
+    // long, blank, big doors: storage, and a good foil for everything else
+    const bw = w * 1.5, bh = h * 0.72, bd = d * 1.05;
+    parts.push(prep(xf(taperedBox(bw, bh, bd, 1, 1), { y: bh / 2 }), wall, 0.05));
+    parts.push(roofGable(bw, bd, bh, roof, bh));
+    parts.push(prep(xf(new THREE.BoxGeometry(bw * 0.3, bh * 0.62, 0.3),
+      { y: bh * 0.31, z: bd * 0.5 + 0.15 }), DARKWOOD, 0.05));
+    return parts;
+  }
+
+  // a house, which is what most of a town is
   parts.push(prep(xf(taperedBox(w, h, d, 0.98, 0.98), { y: h / 2 }), wall, 0.07));
-  const rg = new THREE.ConeGeometry(Math.max(w, d) * 0.79, h * 0.62, 4);
-  parts.push(prep(xf(rg, { y: h + h * 0.31, ry: Math.PI / 4 }), roof, 0.09));
+  parts.push(roofHip(w, d, h, roof, h));
   return parts;
 }
 
@@ -310,6 +718,19 @@ function buildSettlement(port, group) {
   const shore = nearestShore(anchor.x, anchor.y, port.ang);
   const inland = shore.dir;
   const base = shore.point;
+  /* Two fields, and the record has to be true in the one the game reads.
+     The sweep above measures the analytic height, which has detail the baked
+     grid cannot — its cells are twenty-six metres across. Everything
+     downstream reads the *baked* field: hulls, the route grid, the harness.
+     Right at the waterline the two can disagree, and one settlement ended up
+     recording a waterfront the baked field called half a metre under water.
+     So walk the record inland until the field the game actually uses agrees
+     this is dry land. Nothing else moves: the piers still run seaward from
+     here, and the buildings are still placed against the finer field. */
+  for (let i = 0; i < 12 && heightAt(base.x, base.y) < 1.2; i++) {
+    base.x += inland.x * 6;
+    base.y += inland.y * 6;
+  }
   const shoreRec = {
     x: base.x, z: base.y, dist: shore.dist,
     inland: { x: inland.x, z: inland.y },
@@ -317,6 +738,13 @@ function buildSettlement(port, group) {
     townX: base.x + inland.x * (isMajor ? 46 : 34),
     townZ: base.y + inland.y * (isMajor ? 46 : 34),
     townY: 0,
+    /* Where the town actually put its buildings and its piers.
+       The settlement is procedural and used to throw these away the moment it
+       had drawn them — which meant nothing could ever point at a particular
+       building. The port screen frames real ones now, so the town records
+       what it placed. Cheap: a few dozen small objects per port, built once. */
+    spots: [],
+    piers: [],
   };
   // clear of whatever the town is standing on — Escarra's is a 70-metre rock,
   // and a fixed height put its name inside the hill
@@ -324,21 +752,209 @@ function buildSettlement(port, group) {
   PORT_SHORE[port.id] = shoreRec;
   const perpG = new THREE.Vector2(-inland.y, inland.x);
 
-  let placed = 0, guard = 0;
-  while (placed < count && guard < count * 60) {
-    guard++;
-    const along = rngRange(rng, -1, 1) * (isMajor ? 130 : 72);
-    const into = rngRange(rng, 6, isMajor ? 140 : 84);
-    const perp = perpG;
-    const x = base.x + inland.x * into + perp.x * along;
-    const z = base.y + inland.y * into + perp.y * along;
-    const h = heightAtAnalytic(x, z);
-    if (h < 1.6 || h > 44) continue;
-    const w = rngRange(rng, 7, isMajor ? 15 : 11);
-    const d = rngRange(rng, 7, 13);
-    const bh = rngRange(rng, 6, isMajor ? 15 : 10);
-    for (const g of building(rng, w, bh, d)) parts.push(xf(g, { x, y: h - 1, z, ry: rng() * 6.28 }));
-    placed++;
+  /* ---- how a harbour town is laid out ----
+
+     This used to be a scatter: a random distance along the shore, a random
+     distance inland, and a random rotation through a full circle. From the
+     deck at two hundred metres that reads as a town. Framed close for the
+     port screen it reads as what it is — sheds dropped on a hillside at
+     angles no builder would choose, some of them half-buried in a slope and
+     some standing on one corner.
+
+     A real waterfront grows in terraces: a dense front row facing the water,
+     thinning as it climbs, everything square to the shore because that is
+     where the road and the boats are. So:
+
+       · rows at increasing distance inland, jittered so it is not a grid
+       · every building faces the water, ±12° so it is not a parade
+       · the ground under the whole footprint is sampled, not just its centre;
+         too steep and nothing is built there, and what is built sits on the
+         lowest corner so it digs in rather than floats
+       · the front row is bigger — warehouses and the harbourmaster — and it
+         thins and shrinks going up the hill
+
+     The visible result is a town with a waterfront, which is also what makes
+     a close-up of one of its buildings worth looking at. */
+  const facing = Math.atan2(-inland.x, -inland.y);      // square to the water
+  const rows = isMajor ? [22, 46, 72, 100, 132] : [20, 44, 70];
+  const spread = isMajor ? 130 : 74;
+
+  /** Is this footprint buildable, and how low does it sit? */
+  const ground = (x, z, w, d) => {
+    let lo = Infinity, hi = -Infinity;
+    for (const [ox, oz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0, 0]]) {
+      const gx = x + perpG.x * ox * w + inland.x * oz * d;
+      const gz = z + perpG.y * ox * w + inland.y * oz * d;
+      const h = heightAtAnalytic(gx, gz);
+      if (h < lo) lo = h;
+      if (h > hi) hi = h;
+    }
+    return { lo, hi, slope: hi - lo };
+  };
+
+  /* Bands, not a grid.
+
+     A fixed set of positions along each row does not survive real ground:
+     measured under Ilo Vantu, one end of a row is twenty metres under water
+     and the other is up a cliff, and a footprint there falls eight or nine
+     metres across its own width. So each row is a band that is *searched* —
+     candidates are tried until enough of them stand on ground a builder would
+     accept. That keeps the terracing where the coast allows it and lets the
+     town bend around the parts where it does not, which is what real ones do. */
+  /* ---- limits the ground can actually meet ----
+
+     What a builder will accept was written as two absolute numbers: nothing
+     above 46 metres, nothing with more than ten metres of fall across its own
+     footprint. Both were measured — on Ilo Vantu, which is a beach.
+
+     Fort Escarra is a seventy-metre rock and Greywake is a headland. Measured
+     the same way, their waterfront rows sit at 44m with 26 to 28 metres of
+     fall across a footprint, so the two tests between them rejected every
+     single candidate: Escarra built *nothing* and Greywake built one shed,
+     while their port screens photographed bare grass and captioned it an
+     Admiralty station and a League fortress. Marasay lost its whole front row
+     the same way, which is why it had no market building to frame.
+
+     So the limits are taken from the port's own coast instead. Sample the
+     bands first, then accept what this ground has to offer. The old constants
+     are the floors, so a gentle coast keeps exactly today's standards and
+     nothing about Ilo Vantu moves; a rock gets a town that climbs it. The
+     ceiling on the fall is what still refuses a sheer cliff.
+
+     Sitting the building on the lowest corner of its footprint stays right
+     even here: every view of a port is from the water, which is the downhill
+     side, so a hillside building stands on its low corner with the hill
+     rising behind it and is buried only from angles nothing looks from. */
+  const probe = [];
+  for (let r = 0; r < rows.length; r++) {
+    const nw = 1 - r / rows.length;
+    for (let k = 0; k < 40; k++) {
+      const along = ((k / 39) * 2 - 1) * spread * (0.55 + nw * 0.45);
+      const x = base.x + inland.x * rows[r] + perpG.x * along;
+      const z = base.y + inland.y * rows[r] + perpG.y * along;
+      const g = ground(x, z, 11 * (0.72 + nw * 0.42), 10 * (0.72 + nw * 0.34));
+      if (g.lo >= 1.6) probe.push(g);
+    }
+  }
+  const pct = (arr, q) => {
+    if (!arr.length) return 0;
+    const s = arr.slice().sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.floor(s.length * q))];
+  };
+  const MAX_UP = Math.max(46, pct(probe.map(g => g.hi), 0.72) + 6);
+  const MAX_FALL = clampNum(Math.max(10, pct(probe.map(g => g.slope), 0.6) + 1), 10, 30);
+
+  /* Who gets the waterfront.
+     A harbour town puts its public buildings where the boats are, so the
+     front row is dealt the named ones first — and only the services this
+     port actually has, because a fishing hamlet with a shipyard in the
+     picture and no shipyard on the tabs is a lie the screen tells. */
+  /* The waterfront, dealt against the pier line.
+     A shipyard is a slipway and belongs beside the boats, so the civic slots
+     are the pier offsets rather than an even spread: the harbourmaster at the
+     middle pier, the yard out at the end where a hull can go down the ways.
+     Aiming at the piers also means these buildings are placed by the same
+     searched-band machinery as everything else — a separate hand-rolled
+     placement for the yard found no ground at all, twice, because it was
+     re-deriving a ground test that already existed here and working from the
+     wrong sign for height. */
+  /* How far past its nominal footprint each kind actually draws, straight
+     off the geometry in `building()`. Keep this honest when that changes. */
+  const DRAWN = { house: 1.06, warehouse: 1.12, harbour: 1.14, tavern: 1.3, market: 1.02, yard: 1.36 };
+
+  const pierStep = isMajor ? 48 : 36;
+  /* The yard is dealt first and nearest the piers: it is the one that most
+     needs the water, and dealing it last left it taking whatever ground the
+     others had not used — which on this coast was none. */
+  const civicAlong = { yard: pierStep, harbour: 0, tavern: -pierStep, market: pierStep * 1.7 };
+  const civic = ['yard', 'harbour', 'tavern', 'market']
+    .filter(k => k === 'harbour'
+      || (k === 'tavern' && port.services.includes('tavern'))
+      || (k === 'market' && port.services.includes('market'))
+      || (k === 'yard' && port.services.includes('shipyard')));
+  let civicNext = 0;
+
+  let placed = 0;
+  for (let r = 0; r < rows.length && placed < count; r++) {
+    const nearWater = 1 - r / rows.length;
+    // dense at the front, thinning as it climbs
+    const inRow = Math.max(2, Math.round((isMajor ? 7 : 4) * (0.45 + nearWater * 0.75)));
+    let inThisRow = 0;
+    for (let attempt = 0; attempt < inRow * 14 && inThisRow < inRow && placed < count; attempt++) {
+      /* The named buildings get elbow room: dealt across the front in their
+         own slots rather than dropped at random, so a close-up of the yard is
+         the yard and not the market's awnings leaning into frame. */
+      /* Front row for the public buildings, second row if the front will not
+         have them. Fort Escarra is a rock whose waterfront can refuse a
+         fifteen-metre footprint outright, and a station with no tavern and no
+         market on a screen that offers both tabs is worse than one whose
+         market is up the hill. */
+      const civicSlot = (r <= 1 && civicNext < civic.length);
+      /* A preference, not a decree. Dealt across the front they get elbow
+         room — but the extremes of a row on this coast are underwater at one
+         end and up a cliff at the other, and insisting on the slot built no
+         public buildings at all. After half the attempts the preference is
+         dropped and the building takes whatever ground the row can offer. */
+      const insist = attempt < inRow * 7;
+      const along = (civicSlot && insist)
+        ? (civicAlong[civic[civicNext]] || 0) + rngRange(rng, -11, 11)
+        : rngRange(rng, -1, 1) * spread * (0.55 + nearWater * 0.45);
+      const into = rows[r] + rngRange(rng, -9, 9);
+      const x = base.x + inland.x * into + perpG.x * along;
+      const z = base.y + inland.y * into + perpG.y * along;
+      /* Bigger and squarer at the waterfront; cottages up the hill. And
+         smaller the longer this row has been refusing: a builder short of
+         ground builds a smaller house, rather than the same house somewhere
+         it does not fit or no house at all. */
+      const tight = 1 - 0.3 * clamp01(attempt / (inRow * 9));
+      const w = rngRange(rng, 7, isMajor ? 15 : 11) * (0.72 + nearWater * 0.42) * tight;
+      const d = rngRange(rng, 7, 13) * (0.72 + nearWater * 0.34) * tight;
+      const bh = rngRange(rng, 6, isMajor ? 15 : 10) * (0.7 + nearWater * 0.45) * tight;
+      /* Decide what this is before sounding the ground for it, because how
+         much ground it needs depends on what it is. `building()` draws past
+         w by d by an amount that differs per kind — a yard frame is 1.3
+         across, a tavern 1.25, a house barely over 1 — and validating the
+         nominal size approved positions whose real geometry hung over the
+         next thing along, which on a waterfront is the harbour.
+
+         It surfaced only because rebuilding the market changed how many
+         numbers it draws, which shifted every building dealt after it: one
+         stream per town means positions are never as fixed as they look.
+         Sounding one worst-case extent for everything worked and cost Fort
+         Escarra its tavern and its market, because on a rock that tight the
+         margin was the difference between a public building and none. Per
+         kind is both truer and cheaper. */
+      let kind = 'house';
+      if (civicSlot) kind = civic[civicNext];
+      else if (r <= 1 && rng() < 0.3) kind = 'warehouse';
+      const g = ground(x, z, w * DRAWN[kind], d * DRAWN[kind]);
+      /* No building on water, up a cliff, or on ground that falls away under
+         it — with both limits taken from this port's own coast above, because
+         a number measured on a beach builds nothing on a rock. */
+      if (g.lo < 1.6 || g.hi > MAX_UP || g.slope > MAX_FALL) continue;
+      // and not on top of a neighbour
+      let clash = false;
+      for (const o of shoreRec.spots) {
+        if ((o.x - x) * (o.x - x) + (o.z - z) * (o.z - z) < Math.pow((w + o.w) * 0.62, 2)) { clash = true; break; }
+      }
+      if (clash) continue;
+      const ry = facing + rngRange(rng, -0.21, 0.21);
+      // the named buildings take the front row, and this one is now taken
+      if (civicSlot) civicNext++;
+      // a public building is bigger than the houses either side of it
+      const k = kind === 'house' || kind === 'warehouse' ? 1 : 1.28;
+      for (const part of building(rng, w * k, bh * k, d * k, kind)) {
+        parts.push(xf(part, { x, y: g.lo - 1, z, ry }));
+      }
+      /* `ry` and `d` are recorded because a picture of a building wants to be
+         taken from its front. Without them the port screen framed every
+         building from one bearing borrowed from the town centre, which is the
+         front of the average building and the back or the gable end of plenty
+         of individual ones — a market photographed from behind its own
+         awnings is a shed. */
+      shoreRec.spots.push({ x, z, y: g.lo, w: w * k, d: d * k, h: bh * k, ry, front: r === 0, kind });
+      placed++; inThisRow++;
+    }
   }
 
   // piers: run from the waterfront out over the water
@@ -353,6 +969,7 @@ function buildSettlement(port, group) {
     const len = reach * rngRange(rng, 0.85, 1.1);
     const midX = rootX - inland.x * len * 0.5, midZ = rootZ - inland.y * len * 0.5;
     parts.push(prep(xf(new THREE.BoxGeometry(6.5, 1.5, len), { x: midX, y: 2.4, z: midZ, ry: pierAng }), 0x8a6f4c, 0.09));
+    shoreRec.piers.push({ x: midX, z: midZ });
     for (let k = 0; k <= 5; k++) {
       const t = k / 5;
       const lx = rootX - inland.x * len * t, lz = rootZ - inland.y * len * t;
@@ -368,6 +985,12 @@ function buildSettlement(port, group) {
     }), 0x554130));
   }
 
+  /* Harbour works — breakwaters, marks, beacons, and the crane — stand in
+     open water on purpose, which is the whole point of them, so they are
+     kept in their own mesh: the check that asks "is any *building* standing
+     on nothing" stays meaningful and these do not trip it. */
+  const seaworks = [];
+
   // warehouse and crane just behind the waterfront
   {
     const wx = base.x + inland.x * 24, wz = base.y + inland.y * 24;
@@ -376,8 +999,14 @@ function buildSettlement(port, group) {
     const cx = base.x + perpG.x * (isMajor ? 30 : 20) + inland.x * 12;
     const cz = base.y + perpG.y * (isMajor ? 30 : 20) + inland.y * 12;
     const ch = Math.max(1.2, heightAtAnalytic(cx, cz));
-    parts.push(prep(xf(new THREE.CylinderGeometry(0.9, 0.9, 24, 6), { x: cx, y: ch + 11, z: cz }), 0x6a5136));
-    parts.push(prep(xf(new THREE.BoxGeometry(1.4, 1.4, 18), {
+    /* The jib reaches out over the water, because that is what a quay crane
+       is for — it lifts cargo out of a hull lying alongside. It belongs with
+       the harbour works rather than with the buildings for exactly the reason
+       a breakwater does. The audit caught this one only when an unrelated
+       change shifted its vertex sampling; it had been hanging there all
+       along, correctly, in the mesh that says buildings do not float. */
+    seaworks.push(prep(xf(new THREE.CylinderGeometry(0.9, 0.9, 24, 6), { x: cx, y: ch + 11, z: cz }), 0x6a5136));
+    seaworks.push(prep(xf(new THREE.BoxGeometry(1.4, 1.4, 18), {
       x: cx - inland.x * 8, y: ch + 22, z: cz - inland.y * 8, ry: pierAng,
     }), 0x6a5136));
     // stacked crates on the quay
@@ -389,6 +1018,128 @@ function buildSettlement(port, group) {
       const sz = rngRange(rng, 2.2, 3.6);
       parts.push(prep(xf(new THREE.BoxGeometry(sz, sz, sz), { x: qx, y: qh + sz / 2, z: qz, ry: rng() * 3 }), 0x8a6a44, 0.12));
     }
+  }
+
+  /* ---------------------------------------------------------------
+     Faction construction. A port should say who holds it before the player
+     opens any interface — and the approach is where that has to happen,
+     because that is what they see first from seaward.
+     --------------------------------------------------------------- */
+
+  if (port.style === 'fortified') {
+    /* GREYWAKE: two stone arms reaching out to very nearly meet, with the
+       harbour mouth between them. The League's whole argument, in masonry:
+       whoever controls where ships can safely stop controls the sea. */
+    const stone = 0x5b5f63, stoneLit = 0x7d8288;
+    for (const side of [1, -1]) {
+      const armLen = 200, seg = 13;
+      for (let i = 0; i < seg; i++) {
+        const t = i / (seg - 1);
+        /* Each arm curves in toward the mouth as it runs out — but not as far
+           as it used to. They closed to 54 metres either side of the axis,
+           and with the rubble footing under them that left a gap barely wider
+           than a hull is long: shipping simply could not find it, and stood
+           off circling the left arm until something else killed it. At 80 the
+           two heads still very nearly meet against a two-hundred-metre arm,
+           which is the League's argument, and a ship can now answer it. */
+        const out = 46 + t * armLen;
+        const across = side * (128 - t * 48);
+        const bx = base.x - inland.x * out + perpG.x * across;
+        const bz = base.y - inland.y * out + perpG.y * across;
+        const h = 13 - t * 3;
+        seaworks.push(prep(xf(new THREE.BoxGeometry(22, h, 26), { x: bx, y: h * 0.5 - 3, z: bz, ry: pierAng }),
+          i % 3 === 0 ? stoneLit : stone, 0.05));
+        // and the rubble mound the masonry stands on — the part a hull answers to
+        raiseSeabed(bx, bz, 21, 1.6);
+      }
+      // a light on the head of each arm, where the mouth is
+      const hx = base.x - inland.x * (46 + armLen) + perpG.x * side * 80;
+      const hz = base.y - inland.y * (46 + armLen) + perpG.y * side * 80;
+      seaworks.push(prep(xf(new THREE.CylinderGeometry(3.4, 4.6, 22, 7), { x: hx, y: 10, z: hz }), stoneLit, 0.04));
+      seaworks.push(prep(xf(new THREE.BoxGeometry(5, 4, 5), { x: hx, y: 22, z: hz }), 0x8e2b28, 0.05));
+      raiseSeabed(hx, hz, 14, 1.2);
+    }
+    // signal towers along the waterfront, and a dry dock cut into it
+    for (const off of [-96, 0, 96]) {
+      const tx = base.x + perpG.x * off + inland.x * 30;
+      const tz = base.y + perpG.y * off + inland.y * 30;
+      const th = Math.max(2, heightAtAnalytic(tx, tz));
+      const hgt = 34 + Math.abs(off) * 0.06;
+      seaworks.push(prep(xf(new THREE.CylinderGeometry(4.5, 6.5, hgt, 6), { x: tx, y: th + hgt * 0.5 - 2, z: tz }), stone, 0.04));
+      seaworks.push(prep(xf(new THREE.BoxGeometry(11, 3, 11), { x: tx, y: th + hgt - 1, z: tz }), stoneLit, 0.05));
+      seaworks.push(prep(xf(new THREE.BoxGeometry(2, 9, 2), { x: tx, y: th + hgt + 5, z: tz }), 0x8e2b28, 0.06));
+    }
+  } else if (port.style === 'lagoon') {
+    /* TIDEGLASS: nothing defended. The reef is the wall and the way in is the
+       gate, so what the approach shows is stakes — a marked channel through
+       water that has drowned better captains — and light timber on stilts. */
+    const teal = 0x2f8f86, pale = 0xd9d2c0;
+    /* A stake is driven into a reef flat, so a stake standing over deep water
+       is a lie about the bottom — and twelve of them in a row read as a jetty
+       marching into open ocean, which is exactly what this looked like. Each
+       pair now sounds its own spot: shallow enough to drive a stake, deep
+       enough that it is marking water and not standing on the beach — and the
+       stake is cut to length for the bottom it stands on. */
+    const chLen = 420;
+    for (let i = 0; i < 14; i++) {
+      const t = i / 13;
+      const out = 40 + t * chLen;
+      for (const side of [1, -1]) {
+        /* Each stake finds the reef for itself: walk out from the channel's
+           axis until the bottom comes up to a flat a stake can be driven
+           into, and stand it there — a metre inside the edge, the way a
+           channel is actually marked. Where the sweep meets no reef there is
+           no stake, because there is nothing there to warn anyone off. */
+        let sx = null, sz = null, bot = 0;
+        for (let s = 26; s <= 180; s += 6) {
+          const px = base.x - inland.x * out + perpG.x * side * s;
+          const pz = base.y - inland.y * out + perpG.y * side * s;
+          const h = heightAtAnalytic(px, pz);
+          if (h > -0.6) break;                    // the flat has become beach: stop short of it
+          if (h > -7.5) {
+            sx = base.x - inland.x * out + perpG.x * side * (s + 4);
+            sz = base.y - inland.y * out + perpG.y * side * (s + 4);
+            bot = heightAtAnalytic(sx, sz);
+            break;
+          }
+        }
+        if (sx === null || bot > -0.6) continue;
+        const top = 6.5 + (i % 3) * 0.5;
+        const len = top - bot + 1.5;
+        seaworks.push(prep(xf(new THREE.CylinderGeometry(0.75, 0.95, len, 5),
+          { x: sx, y: top - len / 2, z: sz }), 0x9a8560, 0.06));
+        // a painted top, so the line of them reads from seaward
+        seaworks.push(prep(xf(new THREE.BoxGeometry(2.2, 2.2, 2.2), { x: sx, y: top + 1.6, z: sz }),
+          side > 0 ? teal : 0xc4553a, 0.05));
+      }
+    }
+    // low waterfront under sailcloth, and a beacon platform on stilts
+    for (const off of [-70, 12, 82]) {
+      const ax = base.x + perpG.x * off + inland.x * 16;
+      const az = base.y + perpG.y * off + inland.y * 16;
+      const ah = Math.max(1.4, heightAtAnalytic(ax, az));
+      for (const s2 of [-6, 6]) {
+        seaworks.push(prep(xf(new THREE.CylinderGeometry(0.55, 0.55, 12, 5),
+          { x: ax + perpG.x * s2, y: ah + 5, z: az + perpG.y * s2 }), 0x8a7048));
+      }
+      seaworks.push(prep(xf(new THREE.BoxGeometry(20, 0.9, 14), { x: ax, y: ah + 11, z: az, ry: pierAng }), pale, 0.07));
+    }
+    {
+      const bx = base.x - inland.x * 74 + perpG.x * 70;
+      const bz = base.y - inland.y * 74 + perpG.y * 70;
+      for (const [ox, oz] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) {
+        seaworks.push(prep(xf(new THREE.CylinderGeometry(0.8, 0.8, 26, 5),
+          { x: bx + perpG.x * ox + inland.x * oz, y: 6, z: bz + perpG.y * ox + inland.y * oz }), 0x8a7048));
+      }
+      seaworks.push(prep(xf(new THREE.BoxGeometry(16, 1.2, 16), { x: bx, y: 19, z: bz, ry: pierAng }), pale, 0.06));
+      seaworks.push(prep(xf(new THREE.BoxGeometry(3, 7, 3), { x: bx, y: 23, z: bz }), teal, 0.05));
+    }
+  }
+
+  if (seaworks.length) {
+    const m = new THREE.Mesh(mergeGeos(seaworks), litMaterial());
+    m.name = 'seaworks';
+    group.add(m);
   }
 
   // lighthouse for the major port, signal mast for the fort

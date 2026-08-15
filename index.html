@@ -64,10 +64,21 @@
 
     <!-- bottom-left stack: time controls above the flagship's condition -->
     <div id="leftstack" class="safe-bottom">
+    <!-- Fleet orders live in this column, not beside it. On a wide screen they
+         float free at the bottom centre; on a phone held upright there is no
+         room for them down there, and lifting them clear of the stack left
+         them adrift in open water with nothing to belong to. In the column
+         they sit on the speed control and move with it. -->
+    <div id="fleetbar" class="hidden"></div>
     <div id="speedctl">
       <button class="spd" data-s="0" aria-label="Pause">❙❙</button>
       <button class="spd on" data-s="1" aria-label="Normal speed">1×</button>
-      <button class="spd" data-s="2" aria-label="Double speed">2×</button>
+      <!-- One fast button, not two. A fourth control would not fit beside the
+           other three on a phone, so this one carries both fast speeds and
+           cycles 2×→4×→2×; pause and 1× stay where the thumb left them. Its
+           data-s is the speed it will select next tap-through, so setSpeed()
+           can light it by the same rule as the others. -->
+      <button class="spd fast" data-s="2" aria-label="Fast forward">2×</button>
     </div>
     <div id="shipstatus">
       <div class="ship-name" id="flag-name">—</div>
@@ -78,6 +89,7 @@
         <span class="mini" id="mini-prov" title="Provisions">PROV <b>0</b></span>
         <span class="mini" id="mini-ammo" title="Shot">SHOT <b>0</b></span>
         <span class="mini" id="mini-cargo" title="Cargo">HOLD <b>0</b></span>
+        <span class="mini" id="mini-power" title="Your fighting weight — the same number over their masts">WEIGHT <b>0</b></span>
       </div>
     </div>
     </div>
@@ -87,9 +99,21 @@
     <!-- contextual action stack, bottom-right -->
     <div id="actions" class="safe-bottom"></div>
 
-    <!-- fleet bar -->
-    <div id="fleetbar" class="hidden safe-bottom"></div>
-
+    <!-- The right-hand column. Both of these used to be pinned to the same
+         corner at the same height and simply drew on top of each other: a
+         raider closing while you had a ship marked put the pursuit panel
+         squarely over the target card. Stacked, they cannot, and whichever
+         is hidden costs nothing. -->
+    <div id="rightstack">
+    <!-- who is coming for you, on the campaign layer -->
+      <div id="pursuit" class="hidden">
+        <div class="pur-head"><span id="pur-name">—</span><span id="pur-verdict" class="pur-pip">—</span></div>
+        <div class="pur-row">
+          <span id="pur-state">—</span>
+          <span class="pur-dist"><b id="pur-dist">—</b>m</span>
+        </div>
+        <div class="pur-bar"><i id="pur-fill"></i></div>
+      </div>
     <!-- target readout -->
     <div id="targetcard" class="hidden">
       <button id="tc-close" class="tc-close" aria-label="Stop tracking this ship">
@@ -108,6 +132,7 @@
         <div class="pw-nums"><span>You <b id="pw-yn">0</b></span><span><b id="pw-tn">0</b> Her</span></div>
       </div>
     </div>
+    </div>
 
     <!-- hint / toast: one stack so they can never sit on top of each other -->
     <div id="notices">
@@ -115,6 +140,13 @@
       <div id="toasts"></div>
     </div>
     <div id="objective" class="hidden"><span class="obj-glyph">➤</span><span id="obj-text"></span></div>
+
+    <!-- and where you are while a fleet action is running -->
+    <div id="battlebar" class="hidden">
+      <span class="bb-kicker" id="bb-kind">ACTION</span>
+      <span id="bb-state">—</span>
+      <span class="bb-run" id="bb-run"></span>
+    </div>
   </div>
 
   <!-- ============ OVERLAYS ============ -->
@@ -141,13 +173,32 @@
   </div>
 
   <!-- boarding overlay -->
+  <!-- ============ ENCOUNTER ============ -->
+  <div id="encounter" class="hidden">
+    <div id="enc-card">
+      <div id="enc-kicker">CONTACT</div>
+      <div id="enc-title">—</div>
+      <div id="enc-sub">—</div>
+      <div id="enc-sides"></div>
+      <div id="enc-note"></div>
+      <div id="enc-options"></div>
+      <div id="enc-outcome" class="hidden"></div>
+    </div>
+  </div>
+
   <div id="boarding" class="hidden">
     <div class="brd-card">
       <div class="brd-title">BOARDING ACTION</div>
       <div class="brd-names"><span id="brd-us">—</span><span class="brd-vs">✕</span><span id="brd-them">—</span></div>
       <div class="brd-track"><i id="brd-fill"></i><span id="brd-marker"></span></div>
       <div class="brd-counts"><span id="brd-cus">—</span><span id="brd-cthem">—</span></div>
+      <!-- who is actually on those decks, and who is falling -->
+      <div class="brd-crews">
+        <div class="brd-crew" id="brd-crew-us"></div>
+        <div class="brd-crew them" id="brd-crew-them"></div>
+      </div>
       <div class="brd-log" id="brd-log"></div>
+      <div class="brd-acts" id="brd-acts"></div>
     </div>
   </div>
 
@@ -179,8 +230,171 @@
     </div>
   </div>
 
-  <div id="loading"><div class="ld-inner"><div class="ld-wave"></div><div>making sail…</div></div></div>
+  <!-- The build date is plain text, not just the data-build attribute, because
+       the question it answers — "which copy am I looking at?" — is usually
+       asked about a photograph of a screen that never ran any script. An
+       attribute is invisible in a photograph. This is not. -->
+  <div id="loading" data-build="dev"><div class="ld-inner"><div class="ld-wave"></div><div>making sail…</div>
+    <div class="ld-step" id="ld-step"></div>
+    <div class="ld-build" id="ld-build">dev build</div></div></div>
+
+  <!-- The one failure no script can report, because no script runs.
+
+       Open this file from a mail attachment on an iPhone or iPad and iOS
+       shows it in Quick Look — the preview with "Done" in the corner — which
+       renders HTML and CSS but executes no JavaScript at all. The loading
+       card draws, the bar animates, and nothing else ever happens. A tester
+       sat looking at "making sail…" and neither of us could see why, because
+       the boot guard that was supposed to explain it needs scripting too.
+       <noscript> is the only thing on the page that speaks in that state. -->
+  <noscript>
+    <div id="nojs">
+      <div class="nojs-card">
+        <h2>This preview cannot run the game</h2>
+        <p>You are looking at a file preview, and previews do not run
+          programs — only text and pictures. The game needs to actually run.</p>
+        <p><b>On iPhone or iPad:</b> tap <b>Done</b>, then the share button,
+          then <b>Open in Safari</b>. Or save the file to Files first and open
+          it from there.</p>
+        <p><b>On a computer:</b> save the file to the desktop and double-click
+          it, rather than viewing it inside a mail window.</p>
+        <p class="nojs-alt">If your browser has JavaScript switched off, the
+          game needs it turned back on.</p>
+      </div>
+    </div>
+  </noscript>
 </div>
+<!-- Boot guard. Plain ES5, no module, and first in the document on purpose.
+
+     The game is one module, and the renderer is built while it is still being
+     evaluated. If that throws — no WebGL context, a browser too old to parse
+     the syntax — every line after it is skipped, including the two that take
+     the loading card down. What the player gets is "making sail…" for ever
+     and nothing to tell anyone. This runs before all of it and turns a silent
+     hang into a sentence they can send back. -->
+<script>
+(function () {
+  var told = false;
+  var step = 'nothing yet — the module never ran';
+
+  /* Boot says where it has got to, and the loading card shows it.
+     A card that only ever says "making sail…" tells nobody anything when it
+     stops: the one question worth answering is which part it stopped in, and
+     on a tablet with no console attached the screen is the only place that
+     answer can appear. */
+  var movedAt = +new Date();
+  window.__boot = function (s) {
+    step = s;
+    movedAt = +new Date();
+    var line = document.getElementById('ld-step');
+    if (line) line.textContent = s;
+  };
+
+  function build() {
+    var box = document.getElementById('loading');
+    return (box && box.getAttribute('data-build')) || 'unknown';
+  }
+
+  function facts(err) {
+    var gl = 'unknown';
+    try {
+      var c = document.createElement('canvas');
+      gl = c.getContext('webgl2') ? 'webgl2'
+        : c.getContext('webgl') ? 'webgl1 only (this game needs webgl2)'
+          : 'none';
+    } catch (e) { gl = 'blocked: ' + (e && e.message); }
+    return [
+      err ? ('error: ' + err) : 'error: none reported — it simply never finished',
+      'got as far as: ' + step,
+      'build: ' + build(),
+      '3d: ' + gl,
+      'page: ' + location.protocol,
+      'browser: ' + navigator.userAgent,
+    ].join('\n');
+  }
+
+  /* No 3D canvas is far and away the likeliest cause, and it is the one the
+     player can actually do something about — so it gets said in plain words
+     rather than left inside a stack trace, and the words differ by browser.
+     Telling a Safari user to turn on hardware acceleration sends them hunting
+     for a setting Safari does not have. */
+  function guess(detail) {
+    var no3d = detail.indexOf('3d: none') >= 0 || detail.indexOf('webgl1 only') >= 0
+      || detail.indexOf('3d: blocked') >= 0;
+    var ua = navigator.userAgent;
+    var safari = /Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua);
+    if (no3d && safari) {
+      return 'Safari is not giving the page the kind of 3D canvas this game needs. '
+        + 'That takes Safari 15 or newer — macOS Monterey and iPadOS 15, released in 2021. '
+        + 'Updating the system fixes it; so does opening the same file in Chrome or Firefox.';
+    }
+    if (no3d) {
+      return 'This browser is not giving the page a 3D canvas. That is usually '
+        + 'hardware acceleration being switched off — in Chrome it lives under '
+        + 'Settings › System, in Firefox under Settings › General › Performance. '
+        + 'Turn it on, restart the browser and open the file again.';
+    }
+    return 'The game stopped while it was starting up. The lines below say where; '
+      + 'sending them on is enough to fix it.';
+  }
+
+  function tell(err) {
+    if (told) return;
+    told = true;
+    var box = document.getElementById('loading');
+    if (!box) return;
+    var detail = facts(err);
+    box.className = '';
+    // take the wave and the words down first: "making sail…" under an error
+    // message reads as though it is still trying, and it is not
+    while (box.firstChild) box.removeChild(box.firstChild);
+    box.setAttribute('style',
+      'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;'
+      + 'justify-content:center;padding:24px;background:#0b2a3a;color:#e8dcc0;'
+      + 'font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;'
+      + 'overflow:auto;-webkit-overflow-scrolling:touch');
+    var card = document.createElement('div');
+    card.setAttribute('style', 'max-width:560px;width:100%');
+    var h = document.createElement('div');
+    h.setAttribute('style', 'font-size:19px;font-weight:700;margin-bottom:10px;color:#e6b25e');
+    h.textContent = 'She would not answer the helm';
+    var p = document.createElement('div');
+    p.setAttribute('style', 'margin-bottom:14px');
+    p.textContent = guess(detail);
+    var pre = document.createElement('pre');
+    pre.setAttribute('style',
+      'white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,.32);'
+      + 'border:1px solid rgba(232,220,192,.22);border-radius:8px;padding:12px;'
+      + 'margin:0;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace');
+    pre.textContent = detail;          // never innerHTML: this is an error string
+    card.appendChild(h); card.appendChild(p); card.appendChild(pre);
+    box.appendChild(card);
+  }
+
+  window.addEventListener('error', function (e) {
+    tell((e && e.message) || 'script error');
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    tell((r && (r.message || r)) || 'promise rejected');
+  });
+
+  /* And the case with no exception at all — a boot that simply stops.
+     Stalled, not slow: an old tablet grinding through the terrain is still
+     working, and calling that a failure because it passed some fixed
+     deadline would be crying wolf at the one device most likely to be
+     honestly slow. What is wrong is a boot that stops *moving*, so the clock
+     runs from the last step rather than from the start. */
+  var watch = setInterval(function () {
+    var box = document.getElementById('loading');
+    if (!box || box.className.indexOf('hidden') >= 0 || box.className.indexOf('out') >= 0) {
+      clearInterval(watch);
+      return;
+    }
+    if (+new Date() - movedAt > 15000) { clearInterval(watch); tell(null); }
+  }, 1000);
+})();
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

@@ -12,10 +12,15 @@ const fast = process.argv.includes('--fast');
    two marked slow are calibration runs that print tables rather than verdicts. */
 const SUITES = [
   ['origin', 'the questionnaire, its effects and the story spine'],
+  ['campaign', 'the campaign / encounter / battle spine and every road between'],
+  ['refit', 'upgrades that show on the ship, not just in the numbers'],
+  ['factions', 'two new powers: their water, their harbours, their yards'],
   ['systems', 'rules: contracts, discoveries, shoals, weight, time'],
   ['trade', 'the merchant road, upkeep and the way back from nothing'],
   ['shore', 'harbours built on land, and credit for shared kills'],
+  ['social', 'ports as places: notables, relationships, memory'],
   ['helm', 'the compass against the real projection, and every key'],
+  ['audio', 'the mixer under abuse: nothing clips, nothing goes NaN'],
   ['touch', 'taps, drags and pinches on the real canvas'],
   ['rig', 'the sails against the wind'],
   ['playthrough', 'the whole arc, driven through the real UI'],

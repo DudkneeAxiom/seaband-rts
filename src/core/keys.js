@@ -24,8 +24,12 @@ export const KEYMAP = [
   { keys: ['F'], what: 'Dock', group: 'Harbour' },
   { keys: ['M'], what: 'Ship’s log', group: 'Harbour' },
   { keys: ['P'], what: 'Pause', group: 'Time' },
-  { keys: ['[', ']'], what: 'Slower · faster', group: 'Time' },
+  { keys: ['[', ']'], what: 'Slower · faster (1× · 2× · 4×)', group: 'Time' },
 ];
+
+/** The notches on the clock. Not consecutive, so stepping walks the list. */
+export const SPEEDS = [0, 1, 2, 4];
+const clampIdx = i => Math.max(0, Math.min(SPEEDS.length - 1, i));
 
 /**
  * @param {object} api  everything the bindings are allowed to touch:
@@ -79,8 +83,9 @@ function tap(k, api, e) {
     case 'h': p.dest = null; p.headingCmd = p.yaw; p.throttle = 0; return true;
     case 'c': api.rig.azimuth = Math.PI + p.yaw; return true;
     case 'p': api.hud.setSpeed(g.speed === 0 ? 1 : 0); return true;
-    case '[': api.hud.setSpeed(Math.max(0, g.speed - 1)); return true;
-    case ']': api.hud.setSpeed(Math.min(2, g.speed + 1)); return true;
+    // the clock has four notches, not four consecutive integers: 0,1,2,4
+    case '[': api.hud.setSpeed(SPEEDS[clampIdx(SPEEDS.indexOf(g.speed) - 1)]); return true;
+    case ']': api.hud.setSpeed(SPEEDS[clampIdx(SPEEDS.indexOf(g.speed) + 1)]); return true;
     default: return false;
   }
 }

@@ -8,7 +8,9 @@
     "test": "node tools/all.mjs",
     "test:fast": "node tools/all.mjs --fast",
     "build": "node tools/build.mjs",
-    "bundle": "node tools/bundle.mjs",
+    "bundle": "node tools/bundle.mjs && node tools/single-check.mjs",
+    "bundle:only": "node tools/bundle.mjs",
+    "test:single": "node tools/single-check.mjs",
     "sweep": "node tools/sweep.mjs desktop",
     "setup": "npm install && npx playwright install chromium"
   },

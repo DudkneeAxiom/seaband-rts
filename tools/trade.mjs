@@ -1,6 +1,6 @@
 /* The merchant road: can a captain who never fires a gun make a living,
    and can a captain who has run out of everything get going again? */
-import { launch, sleep, newVoyage, dismissModal, waitFor } from './qa.mjs';
+import { launch, sleep, newVoyage, dismissModal, waitFor, goPortTab } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -173,11 +173,15 @@ const food = await G(() => {
   // rather than a stopwatch on a random process, so the number is stable.
   const crewDry = p.crewTotal;
   for (let i = 0; i < 600; i++) { g.update(1); quiet(); }
+  const crewAfterTen = p.crewTotal;
+  // and then starve her long past any reasonable window, to see the floor hold
+  let lowest = p.crewTotal;
+  for (let i = 0; i < 5400; i++) { g.update(1); quiet(); lowest = Math.min(lowest, p.crewTotal); }
   return {
     start, minutesOfFood: +(ranDry / 60).toFixed(1), crew0,
-    crewAfter: p.crewTotal, hungry: +p.hungry.toFixed(2),
-    lostInTenMin: crewDry - p.crewTotal, crewDry,
-    skillWhenStarving: +p.crewSkill('sail').toFixed(2),
+    hungry: +p.hungry.toFixed(2), skillWhenStarving: +p.crewSkill('sail').toFixed(2),
+    crewDry, crewAfterTen, lostInTenMin: crewDry - crewAfterTen,
+    lowest, crewMin: p.cls.crewMin, aliveAfter: p.alive,
   };
 });
 await G(() => {                       // victualled again for what follows
@@ -188,17 +192,43 @@ ok(`a full victualling lasts a passage (${food.start} provisions = ${food.minute
   food.minutesOfFood > 12);
 ok(`empty barrels wear the crew down before they kill anyone (hunger ${food.hungry}, skill x${(1 - 0.35 * food.hungry).toFixed(2)})`,
   food.hungry > 0.8);
+/* Deaths are a coin toss every second (0.8%/s above 0.85 hunger), so ten
+   minutes is a random variable with a mean near 5, not a fixed number: an
+   assertion pinned to the mean fails on an unlucky roll. 12 is four standard
+   deviations out and still far short of "the whole company", which is what
+   this is really guarding. The floor below is the deterministic half — the
+   game refuses to take the last hands, so a starving ship can always be
+   sailed home, however the dice fall. */
 ok(`ten minutes of empty barrels costs ${food.lostInTenMin} of ${food.crewDry} hands, not the whole company`,
-  food.lostInTenMin <= 8 && food.crewAfter > food.crewDry / 2);
+  food.lostInTenMin <= 12);
+ok(`and ninety more never strip her below a working watch (${food.lowest} hands at the worst, minimum ${food.crewMin})`,
+  food.lowest >= food.crewMin && food.aliveAfter);
 
 /* ---------- a harbour is a refuge ---------- */
 const refuge = await G(() => {
   const g = window.__game, p = g.player;
   const out = [];
+  /* Lay the raider in the approach, not on the breakwater. Due east of the
+     harbour used to do, back when every port was an open roadstead; Greywake
+     is walled and Tideglass sits inside a reef, so a fixed bearing puts her
+     hard aground and a ship that cannot move cannot sheer off — which would
+     have failed this check for a reason that has nothing to do with it.
+     So: the bearing with water under it at 150m *and* a clear way out at 260m,
+     which is where a raider standing off a harbour would actually be. */
+  const layOff = port => {
+    let best = null;
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 24) {
+      const at = r => window.__terrain.depthAt(port.x + Math.sin(a) * r, port.z + Math.cos(a) * r);
+      const score = Math.min(at(150), at(200), at(260));
+      if (!best || score > best.score) best = { a, score };
+    }
+    return { x: port.x + Math.sin(best.a) * 150, z: port.z + Math.cos(best.a) * 150, water: Math.round(best.score) };
+  };
   for (const port of g.PORTS) {
     p.x = port.x; p.z = port.z; p.speed = 0; p.dest = null;
     const pir = g.ships.find(s => s.faction === 'pirate' && s.alive) || g.spawnNPC('pirate');
-    pir.x = port.x + 120; pir.z = port.z; pir.hostileToPlayer = true;
+    const lay = layOff(port);
+    pir.x = lay.x; pir.z = lay.z; pir.hostileToPlayer = true;
     pir.target = p; pir.alive = true;
     g.update(0.1);
     const chased = !!g.dockablePort;
@@ -208,13 +238,15 @@ const refuge = await G(() => {
     const d0 = Math.hypot(before.x - port.x, before.z - port.z);
     const d1 = Math.hypot(pir.x - port.x, pir.z - port.z);
     pir.x = 9e4; pir.z = 9e4; pir.hostileToPlayer = false; pir.target = null;
-    out.push({ port: port.name, chased, sheeredOff: d1 > d0 + 10, state: pir.brain.state });
+    out.push({ port: port.name, chased, water: lay.water,
+      sheeredOff: d1 > d0 + 10, moved: Math.round(d1 - d0), state: pir.brain.state });
   }
   return out;
 });
 for (const r of refuge) {
   ok(`you can put into ${r.port} with a raider on your tail`, r.chased);
-  ok(`and she sheers off rather than follow you under the guns of ${r.port}`, r.sheeredOff);
+  ok(`and she sheers off rather than follow you under the guns of ${r.port} (${r.moved >= 0 ? '+' : ''}${r.moved}m, ${r.state}, ${r.water}m under her)`,
+    r.sheeredOff);
 }
 
 /* ---------- and a hostile alongside the quay still blocks it ---------- */
@@ -272,13 +304,262 @@ if (!dockUp) {
 }
 await page.click('.act-btn.dock');
 await sleep(900);
+/* Ilo Vantu opens on the town now, not on a counter — so go to the quay, the
+   way a player does. The board is what is under test, not where it lives. */
+await goPortTab(page, 'HARBOUR');
 const uiOffer = await page.evaluate(() => {
   const rows = [...document.querySelectorAll('#sheet-content .row')];
   const hit = rows.filter(r => /Advance/.test(r.textContent));
   return { offers: hit.length, text: hit[0] ? hit[0].textContent.replace(/\s+/g, ' ').trim().slice(0, 110) : '' };
 });
 ok(`the harbourmaster's board shows the advance (${uiOffer.offers} offers)`, uiOffer.offers >= 3);
+
+/* ---------- a thumb faster than the screen cannot break the economy ----------
+
+   Every trade calls `refresh()`, which throws the row away and builds a new
+   one. A tap already on its way lands on the old node, and that handler used
+   to close over the quantities from when it was drawn — so selling sixteen
+   fish you no longer have ran `p.cargo.fish -= 16` on an entry deleted a
+   moment before. `undefined - 16` is NaN, `NaN <= 0` is false so it was never
+   cleaned up, and four steps later the hold, the purchase, the captain's coin
+   and Ilo Vantu's fish stock were all NaN for the rest of the voyage.
+
+   Staged as it actually happens: keep the button, let the game redraw around
+   it, and go on pressing the one you are holding. */
+/* Cargo aboard *before* the counter is drawn, or the row renders with an
+   empty hold, the SELL button is inert, and the check quietly measures
+   nothing — which is what it did first time round. */
+await G(() => { window.__game.player.cargo.fish = 12; });
+await goPortTab(page, 'HARBOUR');
+await sleep(200);
+await goPortTab(page, 'MARKET');
+await sleep(400);
+const stale = await G(() => {
+  const g = window.__game, p = g.player;
+  const port = g.inPort || g.PORTS[0];
+  const rows = [...document.querySelectorAll('#sheet-content .row')];
+  const row = rows.find(r => /fish/i.test(r.textContent));
+  if (!row) return { staged: false };
+  const sell = [...row.querySelectorAll('button')].find(b => /SELL/i.test(b.textContent));
+  if (!sell) return { staged: false };
+  const before = { coin: g.coin, stock: g.market.stock(port.id, 'fish') };
+  // the same node, thirty times, while the sheet rebuilds underneath it
+  for (let i = 0; i < 30; i++) { try { sell.click(); } catch (e) { void e; } }
+  const fin = v => Number.isFinite(v);
+  return {
+    staged: true, detached: !sell.isConnected,
+    coin: g.coin, cargo: p.cargo.fish === undefined ? 'gone' : p.cargo.fish,
+    cargoUsed: p.cargoUsed, cargoFree: p.cargoFree,
+    stock: g.market.stock(port.id, 'fish'),
+    buyPrice: g.market.buyPrice(port.id, 'fish'),
+    allFinite: fin(g.coin) && fin(p.cargoUsed) && fin(p.cargoFree)
+      && fin(g.market.stock(port.id, 'fish')) && fin(g.market.buyPrice(port.id, 'fish'))
+      && (p.cargo.fish === undefined || fin(p.cargo.fish)),
+    before, sold: 12 - (p.cargo.fish || 0),
+  };
+});
+ok(`hammering a stale SELL leaves the books straight (${stale.staged
+  ? `coin ◆${Math.round(stale.coin)}, hold ${stale.cargoUsed}, `
+    + `stock ${Math.round(stale.stock)}, buy ◆${stale.buyPrice}, ${stale.sold} sold `
+    + `off a ${stale.detached ? 'detached' : 'LIVE — bad staging'} button`
+  : 'could not stage'})`,
+  stale.staged && stale.detached && stale.sold > 0
+  && stale.allFinite && stale.coin >= 0 && stale.cargoUsed >= 0);
+
+await goPortTab(page, 'HARBOUR');
+await sleep(300);
+
 console.log(`  board reads: ${uiOffer.text}\n`);
+
+/* ---- buying does not throw you back to the top of the page ----
+   Reported from a desktop playtest: buying goods or recruiting from the
+   bottom of a long list scrolled the sheet back to the top, so every
+   purchase after the first meant scrolling down again. refresh() rebuilds
+   the tab, and the rebuild reset scrollTop unconditionally — correct when
+   you switch tabs, wrong when you are still on the one you were reading.
+   Driven through the real market: scroll down, press a real BUY, look. */
+/* A short window, so the goods list genuinely overflows. On a tall desktop
+   window the market fits and there is nothing to scroll — the check said so
+   rather than passing on an empty measurement. The mechanism under test does
+   not care about the viewport; it only needs one where scrollTop can be
+   non-zero. */
+const vpWas = page.viewportSize();
+await page.setViewportSize({ width: 900, height: 420 });
+await sleep(300);
+await page.evaluate(() => {
+  const tabs = [...document.querySelectorAll('#sheet-tabs .tab')];
+  const m = tabs.find(t => /MARKET/i.test(t.textContent));
+  if (m) m.click();
+});
+await sleep(500);
+const scrollKeep = await page.evaluate(async () => {
+  const c = document.getElementById('sheet-content');
+  if (!c) return { note: 'no sheet' };
+  c.scrollTop = c.scrollHeight;                     // all the way to the bottom
+  await new Promise(r => setTimeout(r, 120));
+  const before = c.scrollTop;
+  if (before < 20) return { note: 'list too short to scroll', before };
+  // the last BUY on the page — the row a player would actually be looking at
+  const buys = [...c.querySelectorAll('button')].filter(b => /^BUY/i.test(b.textContent.trim()));
+  const btn = buys[buys.length - 1];
+  if (!btn) return { note: 'no buy button', before };
+  btn.click();
+  await new Promise(r => setTimeout(r, 400));
+  return { before: Math.round(before), after: Math.round(c.scrollTop), buys: buys.length };
+});
+ok(`buying from the foot of the market leaves you where you were `
+  + `(${scrollKeep.note || `${scrollKeep.before}px -> ${scrollKeep.after}px`})`,
+!scrollKeep.note && Math.abs(scrollKeep.after - scrollKeep.before) < 40);
+
+/* And switching tabs still starts at the top, which is the behaviour the
+   unconditional reset was there for in the first place. */
+const scrollReset = await page.evaluate(async () => {
+  const c = document.getElementById('sheet-content');
+  c.scrollTop = c.scrollHeight;
+  await new Promise(r => setTimeout(r, 120));
+  const tabs = [...document.querySelectorAll('#sheet-tabs .tab')];
+  const other = tabs.find(t => !t.classList.contains('on'));
+  if (!other) return { note: 'only one tab' };
+  other.click();
+  await new Promise(r => setTimeout(r, 400));
+  return { top: Math.round(c.scrollTop), tab: other.textContent.trim() };
+});
+ok(`but changing tab starts at the top (${scrollReset.note || `${scrollReset.tab} at ${scrollReset.top}px`})`,
+  !!scrollReset.note || scrollReset.top === 0);
+if (vpWas) await page.setViewportSize(vpWas);
+await sleep(200);
+
+/* ---------- the merchant road as something you can rob ----------
+   Merchants used to be hulls with a role and an invented hold: what they
+   carried was rolled at the moment you took them, so there was nothing to
+   size up and no reason to prefer one to another. They carry a real
+   shipment now, and the escort follows from the manifest rather than from
+   a die — which is the whole point, because it makes the fat one on the
+   horizon the one with two sail around her. */
+const road = await G(() => {
+  const g = window.__game;
+  const out = { manifests: [], spread: [] };
+  for (const m of g.ships.filter(s => s.role === 'merchant')) {
+    out.manifests.push({
+      name: m.name, good: m.manifest && m.manifest.good,
+      amount: m.manifest && m.manifest.amount, value: m.manifest && m.manifest.value,
+      inHold: m.manifest ? (m.cargo[m.manifest.good] || 0) : 0,
+      to: m.manifest && m.manifest.to, from: m.manifest && m.manifest.from,
+      escorts: (m.escorts || []).filter(e => e.alive).length,
+    });
+  }
+  // and the rule that decides an escort, over enough rolls to see its shape
+  for (let i = 0; i < 60; i++) {
+    const m = g.spawnNPC('merchant');
+    if (!m) continue;
+    out.spread.push({ value: m.manifest ? m.manifest.value : 0, escorts: (m.escorts || []).length });
+    for (const e of (m.escorts || [])) g.removeShip(e, true);
+    g.removeShip(m, true);
+  }
+  return out;
+});
+ok(`every merchant is carrying a real shipment (${road.manifests.map(m => `${m.amount} ${m.good} ~◆${m.value}`).join(', ')})`,
+  road.manifests.length > 0 && road.manifests.every(m => m.good && m.amount > 0 && m.value > 0));
+ok('and what she is carrying is in her hold, not invented when you take her',
+  road.manifests.every(m => m.inHold === m.amount));
+ok('and she is bound somewhere other than where she loaded',
+  road.manifests.every(m => m.from && m.to && m.from !== m.to));
+
+const rich = road.spread.filter(s => s.value >= 1900);
+const poor = road.spread.filter(s => s.value < 900);
+const avg = a => (a.reduce((x, s) => x + s.escorts, 0) / Math.max(1, a.length));
+ok(`iron travels with the money (${poor.length} runs under ◆900 average ${avg(poor).toFixed(2)} escorts, `
+  + `${rich.length} over ◆1900 average ${avg(rich).toFixed(2)})`,
+poor.length > 0 && rich.length > 0 && avg(poor) < 0.4 && avg(rich) > 1.4);
+/* A range, not a jackpot: a hull carrying more than the ship is worth turned
+   every merchant on the sea into a prize with two brigs round her. */
+const vals = road.spread.map(s => s.value).sort((a, b) => a - b);
+ok(`and a shipment is worth about what a contract pays (◆${vals[0]} to ◆${vals[vals.length - 1]})`,
+  vals[0] > 100 && vals[vals.length - 1] < 3200);
+
+/* Robbing strangers is a living; robbing people who trusted you is a
+   reputation. Both cost, and the second costs more. */
+const price = await G(() => {
+  const g = window.__game;
+  const ms = g.ships.filter(s => s.role === 'merchant' && !s.hostileToPlayer);
+  if (ms.length < 2) return null;
+  const [a, b] = ms;
+  g.standing[a.faction] = 40;                       // a power that had come to trust you
+  const s0 = g.standing[a.faction], i0 = g.infamy;
+  g.provoke(a);
+  const friend = { standing: s0 - g.standing[a.faction], infamy: g.infamy - i0 };
+  g.standing[b.faction] = 0;                        // and one that had no opinion
+  const s1 = g.standing[b.faction], i1 = g.infamy;
+  g.provoke(b);
+  const stranger = { standing: s1 - g.standing[b.faction], infamy: g.infamy - i1 };
+  return { friend, stranger, escortsTurned: (a.escorts || []).filter(e => e.hostileToPlayer).length,
+    hadEscorts: (a.escorts || []).length };
+});
+ok(`firing on a merchant costs standing and infamy (${price ? `stranger −${price.stranger.standing} standing` : 'no pair to test'})`,
+  !!price && price.stranger.standing > 0 && price.stranger.infamy > 0);
+ok(`and costs more from a power that trusted you (friend −${price ? price.friend.standing : '?'} `
+  + `vs stranger −${price ? price.stranger.standing : '?'})`,
+!!price && price.friend.standing > price.stranger.standing);
+ok(`and her escort takes it personally (${price ? `${price.escortsTurned} of ${price.hadEscorts}` : '?'})`,
+  !!price && (price.hadEscorts === 0 || price.escortsTurned === price.hadEscorts));
+
+/* ---- last: clearing for action against a friend is what costs ----
+   Dead last in the file because it opens a real action, which changes the
+   world for anything after it.
+
+   The charge for attacking people who were not your enemies lived in the
+   damage callback, guarded on "she is not already hostile" — and a battle
+   flags every enemy hostile as it forms, before the first ball is in the
+   air. So the guard was always shut by the time it was asked: a captain
+   could clear for action against a friendly trader, shoot her rig off and
+   take her cargo without losing a point of standing with the power she
+   belonged to. Driven through the real chain — mark, close, contact,
+   FIGHT — because that is the only way the bug appears. */
+// this suite spends its life in harbour, and contact is refused in port or
+// with a screen open — so put her back to sea before asking for a fight
+await G(() => {
+  const g = window.__game;
+  document.getElementById('sheet').classList.add('hidden');
+  g.inPort = null; g.paused = false;
+});
+await sleep(300);
+const raid = await G(() => {
+  const g = window.__game, p = g.player;
+  p.x = 120; p.z = 60; p.dest = null; p.speed = 0; p.hull = p.hullMax;
+  let m = g.ships.find(s => s.role === 'merchant' && !s.hostileToPlayer);
+  for (let i = 0; i < 12 && !m; i++) m = g.spawnNPC('merchant');
+  if (!m) return null;
+  m.x = p.x + 120; m.z = p.z + 30;
+  for (const s of g.ships) {
+    if (s === m || s.isPlayer || (m.escorts || []).includes(s)) continue;
+    s.x += 3200; s.hostileToPlayer = false;
+  }
+  g.standing[m.faction] = 30;               // a power that had come to trust you
+  g.encounterCooling = 0; g.paused = false;
+  g.selectTarget(m);
+  return { name: m.name, faction: m.faction, standing: g.standing[m.faction], infamy: Math.round(g.infamy) };
+});
+if (raid) {
+  for (let i = 0; i < 60; i++) {
+    const mode = await G(() => { const g = window.__game; for (let k = 0; k < 30; k++) g.update(1 / 30); return g.mode; });
+    if (mode !== 'campaign') break;
+  }
+  await G(() => { const g = window.__game; if (g.mode === 'encounter') g.chooseEncounter('fight'); });
+  await waitFor(page, () => window.__game.mode === 'battle', 9000);
+  const after = await G(() => ({
+    mode: window.__game.mode,
+    standing: { ...window.__game.standing },
+    infamy: Math.round(window.__game.infamy),
+  }));
+  ok(`clearing for action on a friendly trader costs her power's good opinion `
+    + `(${raid.faction} ${raid.standing} -> ${after.standing[raid.faction]}, infamy ${raid.infamy} -> ${after.infamy}, ${after.mode})`,
+  after.mode === 'battle' && after.standing[raid.faction] < raid.standing && after.infamy > raid.infamy);
+  await G(() => { const g = window.__game; if (g.battle) g.battle.finish('fled'); });
+} else {
+  ok('clearing for action on a friendly trader costs her power\'s good opinion', false);
+}
+
+
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');

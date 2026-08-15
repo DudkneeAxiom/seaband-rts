@@ -1,11 +1,16 @@
 /* HUD layout audit: measures every visible control across viewports and
    reports anything that overflows the screen, overlaps another control,
    or is smaller than a comfortable touch target. */
-import { launch, sleep, ff, newVoyage, VIEWPORTS } from './qa.mjs';
+import { launch, sleep, ff, newVoyage, dismissModal, waitFor, VIEWPORTS } from './qa.mjs';
 
 const TARGETS = [
   '#topbar', '#compass', '#leftstack', '#shipstatus', '#speedctl', '#actions',
   '#fleetbar', '#targetcard', '#hint', '#objective', '#paused-badge', '#objptr',
+  /* The three panels the audit could not see. #pursuit and #targetcard were
+     pinned to the same corner at the same height and drew straight over one
+     another for as long as the pursuit panel has existed; neither this list
+     nor any assertion ever looked. A tester's screenshot found it. */
+  '#pursuit', '#battlebar', '#notices',
   '.act-btn.fire', '.act-btn.board', '.act-btn.dock', '.tc-close',
   '#ammo-strip', '.fleet-btn', '.spd', '#btn-menu',
 ];
@@ -16,23 +21,70 @@ for (const vp of Object.keys(VIEWPORTS)) {
   const { browser, page } = await launch(vp);
   await sleep(900);
   await newVoyage(page);
-  // force the busiest possible HUD: target + board + dock + fleet + hint + objective
-  await page.evaluate(() => {
-    const g = window.__game;
-    g.player.x = -190; g.player.z = 400; g.player.speed = 0;
-    const pir = g.ships.find(s => s.faction === 'pirate' && s.alive);
+  /* The opening scene is a modal, and a modal holds the world: no simulation
+     runs, so nothing recomputes who is chasing you and the HUD has nothing
+     new to draw. Every other suite closes it; this one never did, which is
+     why its screen was empty and its verdict meaningless. */
+  await dismissModal(page);
+  /* Force the busiest HUD there is, and check afterwards that it is actually
+     up. This staged a hostile twenty-four metres off, which is inside contact
+     range: the encounter opened, the target was cleared, the world paused,
+     and the audit spent five viewports measuring an empty screen while
+     reporting no overlaps. It is the pursuit panel and the target card that
+     collide, and neither was ever on screen to be measured. */
+  const staged = await page.evaluate(() => {
+    const g = window.__game, p = g.player;
+    p.x = -190; p.z = 400; p.speed = 0;
+    /* Close enough to be committed and closing, far enough that she does not
+       come aboard us mid-measurement and stop the world. */
+    let pir = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+    for (let i = 0; i < 20 && !pir; i++) pir = g.spawnNPC('pirate');
     if (pir) {
-      pir.x = g.player.x + 24; pir.z = g.player.z + 4; pir.speed = 0;
-      pir.sails = pir.sailMax * 0.2; pir.hostileToPlayer = true;
+      pir.x = p.x + 260; pir.z = p.z + 40; pir.speed = 6;
+      pir.sails = pir.sailMax;
+      pir.hostileToPlayer = true; pir.target = p; pir.chaseHold = 0; pir.fleeing = false;
       g.selectTarget(pir);
     }
-    const con = g.ships.find(s => s.role === 'merchant');
-    if (con) { con.faction = 'player'; con.role = 'consort'; con.formSlot = 1; g.fleet.push(con); }
+    g.encounterCooling = 900;      // no contact while we are measuring
+    let con = g.ships.find(s => s.role === 'merchant' && !g.fleet.includes(s));
+    if (!con) con = g.ships.find(s => !s.isPlayer && s.alive && !g.fleet.includes(s) && s !== pir);
+    if (con) {
+      con.faction = 'player'; con.role = 'consort'; con.formSlot = 1;
+      con.x = p.x + 40; con.z = p.z + 30;
+      g.fleet.push(con);
+    }
+    return { pir: !!pir, con: !!con };
   });
-  await ff(page, 1.5);
-  await page.evaluate(() => {
-    window.__hint && window.__hint();
+
+  /* Hold the pose while the tape measure is out, and let the world turn over
+     enough to notice her. A raider chasing a fleet of two may decide she is
+     outmatched and break off, which is the AI being right and the panel
+     correctly going away — but this is a layout audit, and what these look
+     like when they are up is the whole question. */
+  const hold = () => page.evaluate(() => {
+    const g = window.__game;
+    const pir = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+    if (pir) {
+      pir.hostileToPlayer = true; pir.target = g.player;
+      pir.fleeing = false; pir.chaseHold = 0;
+    }
+    g.encounterCooling = 900;
   });
+  await hold();
+  await ff(page, 1);
+  await hold();
+
+  /* And wait for the HUD to draw rather than sleeping and hoping: ff()
+     advances the simulation, the panels are redrawn by the render loop, and
+     at software-GL frame rates a couple of hundred milliseconds can be no
+     frames at all. */
+  await waitFor(page, () => {
+    const seen = id => {
+      const n = document.getElementById(id);
+      return !!n && !n.classList.contains('hidden') && n.getBoundingClientRect().width > 1;
+    };
+    return seen('targetcard') && seen('fleetbar') && seen('pursuit');
+  }, 20000);
   // Two passes, because a hint and the objective chip are never lit together:
   //   A = a hint is up (the objective chip is muted, as hint() does)
   //   B = no hint, the objective chip is showing
@@ -57,7 +109,7 @@ for (const vp of Object.keys(VIEWPORTS)) {
         if (r.width < 1 || r.height < 1) continue;
         const cs = getComputedStyle(n);
         if (cs.display === 'none' || +cs.opacity < 0.05 || cs.visibility === 'hidden') continue;
-        boxes.push({ sel: s, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
+        boxes.push({ sel: s, node: n, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
       }
     }
     const problems = [];
@@ -75,6 +127,11 @@ for (const vp of Object.keys(VIEWPORTS)) {
     for (let i = 0; i < panels.length; i++) {
       for (let j = i + 1; j < panels.length; j++) {
         const a = panels[i], b = panels[j];
+        /* A panel sitting inside another panel is not two things colliding,
+           it is one thing containing the other — which is exactly what the
+           fleet bar does in the left-hand column on a narrow screen. The
+           selector list above was approximating this rule; ask the DOM. */
+        if (a.node.contains(b.node) || b.node.contains(a.node)) continue;
         const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
         const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
         if (ox > 6 && oy > 6) problems.push(`OVERLAP ${a.sel} x ${b.sel} (${ox}x${oy}px)`);
@@ -84,7 +141,8 @@ for (const vp of Object.keys(VIEWPORTS)) {
     const dbg = { notices: nt.className, top: getComputedStyle(nt).top,
                   card: document.getElementById('targetcard').className,
                   hintCls: document.getElementById('hint').className };
-    return { W, H, boxes, problems, dbg };
+    // nodes cannot cross back out of the page, and nothing outside wants them
+    return { W, H, boxes: boxes.map(({ node, ...b }) => b), problems, dbg };
   };
 
   let res = null;
@@ -99,7 +157,26 @@ for (const vp of Object.keys(VIEWPORTS)) {
     for (const p of r.problems) allProblems.push(`[${key}] ${p}`);
   }
 
-  console.log(`\n== ${vp}  ${res.W}x${res.H} ==`);
+  /* A clean sheet is only worth anything if the sheet was full. */
+  const up = await page.evaluate(() => {
+    const seen = id => {
+      const n = document.getElementById(id);
+      return !!n && !n.classList.contains('hidden') && n.getBoundingClientRect().width > 1;
+    };
+    const g = window.__game;
+    return {
+      pursuit: seen('pursuit'), target: seen('targetcard'), fleet: seen('fleetbar'),
+      why: `mode ${g.mode}, pursuit ${g.pursuit ? 'set' : 'none'}, target `
+        + `${g.target ? g.target.name : 'none'}, fleet ${g.fleet.length}, paused ${g.paused}`,
+    };
+  });
+  const missing = ['pursuit', 'target', 'fleet'].filter(k => !up[k]);
+  if (missing.length) {
+    bad++;
+    console.log(`\n   !! NOTHING TO MEASURE: ${missing.join(', ')} never came up — ${up.why}`);
+  }
+
+  console.log(`\n== ${vp}  ${res.W}x${res.H} ==  staged ${JSON.stringify(staged)}`);
   for (const b of res.boxes) console.log(`   ${b.sel.padEnd(16)} ${String(b.x).padStart(5)},${String(b.y).padStart(4)}  ${b.w}x${b.h}`);
   const uniq = [...new Set(allProblems)];
   if (uniq.length) { bad += uniq.length; uniq.forEach(p => console.log('   !! ' + p)); }

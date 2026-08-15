@@ -18,15 +18,66 @@ const until = async (fn, ms = 8000) => {
 const modalUp = () => until(() => !document.getElementById('modal').classList.contains('hidden'));
 /* A chapter closes when the guns are quiet, which may be a few seconds after
    the deed — so run the world on rather than assuming an instant scene. */
+/** Why the last wait gave up, for a failure that explains itself. */
+let lastStall = null;
 const ffUntilModal = async (max = 45) => {
+  /* If one is still up, this returns instantly on the stale scene and every
+     chapter after it reads the wrong card — which is exactly how this suite
+     failed under load, reporting chapter one's title six chapters later.
+     A scene has to be closed before we can wait for the next one. */
+  const stale = await page.evaluate(() => !document.getElementById('modal').classList.contains('hidden'));
+  if (stale) await dismiss();
+  /* And give it the quiet it insists on. A scene never interrupts a fight, and
+     "a fight" includes any hostile within 420 — so one raider loitering nearby
+     holds the whole story indefinitely and this waits forty-five seconds for a
+     card that was never going to come. The suite is testing whether the deed
+     closes the chapter, not whether the game is polite about timing. */
+  const quiet = () => page.evaluate(() => {
+    const g = window.__game;
+    for (const s of g.ships) {
+      if (s.isPlayer || g.fleet.includes(s)) continue;
+      if (s.nemesisId || s.isSant) continue;          // the story's own quarry stays
+      s.x = 9e4; s.z = 9e4; s.hostileToPlayer = false; s.target = null;
+    }
+    g.combatHeat = 0;
+  });
   for (let t = 0; t < max; t += 3) {
+    // held for the whole wait, not set once: the world keeps its traffic topped
+    // up, and a freshly spawned raider closing inside 420 puts the story back
+    // on hold — forty-five seconds is plenty of time for that to happen
+    await quiet();
     await ff(page, 3);
     if (await page.evaluate(() => !document.getElementById('modal').classList.contains('hidden'))) return true;
   }
+  /* Say why. A scene that never came leaves the previous card's text in the
+     DOM, so every assertion downstream reports the wrong title and none of
+     them says what actually went wrong. */
+  lastStall = await page.evaluate(() => {
+    const g = window.__game, ch = g.currentChapter;
+    return {
+      chapter: g.chapter, id: ch && ch.id, done: ch ? !!ch.done(g) : null,
+      sheet: !document.getElementById('sheet').classList.contains('hidden'),
+      boardings: g.boardings.length, engaged: g.engaged, gameOver: g.gameOver,
+    };
+  });
   return false;
 };
-/* dismiss it the way a player does */
-const dismiss = async () => { await page.click('#modal-actions .btn'); await sleep(300); };
+/* Dismiss it the way a player does, and make sure it went. The story will not
+   advance while a scene is open, so a dismiss that quietly failed stalls
+   everything after it — a fixed sleep here was not proof of anything. */
+const dismiss = async () => {
+  /* Wait for a scene with a button on it before reaching for the button. A
+     single isVisible() at the wrong instant reports nothing there, and then
+     this returns without clicking and leaves the scene standing — which the
+     next wait reads as its own card. */
+  const ready = await until(() => {
+    const m = document.getElementById('modal');
+    return !m.classList.contains('hidden') && !!document.querySelector('#modal-actions .btn');
+  }, 4000);
+  if (!ready) return false;
+  await page.click('#modal-actions .btn');
+  return until(() => document.getElementById('modal').classList.contains('hidden'), 6000);
+};
 
 await sleep(1000);
 await page.click('#btn-new');
@@ -194,10 +245,20 @@ const story = await page.evaluate(() => {
 });
 ok(`the voyage opens on chapter one ("${story.title}")`, story.chapter === 0 && /Ilo Vantu/.test(story.obj));
 
-// dock, and the first chapter closes with its own scene
+/* Dock, and the first chapter closes with its own scene.
+   Through the game's own `enterPort` — the call the DOCK button makes — rather
+   than by setting `hintState.docked` by hand. The chapter names Ilo Vantu and
+   now checks for Ilo Vantu, so a fabricated "docked somewhere" flag no longer
+   stands for having been there; and faking the flag was the thing this repo's
+   own rules tell you not to do. */
 await page.evaluate(() => {
   const g = window.__game;
-  g.hintState.docked = 1;
+  const port = g.PORTS.find(p => p.id === 'ilovantu');
+  g.player.x = port.x; g.player.z = port.z; g.player.speed = 0;
+  g.enterPort(port);
+  g.leavePort();
+  document.getElementById('sheet').classList.add('hidden');
+  g.paused = false;
 });
 await ffUntilModal();
 const ch1 = await page.evaluate(() => ({
@@ -207,7 +268,8 @@ const ch1 = await page.evaluate(() => ({
   open: !document.getElementById('modal').classList.contains('hidden'),
   paused: window.__game.paused,
 }));
-ok(`making port closes chapter one ("${ch1.title}")`, ch1.open && ch1.chapter === 1 && ch1.title === 'Ship’s Stores');
+ok(`making port closes chapter one ("${ch1.title}", chapter ${ch1.chapter}, open ${ch1.open}${lastStall ? ', stalled ' + JSON.stringify(lastStall) : ''})`,
+  ch1.open && ch1.chapter === 1 && ch1.title === 'Ship’s Stores');
 ok('and the scene previews what comes next', /purse|harbourmaster/i.test(ch1.text));
 ok('the world holds still while you read', ch1.paused);
 await shot(page, 'origin-chapter');
@@ -341,6 +403,54 @@ const reach = await page.evaluate(async () => {
   return r.bottom <= window.innerHeight + 1 && r.top >= 0;
 });
 ok('MAKE SAIL can always be scrolled to', reach);
+
+/* ---- a chapter closes on the deed it names, and on nothing else ----
+
+   Reported: the story "feels random and just like a pop up after completing
+   normal gameplay". Three of the six chapters were closing on something other
+   than what they described, and the early three at that — the ones a new
+   captain meets:
+
+     "Make Ilo Vantu and dock"                closed on docking anywhere
+     "Find a Tally raider — black hull"       closed on taking any hull at all
+     "board her, and keep her"                closed on any second ship
+
+   So taking a Compact trader printed "One Tally hull fewer", and putting into
+   Marasay closed a chapter that had asked for Ilo Vantu. A story that fires on
+   deeds you did not do is a story that reads as a pop-up watching you play. */
+const spine = await page.evaluate(async () => {
+  const O = await import('/src/data/origins.js');
+  const g = window.__game;
+  const CH = O.CHAPTERS;
+  const ch = id => CH.find(c => c.id === id);
+  const clean = () => {
+    g.hintState = {};
+    g.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0, tally: 0 };
+    g.quests = [];
+    while (g.fleet.length > 1) g.fleet.pop();
+  };
+  const ask = (id, set) => { clean(); set(); return !!ch(id).done(g); };
+  const out = {
+    storesWrongPort: ask('stores', () => { g.hintState.docked = 1; g.hintState.port_marasay = 1; }),
+    storesRightPort: ask('stores', () => { g.hintState.docked = 1; g.hintState.port_ilovantu = 1; }),
+    bloodAnyHull: ask('blood', () => { g.stats.captured = 1; g.stats.sunk = 1; }),
+    bloodTally: ask('blood', () => { g.stats.tally = 1; }),
+    consortBought: ask('consort', () => { g.fleet.push(g.player); }),
+    consortTaken: ask('consort', () => { g.fleet.push(g.player); g.stats.captured = 1; }),
+  };
+  clean();
+  return out;
+});
+ok(`"Make Ilo Vantu and dock" wants Ilo Vantu (elsewhere ${spine.storesWrongPort ? 'CLOSES IT' : 'does not'}, `
+  + `Ilo Vantu ${spine.storesRightPort ? 'does' : 'DOES NOT'})`,
+  !spine.storesWrongPort && spine.storesRightPort);
+ok(`"Find a Tally raider" wants a Tally (any hull ${spine.bloodAnyHull ? 'CLOSES IT' : 'does not'}, `
+  + `a Tally ${spine.bloodTally ? 'does' : 'DOES NOT'})`,
+  !spine.bloodAnyHull && spine.bloodTally);
+ok(`"board her, and keep her" wants her boarded (a second hull alone `
+  + `${spine.consortBought ? 'CLOSES IT' : 'does not'}, one taken ${spine.consortTaken ? 'does' : 'DOES NOT'})`,
+  !spine.consortBought && spine.consortTaken);
+
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');

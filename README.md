@@ -360,6 +360,19 @@ node tools/single-check.mjs        # 7 checks: the one-file build, run from file
 node tools/rig.mjs                 # 7 checks: sails brace and belly the right way
 ```
 
+### Continuous integration
+
+`.github/workflows/tests.yml` runs `npm run test:fast` on every pull request into
+`main`, and on `main` itself. It installs Playwright's Chromium — cached against
+the lockfile — and drives the same suites you run locally, in the same software
+renderer. A run takes six or seven minutes. When something fails, the
+screenshots the suites wrote are attached to the run as an artifact, because the
+picture is usually more use than the assertion that caught it.
+
+The two calibration runs (`gunnery`, `world`) are skipped there: they print
+tables to be read rather than verdicts to be checked, and each costs minutes.
+Run `npm test` locally when you have changed anything they measure.
+
 Current results:
 
 | Suite | Result |

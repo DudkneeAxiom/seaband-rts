@@ -7,7 +7,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-const PORT = +(process.argv[2] || process.env.PORT || 8080);
+/* argv[2] is a port only when this file is the program. `node tools/all.mjs
+   --fast` imports us with somebody else's arguments, and +('--fast') is NaN,
+   which listen() rejects — so check who is running before reading them. */
+const IS_ENTRY = import.meta.url === pathToHref(process.argv[1]);
+const PORT = +((IS_ENTRY && process.argv[2]) || process.env.PORT || 8080);
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -48,7 +52,7 @@ export async function isUp(port = PORT) {
   } catch { return false; }
 }
 
-if (import.meta.url === pathToHref(process.argv[1])) {
+if (IS_ENTRY) {
   await serve(PORT);
   console.log(`Salt & Tally — http://localhost:${PORT}`);
   console.log('Ctrl-C to stop.');

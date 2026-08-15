@@ -1,14 +1,100 @@
 /* ===========================================================
    Procedural audio — no asset files.
    Layered ambience (swell, wind, gulls, hull creak), one-shot
-   effects, and a sparse generative score in D dorian.
+   effects, and the adaptive score that lives in music.js.
    =========================================================== */
+import { initMusic, musicUpdate, musicEvent, musicState } from './music.js';
 
 let ctx = null, master = null, ambBus = null, sfxBus = null, musBus = null;
-let started = false, muted = false;
+let started = false, muted = false, soloed = false;
 let waveLFO = null, windGain = null, waveGain = null;
-let gullTimer = 0, creakTimer = 0, musicTimer = 0, harbourGain = null;
-let noiseBuf = null;
+let gullTimer = 0, creakTimer = 0, quayTimer = 0, harbourGain = null;
+let noiseBuf = null, echoIn = null, probe = null;
+
+/* A broadside is one call per gun, and a fleet action is several broadsides
+   at once. Past a couple of dozen simultaneous voices the mix is mud and the
+   audio thread starts missing its deadline, which is what actually makes the
+   harsh noise — so count them and drop the ones nobody would hear anyway. */
+const MAX_VOICES = 24;
+let voices = 0;
+function voice(seconds) {
+  if (voices >= MAX_VOICES) return false;
+  voices++;
+  setTimeout(() => { voices--; }, Math.max(1, seconds * 1000));
+  return true;
+}
+
+/* ---------------- the mixer the player owns ----------------
+
+   Ambience used to sit at 0.55 against music at 0.30 — the sea was very
+   nearly twice the score, which is why a tune written to be listened to
+   arrived as something happening behind the weather. The defaults now put
+   the score above the sea, and the player can move any of it.
+
+   Levels persist, because a mix you have to set again every session is not
+   really a setting. Anything unreadable falls back to the defaults rather
+   than muting the game. */
+const MIX_KEY = 'salt-and-tally-mix';
+const MIX_DEF = { master: 0.75, music: 0.52, amb: 0.40, sfx: 0.85 };
+const mix = { ...MIX_DEF };
+function loadMix() {
+  try {
+    const j = JSON.parse(localStorage.getItem(MIX_KEY) || 'null');
+    if (j) for (const k in MIX_DEF) {
+      if (typeof j[k] === 'number' && Number.isFinite(j[k])) mix[k] = Math.min(1, Math.max(0, j[k]));
+    }
+  } catch (e) { void e; }
+}
+function saveMix() {
+  try { localStorage.setItem(MIX_KEY, JSON.stringify(mix)); } catch (e) { void e; }
+}
+/** The four faders, for the settings screen. */
+export function getMix() { return { ...mix }; }
+export function mixDefaults() { return { ...MIX_DEF }; }
+/** Move one fader. Ramped, never stepped — a jump on a live bus clicks. */
+export function setMixLevel(k, v) {
+  if (!(k in mix)) return;
+  mix[k] = num(v, MIX_DEF[k], 0, 1);
+  saveMix();
+  if (!started) return;
+  const t = ctx.currentTime;
+  if (k === 'master') { if (!muted) master.gain.setTargetAtTime(mix.master, t, 0.05); }
+  else if (k === 'music' && !soloed) musBus.gain.setTargetAtTime(mix.music, t, 0.05);
+  else if (k === 'amb' && !soloed) ambBus.gain.setTargetAtTime(mix.amb, t, 0.05);
+  else if (k === 'sfx') sfxBus.gain.setTargetAtTime(mix.sfx, t, 0.05);
+}
+
+/* Every number that reaches an AudioParam goes through here first.
+
+   This is not defensive tidiness. A NaN written to a gain or a frequency does
+   not merely spoil one voice: it propagates into the internal state of every
+   filter and compressor downstream, and those never recover — the graph
+   screams until the page is reloaded. One bad distance from one bad frame is
+   enough. So nothing reaches a param without being finite and in range. */
+function num(v, fallback, lo, hi) {
+  const n = (typeof v === 'number' && Number.isFinite(v)) ? v : fallback;
+  return Math.min(hi, Math.max(lo, n));
+}
+/** Gains for exponential ramps must be positive and non-zero, never 0. */
+function gainOf(v, hi = 1) { return num(v, 0.02, 0.0002, hi); }
+
+/**
+ * How loud something that far away should be, and zero once it is somebody
+ * else's business entirely.
+ *
+ * Everything used to have a volume floor instead of a cutoff, so a boarding
+ * or a broadside on the far side of the shoals arrived at the same level as
+ * one alongside — and the world simulates those whether you are watching or
+ * not. Out past `far` you hear nothing, which is both correct and what keeps
+ * the voice count for things actually happening to you.
+ */
+function atten(dist, near, far) {
+  const d = num(dist, 0, 0, 1e6);
+  if (d >= far) return 0;
+  if (d <= near) return 1;
+  const t = 1 - (d - near) / (far - near);
+  return t * t;                       // falls away quickly, then tails off
+}
 
 export const audio = {
   get ready() { return started && !!ctx; },
@@ -39,9 +125,27 @@ export function initAudio() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
   ctx = new AC();
-  master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+  loadMix();
+  master = ctx.createGain(); master.gain.value = mix.master;
+  /* Everything is synthesised live and a broadside can stack a dozen voices in
+     one frame, which clips the sum into a fizzing mess.
+
+     A compressor alone does not settle this: at a 4ms attack the front of a
+     transient is already through before it acts, and a fleet action measured
+     1.076 at the destination — past full scale, which is distortion, which is
+     exactly the harshness this is meant to prevent. So: a lower threshold, a
+     fast attack, and a fixed ceiling behind it. The headroom costs a little
+     loudness and buys a mix that cannot be made to spit. */
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -16; limiter.knee.value = 4;
+  limiter.ratio.value = 20; limiter.attack.value = 0.001; limiter.release.value = 0.14;
+  const ceiling = ctx.createGain(); ceiling.gain.value = 0.82;
+  master.connect(limiter); limiter.connect(ceiling); ceiling.connect(ctx.destination);
+  // a tap on the very end of the chain, so a test can see what the ear gets
+  probe = ctx.createAnalyser(); probe.fftSize = 2048;
+  ceiling.connect(probe);
   ambBus = ctx.createGain(); ambBus.gain.value = 0.0; ambBus.connect(master);
-  sfxBus = ctx.createGain(); sfxBus.gain.value = 0.85; sfxBus.connect(master);
+  sfxBus = ctx.createGain(); sfxBus.gain.value = mix.sfx; sfxBus.connect(master);
   musBus = ctx.createGain(); musBus.gain.value = 0.0; musBus.connect(master);
 
   // --- swell ---
@@ -69,9 +173,29 @@ export function initAudio() {
   harbourGain = ctx.createGain(); harbourGain.gain.value = 0;
   n3.connect(hb); hb.connect(harbourGain); harbourGain.connect(ambBus); n3.start();
 
+  /* One echo line for the whole score. A delay inside a feedback loop is a
+     cycle, and every node in a cycle has an incoming connection, so nothing in
+     it is ever collected — building a fresh one per note leaked a live delay
+     line every couple of seconds until the audio thread was carrying hundreds
+     of them and started to screech. Build it once, send the notes to it. */
+  echoIn = ctx.createGain(); echoIn.gain.value = 0.34;
+  const dl = ctx.createDelay(1); dl.delayTime.value = 0.34;
+  const fb = ctx.createGain(); fb.gain.value = 0.30;
+  const tame = ctx.createBiquadFilter();          // each repeat duller than the last
+  tame.type = 'lowpass'; tame.frequency.value = 2200;
+  echoIn.connect(dl); dl.connect(tame); tame.connect(fb); fb.connect(dl); dl.connect(musBus);
+
   started = true;
-  ambBus.gain.setTargetAtTime(0.55, ctx.currentTime, 2.5);
-  musBus.gain.setTargetAtTime(0.30, ctx.currentTime, 4);
+  ambBus.gain.setTargetAtTime(mix.amb, ctx.currentTime, 2.5);
+  musBus.gain.setTargetAtTime(mix.music, ctx.currentTime, 4);
+
+  /* The score gets the graph on loan — the context, its bus, the shared echo
+     line, and the same guards every param here goes through. Music can never
+     be the reason the game fails to load: if anything in there throws, the
+     mixer keeps running and the world stays playable. */
+  try {
+    initMusic({ ctx, musBus, echoIn, num, gainOf, noiseSrc: src });
+  } catch (e) { console.warn('music controller failed to start', e); }
 }
 
 export function resumeAudio() {
@@ -79,43 +203,173 @@ export function resumeAudio() {
 }
 export function toggleMute() {
   muted = !muted;
-  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.9, ctx.currentTime, 0.1);
+  if (master) master.gain.setTargetAtTime(muted ? 0 : mix.master, ctx.currentTime, 0.1);
   return muted;
 }
 
 /* ---------------- ambience driving ---------------- */
 export function updateAudio(dt, st) {
-  if (!started) return;
+  if (!started || !st) return;
   const t = ctx.currentTime;
-  if (waveGain) waveGain.gain.setTargetAtTime(0.34 + st.speedN * 0.30 + st.shallow * 0.18, t, 0.6);
-  if (windGain) windGain.gain.setTargetAtTime(0.06 + st.speedN * 0.09, t, 0.8);
-  if (harbourGain) harbourGain.gain.setTargetAtTime(st.nearPort * 0.30, t, 1.2);
+  /* This is the one path where the world writes into the audio graph every
+     frame, so it is the one place a stray NaN — an unplaced ship, a divide by
+     a zero-length voyage — would get in and stay in. Everything is coerced. */
+  const speedN = num(st.speedN, 0, 0, 1);
+  const shallow = num(st.shallow, 0, 0, 1);
+  const nearShore = num(st.nearShore, 0, 0, 1);
+  const nearPort = num(st.nearPort, 0, 0, 1);
+  const step = num(dt, 0, 0, 1);
 
-  gullTimer -= dt;
+  if (waveGain) waveGain.gain.setTargetAtTime(0.34 + speedN * 0.30 + shallow * 0.18, t, 0.6);
+  if (windGain) windGain.gain.setTargetAtTime(0.06 + speedN * 0.09, t, 0.8);
+  if (harbourGain) harbourGain.gain.setTargetAtTime(nearPort * 0.30, t, 1.2);
+
+  gullTimer -= step;
   if (gullTimer <= 0) {
     gullTimer = 2.2 + Math.random() * 6;
-    if (st.nearShore > 0.25 && Math.random() < st.nearShore) gull();
+    if (nearShore > 0.25 && Math.random() < nearShore) gull();
   }
-  creakTimer -= dt;
-  if (creakTimer <= 0) { creakTimer = 3 + Math.random() * 7; if (st.speedN > 0.15) creak(); }
+  creakTimer -= step;
+  if (creakTimer <= 0) { creakTimer = 3 + Math.random() * 7; if (speedN > 0.15) creak(); }
 
-  musicTimer -= dt;
-  if (musicTimer <= 0) { musicTimer = musicStep(st); }
+  /* The waterfront, heard. The murmur bed above says "people"; these say
+     "harbour": a slack halyard knocking on wood, a mooring rope taking the
+     strain, and now and then the harbour bell. All of it scales with how
+     close the town is, and none of it follows you to sea. */
+  quayTimer -= step;
+  if (quayTimer <= 0) {
+    quayTimer = 2.6 + Math.random() * 5;
+    if (nearPort > 0.45) {
+      const r = Math.random();
+      if (r < 0.45) quayKnock(nearPort);
+      else if (r < 0.8) quayRope(nearPort);
+      else if (nearPort > 0.85) quayBell(nearPort);
+    }
+  }
+
+  /* The score reads the same state bag, in its own module, behind the same
+     rule: a music bug may cost the music, never the frame. */
+  try { musicUpdate(step, st); } catch (e) { void e; }
+}
+
+/* ---------------- the waterfront ---------------- */
+function quayKnock(near) {
+  if (!voice(0.3)) return;
+  // a block or a spar knocking hollow wood, twice, off the beat
+  const t0 = ctx.currentTime;
+  for (let i = 0; i < 2; i++) {
+    const at = t0 + i * (0.14 + Math.random() * 0.08);
+    const o = ctx.createOscillator(); o.type = 'triangle';
+    const f = num(160 + Math.random() * 120, 200, 80, 500);
+    o.frequency.setValueAtTime(f, at);
+    o.frequency.exponentialRampToValueAtTime(f * 0.6, at + 0.09);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(gainOf(0.05 * near, 0.12), at + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
+    o.connect(g); g.connect(ambBus);
+    o.start(at); o.stop(at + 0.16);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
+  }
+}
+function quayRope(near) {
+  if (!voice(0.6)) return;
+  // a mooring line stretching: the hull creak's smaller cousin, higher and shorter
+  const t = ctx.currentTime;
+  const o = ctx.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(num(120 + Math.random() * 60, 150, 60, 400), t);
+  o.frequency.linearRampToValueAtTime(num(90 + Math.random() * 40, 110, 50, 300), t + 0.5);
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 5;
+  o.connect(f);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gainOf(0.028 * near, 0.08), t + 0.18);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+  f.connect(g); g.connect(ambBus);
+  o.start(t); o.stop(t + 0.7);
+  o.onended = () => { o.disconnect(); f.disconnect(); g.disconnect(); };
+}
+function quayBell(near) {
+  if (!voice(2)) return;
+  // the harbour bell, once, far enough off to be somebody else's watch
+  const t = ctx.currentTime;
+  [392, 588].forEach((f, i) => {
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.value = f * (1 + (Math.random() - 0.5) * 0.003);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gainOf(0.035 * near / (i + 1), 0.06), t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+    o.connect(g); g.connect(ambBus);
+    o.start(t); o.stop(t + 1.9);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
+  });
+}
+
+/** Gameplay's only other door into the score: victory, defeat, discovery. */
+export function sfxMusicEvent(name) {
+  if (!started) return;
+  try { musicEvent(name); } catch (e) { void e; }
+}
+export { musicState };
+
+/**
+ * What is actually coming out of the end of the chain.
+ *
+ * A test hook, and the reason this bug cannot come back quietly: `bad` counts
+ * samples that are not finite, and `peak` is the loudest sample in the last
+ * buffer. Assertions can watch both while the game throws everything it has at
+ * the mixer, which is the only way to catch a sound nobody happens to be
+ * listening for.
+ */
+/**
+ * Hold the sea and the score quiet, for measurement only.
+ *
+ * The ambience beds run continuously and their level wanders over a wider
+ * range than a single effect contributes, so any attempt to measure one sound
+ * against the mix ends up measuring the swell instead. With these down, what
+ * the analyser sees is the effect and nothing else.
+ */
+export function audioSolo(on) {
+  if (!started) return;
+  soloed = !!on;
+  const t = ctx.currentTime;
+  // restores whatever the player set, not the level this was written against
+  ambBus.gain.setTargetAtTime(on ? 0.0001 : mix.amb, t, 0.05);
+  musBus.gain.setTargetAtTime(on ? 0.0001 : mix.music, t, 0.05);
+}
+
+export function audioStats() {
+  if (!started || !probe) return null;
+  const buf = new Float32Array(probe.fftSize);
+  probe.getFloatTimeDomainData(buf);
+  let peak = 0, bad = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const v = buf[i];
+    if (!Number.isFinite(v)) { bad++; continue; }
+    const a = Math.abs(v);
+    if (a > peak) peak = a;
+  }
+  return { peak, bad, voices, state: ctx.state, time: ctx.currentTime };
 }
 
 /* ---------------- one-shots ---------------- */
 function env(node, gain, a, d, dest = sfxBus) {
   const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, ctx.currentTime);
-  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), ctx.currentTime + a);
-  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + a + d);
+  const t = ctx.currentTime;
+  const at = num(a, 0.005, 0.001, 4), dc = num(d, 0.2, 0.01, 12);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gainOf(gain), t + at);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + at + dc);
   node.connect(g); g.connect(dest);
   return g;
 }
 
 export function sfxCannon(dist = 0) {
   if (!started) return;
-  const vol = Math.max(0.06, 0.85 - dist * 0.0016);
+  // a broadside two thousand units away is somebody else's war
+  const vol = 0.85 * atten(dist, 120, 900);
+  if (vol <= 0.012 || !voice(0.6)) return;
   const n = src(false);
   const f = ctx.createBiquadFilter(); f.type = 'lowpass';
   f.frequency.setValueAtTime(2400, ctx.currentTime);
@@ -132,7 +386,8 @@ export function sfxCannon(dist = 0) {
 }
 export function sfxSplash(dist = 0) {
   if (!started) return;
-  const vol = Math.max(0.03, 0.4 - dist * 0.0011);
+  const vol = 0.4 * atten(dist, 70, 560);
+  if (vol <= 0.008 || !voice(0.4)) return;
   const n = src(false);
   const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.8;
   f.frequency.setValueAtTime(1500, ctx.currentTime);
@@ -142,7 +397,8 @@ export function sfxSplash(dist = 0) {
 }
 export function sfxWood(dist = 0) {
   if (!started) return;
-  const vol = Math.max(0.05, 0.55 - dist * 0.0013);
+  const vol = 0.55 * atten(dist, 90, 700);
+  if (vol <= 0.01 || !voice(0.3)) return;
   const o = ctx.createOscillator(); o.type = 'triangle';
   o.frequency.setValueAtTime(220, ctx.currentTime);
   o.frequency.exponentialRampToValueAtTime(70, ctx.currentTime + 0.16);
@@ -151,28 +407,56 @@ export function sfxWood(dist = 0) {
   f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 1.2;
   n.connect(f); env(f, vol * 0.6, 0.002, 0.14); n.start(); n.stop(ctx.currentTime + 0.2);
 }
-export function sfxClash() {
+/**
+ * Steel on steel — and the sound this project got most wrong.
+ *
+ * It was three square waves between 700 and 2100 Hz. A square at two kilohertz
+ * puts harmonics at six, ten and fourteen, which is the exact band the ear
+ * refuses to forgive, and boarding ticks every 0.62 seconds for as long as a
+ * boarding lasts. It had no distance term and no voice cap, and the world
+ * simulates boardings between strangers whether you are near them or not — so
+ * a melee anywhere on the map arrived in your ears at full volume, out of
+ * nowhere, four times a second if a few were running at once.
+ *
+ * Now: a filtered noise scrape for the blade, two soft triangles well below a
+ * kilohertz for the ring, everything lowpassed, attenuated by distance, cut
+ * off entirely past 620 units, and counted against the voice budget.
+ */
+export function sfxClash(dist = 0) {
   if (!started) return;
-  for (let i = 0; i < 3; i++) {
-    const o = ctx.createOscillator(); o.type = 'square';
-    const base = 700 + Math.random() * 1400;
-    o.frequency.setValueAtTime(base, ctx.currentTime + i * 0.03);
-    o.frequency.exponentialRampToValueAtTime(base * 0.4, ctx.currentTime + i * 0.03 + 0.12);
+  const vol = atten(dist, 90, 620);
+  if (vol <= 0.012 || !voice(0.4)) return;
+  const t0 = ctx.currentTime;
+  for (let i = 0; i < 2; i++) {
+    const at = t0 + i * 0.055;
+    const o = ctx.createOscillator(); o.type = 'triangle';
+    const base = num(300 + Math.random() * 210, 380, 120, 900);
+    o.frequency.setValueAtTime(base, at);
+    o.frequency.exponentialRampToValueAtTime(base * 0.55, at + 0.14);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = 2100; lp.Q.value = 0.6;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.03);
-    g.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + i * 0.03 + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.03 + 0.16);
-    o.connect(g); g.connect(sfxBus); o.start(ctx.currentTime + i * 0.03); o.stop(ctx.currentTime + i * 0.03 + 0.2);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(gainOf(0.05 * vol, 0.2), at + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.17);
+    o.connect(lp); lp.connect(g); g.connect(sfxBus);
+    o.start(at); o.stop(at + 0.22);
+    o.onended = () => { o.disconnect(); lp.disconnect(); g.disconnect(); };
   }
   const n = src(false); const f = ctx.createBiquadFilter();
-  f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = 0.6;
-  n.connect(f); env(f, 0.12, 0.01, 0.3); n.start(); n.stop(ctx.currentTime + 0.4);
+  f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 0.7;
+  n.connect(f); env(f, 0.08 * vol, 0.008, 0.22);
+  n.start(); n.stop(t0 + 0.32);
+  n.onended = () => { n.disconnect(); f.disconnect(); };
 }
 export function sfxClick(freq = 620) {
-  if (!started) return;
+  if (!started || !voice(0.15)) return;
   const o = ctx.createOscillator(); o.type = 'triangle';
-  o.frequency.setValueAtTime(freq, ctx.currentTime);
+  // the one param a caller passes straight through: a NaN or an out-of-range
+  // frequency here throws, and every UI tap goes through this
+  o.frequency.setValueAtTime(num(freq, 620, 40, 12000), ctx.currentTime);
   env(o, 0.10, 0.003, 0.07); o.start(); o.stop(ctx.currentTime + 0.12);
+  o.onended = () => o.disconnect();
 }
 export function sfxCoin() {
   if (!started) return;
@@ -213,19 +497,24 @@ export function sfxHorn() {
   f.connect(g); g.connect(sfxBus); o.start(); o.stop(ctx.currentTime + 1.7);
 }
 function gull() {
-  const o = ctx.createOscillator(); o.type = 'sawtooth';
+  if (!voice(0.4)) return;
+  /* A sawtooth through a narrow bandpass is a sound effect and a dentist's
+     drill in equal measure. A triangle carries the same rising cry with none
+     of the upper harmonics, and a lowpass keeps the top off it. */
+  const o = ctx.createOscillator(); o.type = 'triangle';
   const t = ctx.currentTime;
-  const base = 900 + Math.random() * 500;
+  const base = 780 + Math.random() * 380;
   o.frequency.setValueAtTime(base, t);
-  o.frequency.linearRampToValueAtTime(base * 1.7, t + 0.09);
-  o.frequency.linearRampToValueAtTime(base * 0.8, t + 0.26);
-  const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1500; f.Q.value = 2.5;
+  o.frequency.linearRampToValueAtTime(base * 1.55, t + 0.09);
+  o.frequency.linearRampToValueAtTime(base * 0.78, t + 0.26);
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2600; f.Q.value = 0.7;
   o.connect(f);
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.05, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.038, t + 0.04);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
   f.connect(g); g.connect(ambBus); o.start(); o.stop(t + 0.36);
+  o.onended = () => { o.disconnect(); f.disconnect(); g.disconnect(); };
 }
 function creak() {
   const o = ctx.createOscillator(); o.type = 'sawtooth';
@@ -241,50 +530,6 @@ function creak() {
   f.connect(g); g.connect(ambBus); o.start(); o.stop(t + 1.2);
 }
 
-/* ---------------- generative score ---------------- */
-const SCALE = [0, 2, 3, 5, 7, 9, 10];    // D dorian degrees
-const ROOT = 146.83;                      // D3
-let musIdx = 0;
-function midiToF(semi) { return ROOT * Math.pow(2, semi / 12); }
-
-function pad(semi, dur, vol) {
-  const t = ctx.currentTime;
-  for (const det of [-0.06, 0.06]) {
-    const o = ctx.createOscillator(); o.type = 'triangle';
-    o.frequency.value = midiToF(semi) * (1 + det * 0.02);
-    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700; f.Q.value = 0.4;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.35);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(f); f.connect(g); g.connect(musBus);
-    o.start(); o.stop(t + dur + 0.1);
-  }
-}
-function pluck(semi, vol) {
-  const t = ctx.currentTime;
-  const o = ctx.createOscillator(); o.type = 'triangle';
-  o.frequency.value = midiToF(semi);
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
-  const dl = ctx.createDelay(); dl.delayTime.value = 0.34;
-  const fb = ctx.createGain(); fb.gain.value = 0.30;
-  o.connect(g); g.connect(musBus); g.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(musBus);
-  o.start(); o.stop(t + 2.0);
-}
-function musicStep(st) {
-  const tense = st.combat ? 1 : 0;
-  musIdx++;
-  if (musIdx % 4 === 1) {
-    const chords = tense ? [[0, 3, 7], [-2, 3, 5]] : [[0, 3, 7], [5, 9, 12], [-2, 2, 5], [3, 7, 10]];
-    const ch = chords[(musIdx / 4 | 0) % chords.length];
-    for (const s of ch) pad(s - 12, tense ? 5 : 9, tense ? 0.055 : 0.04);
-  }
-  if (Math.random() < (tense ? 0.75 : 0.42)) {
-    const deg = SCALE[(Math.random() * SCALE.length) | 0] + (Math.random() < 0.35 ? 12 : 0);
-    pluck(deg, tense ? 0.07 : 0.05);
-  }
-  return tense ? 1.15 + Math.random() * 0.9 : 2.2 + Math.random() * 2.6;
-}
+/* The generative score that used to live here — random D-dorian plucks with a
+   "tense" coin-flip — is superseded by the adaptive controller in music.js,
+   which plays an actual tune and knows where the player is. */

@@ -29,9 +29,29 @@ const log = [];
 const ok = (m, c) => log.push(`${c ? 'PASS' : 'FAIL'}  ${m}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/** What the loading card says about itself with scripting switched off. */
+async function quietStamp(file, br) {
+  const c = await br.newContext({ javaScriptEnabled: false });
+  const p = await c.newPage();
+  await p.goto(file, { waitUntil: 'load' });
+  const txt = await p.locator('#ld-build').textContent().catch(() => null);
+  await c.close();
+  return txt && txt.trim();
+}
+
 await page.goto(FILE, { waitUntil: 'load' });
 await sleep(2500);
 ok('single file loads from file:// with no server', await page.evaluate(() => !!document.getElementById('scene')));
+const stamped = await page.evaluate(() => {
+  const l = document.getElementById('loading');
+  return l ? l.getAttribute('data-build') : null;
+});
+ok(`and says which build it is (${stamped})`, !!stamped && stamped !== 'dev');
+/* Readable without scripting, because the screen this has to answer for is
+   usually a photograph of a page that never ran any. */
+const stampSeen = await quietStamp(FILE, browser);
+ok(`and prints it on the card where a photograph can see it (${stampSeen})`,
+  !!stampSeen && /\d{4}-\d{2}-\d{2}/.test(stampSeen));
 ok('three.js came through the bundle', await page.evaluate(() => !!window.__renderer));
 await page.screenshot({ path: `${OUT}/single-title.png` });
 
@@ -74,19 +94,68 @@ const arc = await page.evaluate(async () => {
   g.enterPort(g.PORTS[0]);
   const sheet = !document.getElementById('sheet').classList.contains('hidden');
   document.getElementById('sheet-close').click();
-  const t = g.ships.find(s => s.faction === 'pirate' && s.alive) || g.spawnNPC('pirate');
-  t.x = g.player.x + 100; t.z = g.player.z; t.hostileToPlayer = true;
+
+  /* Nobody opens fire on the campaign layer. This used to run a raider
+     alongside and pull the trigger, which is now the one thing the rules
+     refuse — so the check reads the whole road instead: guns cold out at
+     sea, contact makes an encounter, choosing to fight makes a battle, and
+     the broadside goes off in there. */
+  const shots = () => g.projectiles.pending.length + g.projectiles.list.length;
+  const arm = () => { g.player.shot = 99; g.player.reload.stb = 0; g.player.reload.port = 0; };
+  g.leavePort();
+  g.player.x = 120; g.player.z = 60; g.player.dest = null; g.player.speed = 0; g.player.yaw = 0;
+  g.player.hull = g.player.hullMax; g.player.sails = g.player.sailMax;
+
+  let t = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s));
+  for (let i = 0; i < 20 && !t; i++) t = g.spawnNPC('pirate');
+  t.x = g.player.x + 110; t.z = g.player.z + 30;
+  t.hull = t.hullMax; t.sails = t.sailMax;
+  t.hostileToPlayer = true; t.target = g.player; t.aggro = 40;
+  t.chaseHold = 0; t.fleeing = false; t.captured = false;
+  t.brain = { state: 'hunt', t: 0, cooldown: 0 };
+  g.encounterCooling = 0; g.paused = false;
   g.selectTarget(t);
-  g.player.yaw = 0; g.player.shot = 99;
-  g.update(0.1);
-  g.player.reload.stb = 0; g.player.reload.port = 0;
-  const before = g.projectiles.pending.length + g.projectiles.list.length;
+
+  arm();
+  const beforeCold = shots();
   g.playerFire();
-  const fired = (g.projectiles.pending.length + g.projectiles.list.length) > before;
-  return { dockable, sheet, fired };
+  const coldOnTheOcean = shots() === beforeCold;
+
+  // let her run us down; contact stops the world and asks
+  for (let i = 0; i < 60 * 60 && g.mode === 'campaign'; i++) g.update(1 / 60);
+  const asked = g.mode === 'encounter';
+  if (asked) g.chooseEncounter('fight');
+  const inBattle = g.mode === 'battle';
+
+  /* Lay her alongside and let the game decide there is a shot: `fireSide`
+     comes off the real arc check, so bringing the enemy abeam is the way to
+     get it rather than setting the flag by hand. */
+  let fired = false, hadSide = null;
+  if (inBattle) {
+    const e = g.battle.enemies[0];
+    /* selectTarget toggles — marking the ship you already have marked lets her
+       go again, which is right for a thumb and wrong for a script that marked
+       the same raider out on the campaign layer a moment ago. */
+    if (g.target !== e) g.selectTarget(e);
+    g.player.yaw = 0; g.player.speed = 0; g.player.dest = null;
+    e.x = g.player.x + 60; e.z = g.player.z; e.speed = 0; e.dest = null;
+    arm();
+    g.update(1 / 60);
+    hadSide = g.fireSide;
+    arm();
+    const before = shots();
+    g.playerFire();
+    fired = shots() > before;
+    g.battle.finish('fled');
+  }
+  return { dockable, sheet, coldOnTheOcean, asked, inBattle, fired, side: hadSide,
+    marked: !!g.target, mode: g.mode };
 });
 ok('the harbour opens', arc.dockable && arc.sheet);
-ok('a broadside fires', arc.fired);
+ok('the guns stay cold on the campaign layer', arc.coldOnTheOcean);
+ok(`contact asks before it shoots, and fighting makes a battle (asked ${arc.asked}, battle ${arc.inBattle})`,
+  arc.asked && arc.inBattle);
+ok(`a broadside fires in the action (${arc.side || (arc.marked ? 'no side bore' : 'nothing marked')})`, arc.fired);
 
 // localStorage works from file:// (saves)
 const saved = await page.evaluate(() => {
@@ -96,6 +165,69 @@ ok(`the voyage can be saved locally (${saved})`, saved === true);
 
 await sleep(1200);
 await page.screenshot({ path: `${OUT}/single-ipad.png` });
+
+/* ---------------------------------------------------------------
+   and the machine that cannot run it at all
+
+   The renderer is built while the module is still being evaluated, so a
+   browser that will not hand over a 3D context takes the whole boot down
+   with it — and every line after the throw is skipped, including the two
+   that hide the loading card. That is what a player sees as "making sail…"
+   for ever. Blocking getContext reproduces it exactly.
+   --------------------------------------------------------------- */
+const blind = await ctx.newPage();
+await blind.addInitScript(() => {
+  const real = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (kind, ...rest) {
+    return /webgl/i.test(kind) ? null : real.call(this, kind, ...rest);
+  };
+});
+await blind.goto(FILE, { waitUntil: 'load' });
+await sleep(2500);
+const told = await blind.evaluate(() => {
+  const box = document.getElementById('loading');
+  const text = box ? box.textContent : '';
+  return {
+    stuck: /making sail/.test(text),
+    said: /would not answer the helm/.test(text),
+    named3d: /3d:/.test(text) && /hardware acceleration/.test(text),
+  };
+});
+ok(`a browser with no 3D says so instead of hanging (${told.said ? 'told' : told.stuck ? 'still making sail' : 'blank'})`,
+  told.said && !told.stuck);
+ok('and it names the likely cause and the facts to send on', told.named3d);
+await blind.screenshot({ path: `${OUT}/single-no-webgl.png` });
+await blind.close();
+
+/* ---------------------------------------------------------------
+   and the reader that runs no scripts at all
+
+   Mail an .html to an iPhone and tapping it opens Quick Look — the preview
+   with "Done" in the corner — which draws HTML and CSS and executes no
+   JavaScript whatsoever. The loading card renders, its bar animates, and
+   nothing else ever happens: not the game, and not the boot guard above,
+   which needs scripting like everything else. A tester lost an afternoon to
+   this. <noscript> is the only voice the page has left here, so it is worth
+   a check that runs with scripting genuinely switched off.
+   --------------------------------------------------------------- */
+const mute = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
+const quiet = await mute.newPage();
+await quiet.goto(FILE, { waitUntil: 'load' });
+await sleep(600);
+/* That the panel is on screen at all is the proof: a browser renders what is
+   inside <noscript> only when it is not running scripts. Asking Playwright
+   whether scripting is off does not work — it keeps its own execution context
+   either way, so page.evaluate answers happily from a page the document
+   itself cannot script. */
+const seen = await quiet.locator('#nojs').isVisible().catch(() => false);
+const words = await quiet.locator('#nojs').textContent().catch(() => '');
+const sailing = await quiet.locator('#loading').isVisible().catch(() => false);
+ok(`scripting off is a page that explains itself (${seen ? 'shown' : 'nothing'}${sailing ? ', over the loading card' : ''})`,
+  seen);
+ok('and it says how to get out of a preview and into a browser',
+  /Open in Safari/.test(words) && /preview/i.test(words));
+await quiet.screenshot({ path: `${OUT}/single-no-js.png` });
+await mute.close();
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');

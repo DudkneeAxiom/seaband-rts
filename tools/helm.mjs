@@ -1,6 +1,6 @@
 /* The compass, and playing at a desk. Both are read off the running game
    rather than assumed: a card that lies about north is worse than no card. */
-import { launch, sleep, shot, newVoyage, waitFor, dismissModal } from './qa.mjs';
+import { launch, sleep, shot, newVoyage, waitFor, dismissModal, intoBattle, leaveBattle } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -202,11 +202,15 @@ await page.keyboard.press('2');
 await sleep(150);
 ok('2 loads chain', await G(() => window.__game.player.ammo === 'chain'));
 await page.keyboard.press('1');
-// the strip only exists while a ship is marked, and she is under way — hold her
-// alongside so this is testing the shortcut and not the pirate's navigation
+/* The strip belongs to the action. Guns are cold on the campaign layer, so
+   there is no ammunition to choose out there and nothing to show — the
+   shortcut still loads the shot, and this checks the strip reflects it where
+   the strip exists. She is held alongside so this tests the shortcut and not
+   the pirate's navigation. */
 await G(() => {
   const g = window.__game, p = g.player;
   if (g.target) { g.target.x = p.x + 100; g.target.z = p.z; g.target.speed = 0; }
+  g.ctx.combatLive = true;
   g.update(0.05);
 });
 await waitFor(page, () => document.querySelectorAll('.ammo-btn').length === 3);
@@ -218,17 +222,35 @@ const ammoUi = await G(() => ({
 ok(`1 loads round shot, and the strip shows it (${ammoUi.strip} buttons, lit: ${ammoUi.lit.join() || 'none'})`,
   ammoUi.ammo === 'round' && ammoUi.lit.length === 1 && ammoUi.lit[0] === 'round');
 
-const beforeShot = await G(() => window.__game.player.shot);
-await G(() => { const g = window.__game; g.update(0.05); });
-await page.keyboard.press(' ');
-await sleep(400);
-const afterShot = await G(() => ({ shot: window.__game.player.shot, side: window.__game.fireSide }));
-ok(`Space fires the battery that bears (${beforeShot} -> ${afterShot.shot} shot, ${afterShot.side})`,
-  afterShot.shot < beforeShot);
+/* Guns are live inside a battle instance and nowhere else, so the keyboard
+   test has to be in one: sail into contact, take the encounter, clear for
+   action, and then try the key. */
+const foe = await intoBattle(page);
+/* Pose, press and read in one breath. The enemy keeps her own station between
+   evaluates — a frame or two of her sailing was enough, on the wrong wind, to
+   carry her out of the arc after the pose and before the key landed. The
+   dispatched event still walks the real keydown listener; the CDP keyboard
+   path is exercised by every other key on this page. */
+const spaceFire = await G(() => {
+  const g = window.__game, p = g.player, t = g.target;
+  if (t) { t.x = p.x + 90; t.z = p.z; t.speed = 0; p.yaw = 0; p.speed = 0; }
+  p.reload.stb = 0; p.reload.port = 0;
+  g.update(0.05);                       // fireSide settles from the pose
+  const before = p.shot, side = g.fireSide;
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+  return { before, after: p.shot, side };
+});
+ok(`Space fires the battery that bears in action (${foe && foe.name}: ${spaceFire.before} -> ${spaceFire.after} shot, ${spaceFire.side})`,
+  spaceFire.after < spaceFire.before);
 
 await page.keyboard.press('Escape');
 await sleep(250);
 ok('Escape lets her go', !(await G(() => !!window.__game.target)));
+
+/* Out of the action before the rest of the keys. F puts into port and M opens
+   the log, and neither has anything to say from the middle of a fleet action
+   in open water — the checks that follow are campaign-layer checks. */
+await leaveBattle(page);
 
 /* ---------- time ---------- */
 await page.keyboard.press('p');

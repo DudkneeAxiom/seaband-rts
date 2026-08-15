@@ -11,9 +11,15 @@ npm run setup     # npm install + playwright's chromium (first time only)
 npm start         # http://localhost:8080
 npm test          # every suite, against a server it starts itself
 npm run test:fast # same, minus the two slow calibration runs
-npm run bundle    # dist-single/salt-and-tally.html — the whole game in one file
+npm run bundle    # dist-single/salt-and-tally.html — one file, then plays it
 npm run build     # dist/ + the itch.io zip
 ```
+
+`npm run bundle` runs `single-check` against the file it just wrote, because a
+bundle nobody opens is a bundle nobody knows is broken: that check sat outside
+`all.mjs`, went stale across the campaign/battle split, and was still asserting
+that a broadside fires on the campaign layer — the one thing the rules now
+refuse. Use `bundle:only` if you genuinely just want the file.
 
 Node 18+. The game itself needs nothing installed — `npm install` is only for the
 QA harnesses. Screenshots go to `shots/` (gitignored); `QA_OUT` overrides.
@@ -27,11 +33,13 @@ src/main.js           boot, render loop, input wiring, attract mode
 src/game.js           game state, world simulation, rules, save/load, markers
 src/data/gamedata.js  factions, hulls, goods, ports, crew — tuning lives here
 src/data/origins.js   the five questions, their effects, antagonists, chapters
+src/data/notables.js  the people of the two authored ports, and named officers
+                      (every port has a town page; these add people to two)
 src/core/             util, geometry, camera, pointer input, keys, procedural audio
 src/world/            terrain bake, water shader, sky
 src/ships/            procedural ship meshes, the Ship entity, NPC captains
 src/combat/           ballistics, broadsides, boarding
-src/sim/              market, officers
+src/sim/              market, officers, encounters, battles, the social layer
 src/ui/               DOM helpers, HUD, bottom-sheet screens, the questionnaire
 tools/                QA harnesses, the static server, the build and the bundler
 vendor/               three.js r180, vendored — no CDN, no network at runtime
@@ -54,6 +62,30 @@ Look at things. `npm run sweep` walks every screen and writes screenshots — th
 is what found the flat UI, the harbours built in open water, and the firing arcs
 the sea was slicing into shards. Assertions cannot see any of those.
 
+CI runs `npm run test:fast` on every PR into `main` (`.github/workflows/tests.yml`)
+and uploads `shots/` when a suite fails. It skips `gunnery` and `world`, so run
+the full `npm test` yourself after touching anything those two measure.
+
+## The three layers
+
+The ocean is the **campaign**. Physical contact between hostile fleets makes an
+**encounter**. An encounter can make a **battle**. `game.mode` is the one place
+that is written down, and everything that asks "can I fire", "can I dock",
+"what do the buttons say" asks it first.
+
+- **Nobody opens fire on the campaign layer.** `tryFire` refuses when the target
+  is the player's and `ctx.combatLive` is false, and a raider closes to touching
+  distance rather than taking up a gunnery station. Contact is an event, not a
+  range band.
+- **A battle is fought where the fleets met.** Not a separate arena: the reef you
+  were running for is still under you and the terrain is the truth about that
+  place. What a battle does is *narrow* — everyone else is benched by splicing
+  them out of `game.ships` and hiding their meshes.
+- **Splice, never reassign, `game.ships`.** `Projectiles` and the AI `world`
+  object hold a reference to that exact array.
+- **`save()` refuses while `mode === 'battle'`**, because the ship list is not
+  the world at that moment. The battle saves itself when it ends.
+
 ## Conventions worth keeping
 
 - **Derive, do not store.** Only the questionnaire's *answers* are saved; skills,
@@ -68,10 +100,185 @@ the sea was slicing into shards. Assertions cannot see any of those.
 - **Nothing blocks the player permanently.** Contracts pay an advance so a captain
   with nothing can still take work; harbours are refuges so running for port
   always works. If a change can strand someone, it needs a way back.
+- **Progression the player can see.** A refit that changes a number changes the
+  hull too: copper is the planking's own colour below a raised boot-top, new
+  gunports are guns you can count. Faction identity works the same way — each
+  power has a `build` in `FACTIONS` that picks construction, deck fittings and
+  sail plan in `shipFactory`, so six powers are six objects and not six
+  recolours, and a prize keeps the build she was made with while her paint
+  changes hands. Colour is never the only signal; the silhouette carries it.
+- **A seed per thing, not one stream for everything.** Each port's opening books
+  and each ship's procedural details come from a seed derived from its own id or
+  name. One shared stream means adding a harbour silently reshuffles every
+  harbour after it in the list — which is how two new ports once put a ◆385/min
+  arbitrage run on the board that nobody had tuned.
+- **A tuned number is tuned against something — say what, and re-measure it
+  elsewhere.** What a builder will accept was measured honestly on Ilo Vantu
+  and then applied to every coast: Ilo Vantu is a beach, Fort Escarra is a
+  seventy-metre rock, and the rock built *no buildings at all* while six
+  settlement checks passed. Both limits are derived per port from that port's
+  own ground now. A constant that came from measuring one place is a constant
+  with a hidden argument in it.
+- **Assert the thing exists, not only that it is well placed.** Every check on
+  the settlements asked *where* the town was — waterfront on dry land, label
+  above the roofs, mooring afloat — and a port with zero buildings passed all
+  of them. Cheap existence checks catch the failures the careful ones assume
+  away.
+- **Every port is a place, not a set of counters.** A harbour opens on its town
+  — a photograph of its real buildings, what it is, and what it trades — and
+  the counters are one tap behind that. The page derives from what every port
+  already has (`tagline`, `desc`, `prices`, its faction's flag colour), so
+  adding a port cannot leave a half-built screen; `PORT_IDENTITY` and
+  `NOTABLES` add mood and people on top where they exist.
+- **If the player has a rule, the world usually needs it too.** `findRoute`
+  existed for a year and was wired to tap-to-sail alone, so NPC captains went
+  on steering the rhumb line into headlands — the exact fault the route module
+  was written to cure, still live for every hull but one. When a fix lands on
+  the player's path, ask what else takes that path. It happened again with
+  `beatTo`: no NPC captain could sail to windward, so any station upwind was
+  simply unreachable and they reached away and back for ever — which is what
+  "ships glitching in the harbour" turned out to be. Both now use the same
+  beat. Ask this question *first* when the world misbehaves and the player does
+  not.
+- **Carry a rule across, and carry its exceptions too.** `beatTo` was given to
+  NPC captains and the beat came with it; the rule that a beat is a campaign
+  manoeuvre *only* did not, so raiders zigzagged to windward mid-duel and
+  actions stopped ending. `runDownTo` had it one step along, routing a hull
+  round a headland at 126m from her enemy. Both exceptions were already written
+  down in `Ship.update` — for the player.
+- **Measure the words in the report.** "Stuck at the wall" was chased twice
+  with the metrics already to hand — hulls *aground* and hulls *going nowhere*
+  — and both read clean while the ship in the screenshot sat sixteen metres off
+  Greywake's breakwater for ten minutes: 7.8m of water under a 4.6m draft, and
+  seven knots on the log. She was neither aground nor stopped. A metric you
+  already have is not evidence about a complaint it does not describe.
+- **A rule that gives up needs somewhere to give up to.** The picket's "this
+  gate is not mine today" fired every forty-five seconds and changed nothing,
+  because every candidate station it looked at was around the Sound and she
+  could see none of them from where she was pinned. Fallback ladders want a
+  last rung that cannot fail — here, open water near where she already is.
+- **Judge progress over a window, not against the best so far.** Against her
+  best ever, a hull beating back and forth touches it on every board and resets
+  the clock for ever; measured at 99% of ten minutes still on the wall. "Closer
+  than she was forty-five seconds ago" is what getting anywhere means.
+- **Look for the wind before the terrain.** Two guard ships pinned at Greywake
+  looked exactly like a routing fault, and their posts were in 56m and 78m of
+  water with a clear line the whole way. What they had in common was that the
+  post lay inside the no-go cone. A hull that cannot get somewhere is not
+  always a hull that cannot see the way.
+- **Arriving means stopping.** Reaching a mark left 12% of throttle on, meant
+  as "taking the way off her" and read from the deck as a ship that never
+  stops — 239m clear of the mark in the five minutes after reaching it. A
+  station-keeper had the same shape: full throttle to a ring, flat quarter
+  throttle inside it, and an orbit she never settled out of. Take the way off
+  as she comes in, and let her lie there.
+- **A rule about position must cover what is actually drawn.** Placement
+  sounded the nominal footprint while `building()` draws past it, so buildings
+  were approved whose geometry hung over the harbour. Each kind declares its
+  drawn extent now. The same trap caught the AI twice: a route is no help to a
+  ship whose *destination* is a hill, so loitering stations and escort
+  stations are sounded before they are taken. Then a third and fourth time,
+  one level along again: sounding the station and not the *run to it* put
+  escorts on the ground at five times the rate of the merchants they guarded,
+  and `smooth()` string-pulled from the grid cell nearest the ship rather than
+  the ship, so the first leg of every route was the one leg nobody sounded.
+  Sound the whole road, from where she actually is.
+- **A course is only clear from where you are now.** `findRoute` returns null
+  for "the rhumb line is already clear", and that answer was kept for a whole
+  leg — so a hull set down by the wind, or shoved off her line by `avoidLand`
+  working round a headland, sailed on into land nobody had re-checked. Eleven
+  of fifteen strandings were hulls carrying no route at all. Anything steering
+  a long line has to re-sound it as it sails it.
+- **A constant that fits one hull is not a fact about the sea.** The route grid
+  cleared every cell over 6.5m, which is the player's cutter's answer with
+  three metres to spare — and it was routing a 7.13m fluyt and an 8.97m frigate
+  through the same water. The grid holds the shallowest cast per cell now and
+  `keelFor(draft)` asks the question per hull, with the shallow road as a
+  fallback so no place becomes unreachable. Same shape as the settlement limits
+  tuned on Ilo Vantu: measure what a number was tuned against, then ask who
+  else has to live with it.
+- **A guard that reads a flag must run before something else sets it.** The
+  price of attacking a neutral was charged in the damage callback, guarded on
+  "she is not already hostile" — and a battle flags every enemy hostile as it
+  forms, so the guard was always shut by the time it was asked. Piracy was
+  free. Charge at the moment of choice, not at the moment of consequence.
+- **If a manoeuvre matters, give it a control.** BOARD only appeared once you
+  were already alongside, so closing the last two hundred metres had no button
+  — and the only input left, tapping the water beside her, lands on the marked
+  ship and unmarks her. The gesture available for the job undid the job. A
+  button that gives the order beats an input the player has to be clever with.
+- **Test the mechanism, not the weather around it.** Three assertions on the
+  consort flank rule each watched a real duel and measured what came out —
+  widest separation, held separation, share of the action masked — and all
+  three were flaky, the last one ranging 0% to 92% across staged trials. The
+  check that works stages the fault the rule exists to correct (a consort
+  squarely in front of your guns) and asks whether the steering fixes it.
+- **Stage the fault by construction, and assert the decision, not the
+  aftermath.** The escort check learned this three ways in one sitting. It
+  passed with the fix removed because it sounded her *heading* — which measures
+  `avoidLand`, a greedy rule that deflects a bow off a rock whatever nonsense
+  it was aimed at; what the rule under test decides is the point she steers
+  for, so the brain records that and the check reads it. Then it passed on a
+  leftover `brain.path` from the hull's previous life as a merchant. Then it
+  failed one run in three because a hostile in sight sent her into the fight
+  branch and the scenario never happened at all. **Prove a new check fails with
+  its own fix reverted** — all three of finding 49's do — or it is decoration.
+  Finding 51 proves why: one of its checks passed green with the fix reverted
+  because `commandMove` silently refuses for a hull that is boarding or
+  grappled, both left lying about by earlier sections, so the course was never
+  laid and the check sat measuring a ship that had not moved. **Assert that the
+  staging happened**, not only that the outcome looks right.
+- **A long suite leaves residue, and the last section inherits all of it.**
+  Sixteen sections of staging had hulls parked at 9e4, a forced encounter
+  cooldown, and a player moved four times; the new checks variously read a
+  3588m teleport as drift, a leftover `chaseHold` as a steering decision, and a
+  ship whose brain still belonged to section 1. Clear every precondition the
+  code under test reads — and prefer one tick of the world to four minutes of
+  it, because four minutes is long enough for the world to become the subject.
+- **A harness that drives the world by hand must prove the world moved.** Three
+  probes in a row reported confident numbers about a simulation that was not
+  advancing: one teleported the player onto a hillside (`depth -16.7m` is not
+  deep water, it is ground 16.7m up) and measured a parked hull for twenty
+  minutes; two more spun at `dt = 0` because a modal had paused the world and a
+  bulk `for (…) g.update()` inside `page.evaluate` cannot click the button that
+  clears it. Both "findings" they produced were fiction. Check `g.time` moved,
+  check she is floating, check nothing is paused — before believing anything.
+- **Two fixes that are each right can be wrong together.** Harbour works made
+  solid to a keel, and a chase taught to route round land, combined to teach
+  raiders through Greywake's mouth after a captain who had run for shelter —
+  three ports quietly lost their refuge. Neither change was wrong on its own,
+  and neither suite that covered them failed. The run-down does not route into
+  guarded water now: a refuge that can be routed into is not a refuge.
+- **A story beat must test the deed it names.** Three of six chapters closed on
+  something other than what they described — "Make Ilo Vantu and dock" closed
+  on any harbour, "Find a Tally raider" on any hull of any flag — so taking a
+  Compact trader printed "One Tally hull fewer". A beat that fires on deeds you
+  did not do reads as a pop-up watching you play, which is exactly how it was
+  reported. Same rule as the origin chips: the promise and the mechanic are one
+  thing, or they drift.
+- **A relationship is earned by playing, not by pressing.** Getting to know a
+  notable meant sixty-six presses of "Ask about the port" at +1 each, and the
+  main loop of the game — carrying cargo — moved nobody's opinion at all,
+  because carrying work had no owner. A topic pays once; the standing moves
+  because you *did* something for somebody who wanted it. If a tier opens
+  nothing (`Friendly` opened nothing for a year), it is not a tier.
+- **A handler must read the world at the tap, not at the draw.** Every trade
+  re-renders its row, and a tap already on its way lands on the old node — so a
+  SELL that closed over "you have sixteen" ran `cargo -= 16` on an entry that
+  had just been deleted. `undefined - 16` is NaN, and then every guard shaped
+  `x <= 0` waves it through, because that is false for NaN. Four steps later
+  the hold, the purse and a port's stock were all NaN for the rest of the
+  voyage. Guard with `!(n > 0)`, and recompute quantities from live state.
+- **One control per job.** The town page briefly carried a WHERE TO GO list —
+  a row and a GO button per counter — directly beneath a tab strip with one
+  tab per counter. Navigation written out twice is not twice as navigable; it
+  is one control and one thing in the way.
 - Comments explain *why*, especially where a number was tuned or a bug was
   subtle. Match the surrounding prose style.
 
 ## State of it
 
-Feature-complete vertical slice. `tools/all.mjs` runs 200-odd checks across
-eleven suites; all green at the last commit on this branch.
+Feature-complete vertical slice with the campaign/encounter/battle spine in
+place and six powers with water of their own. `tools/all.mjs` runs 377 checks
+across sixteen suites; all green at the last commit on this branch
+(16/16 in about sixteen minutes).

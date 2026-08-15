@@ -14,10 +14,41 @@ const box = await page.evaluate(() => {
   return { w: r.width, h: r.height };
 });
 
+/* Fixed screen fractions are a trap here: a fraction that is open water on the
+   first frame is sky once the camera has settled, or has a ship under it once
+   the world has moved, and a tap on sky sets no course at all. Work back from
+   the world instead — project sea-level points around the ship and take the
+   first that lands on bare canvas, clear of every hull. */
+const seaPoint = () => page.evaluate(() => {
+  const g = window.__game, cam = g.rig.cam;
+  const r = document.getElementById('scene').getBoundingClientRect();
+  const V = Object.getPrototypeOf(cam.position).constructor;
+  const proj = (x, z) => {
+    const v = new V(x, 0, z); v.project(cam);
+    return { x: (v.x * 0.5 + 0.5) * r.width, y: (-v.y * 0.5 + 0.5) * r.height, z: v.z };
+  };
+  const hulls = g.ships.filter(s => s.alive).map(s => proj(s.x, s.z));
+  for (let d = 120; d <= 240; d += 40) {
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+      const p = proj(g.player.x + Math.sin(a) * d, g.player.z + Math.cos(a) * d);
+      if (p.z >= 1) continue;                                   // behind the camera
+      if (p.x < 8 || p.y < 8 || p.x > r.width - 8 || p.y > r.height - 8) continue;
+      // the pick radius is 64px, so stay well outside it
+      if (hulls.some(h => Math.hypot(h.x - p.x, h.y - p.y) < 90)) continue;
+      const el = document.elementFromPoint(p.x, p.y);           // and not under a control
+      if (!el || el.id !== 'scene') continue;
+      return { x: p.x, y: p.y };
+    }
+  }
+  return null;
+});
+
 /* ---- a tap on open water sets a course ---- */
 await page.evaluate(() => { window.__game.player.dest = null; });
-await page.touchscreen.tap(box.w * 0.62, box.h * 0.42);
-await sleep(350);
+const water = await seaPoint();
+ok('there is open water to tap', !!water);
+await page.touchscreen.tap(water.x, water.y);
+await waitFor(page, () => !!window.__game.player.dest, 3000);
 const moved = await page.evaluate(() => {
   const g = window.__game;
   return { dest: g.player.dest ? { x: Math.round(g.player.dest.x), z: Math.round(g.player.dest.z) } : null };
@@ -40,20 +71,58 @@ await page.evaluate(() => {
 await ff(page, 0.3);
 /* She is under way, so her place on screen is only true for an instant —
    work it out again immediately before every tap. */
+/* Where she is on the glass — and whether she is on it at all.
+   `project` happily returns coordinates for a point *behind* the camera, and
+   they look like perfectly good numbers, so a tap would land on empty sea and
+   the failure would read as "tapping a hull does not mark her". Anything not
+   actually in front of the lens, or off the edge of it, returns null. */
 const aim = () => page.evaluate(() => {
   const g = window.__game;
   const s = g.ships.find(x => !x.isPlayer && x.alive && Math.hypot(x.x - g.player.x, x.z - g.player.z) < 200);
   if (!s) return null;
   const v = new (Object.getPrototypeOf(g.rig.cam.position).constructor)(s.x, 6, s.z);
   v.project(g.rig.cam);
+  if (v.z > 1 || Math.abs(v.x) > 0.92 || Math.abs(v.y) > 0.92) return null;
   const r = document.getElementById('scene').getBoundingClientRect();
   return { x: (v.x * 0.5 + 0.5) * r.width, y: (-v.y * 0.5 + 0.5) * r.height, name: s.name };
 });
-const tapShip = async () => {
+/* Keep a hull inside the 200m aim() looks in. Over a long run on a slow
+   machine she has sailed off by now, and a tap at a stale position tests
+   nothing. Staging where she is is fair; whether the tap marks her is still
+   entirely the game's decision. */
+const stage = async () => {
+  await page.evaluate(() => {
+    const g = window.__game;
+    const s = g.ships.find(x => !x.isPlayer && x.alive);
+    if (!s) return;
+    /* Put her where the camera is actually looking, rather than at a fixed
+       offset in world space. The offset used to be +90x/+30z, which was on
+       screen only because the opening view happened to be pointed that way;
+       the moment a new voyage started facing the town instead, she was behind
+       the lens and every tap check failed. Staged off the camera's own
+       heading, this holds whichever way the view is turned. */
+    const az = g.rig.azimuth;
+    const fx = -Math.sin(az), fz = -Math.cos(az);       // the way the lens looks
+    s.x = g.player.x + fx * 105;
+    s.z = g.player.z + fz * 105;
+    s.speed = 0;
+  });
+  await ff(page, 0.3);          // let her mesh catch up with her position
+};
+
+/* A tap toggles the mark, and the HUD repaints on its own tick — a frame or
+   two behind the game under software GL. Wait for the state the tap is meant
+   to produce, card included: its buttons have no box to hit until it is
+   actually on screen, which is what a 0x0 hit area means. */
+const tapShip = async (want = 'marked') => {
+  await stage();
   const a = await aim();
   if (!a) return null;
   await page.touchscreen.tap(a.x, a.y);
-  await sleep(320);
+  await waitFor(page, marked => {
+    const card = document.getElementById('targetcard').classList.contains('hidden');
+    return marked ? !!window.__game.target && !card : !window.__game.target && card;
+  }, 4000, want === 'marked');
   return a;
 };
 const scr = await tapShip();
@@ -62,7 +131,7 @@ ok(`tapping a hull marks her as target (${targeted})`, targeted === scr.name);
 
 /* ---- an accidental tap can be taken back ---- */
 // tapping the same hull again releases her
-await tapShip();
+await tapShip('clear');
 ok('tapping the marked ship again releases her', !(await page.evaluate(() => !!window.__game.target)));
 
 // and the card's dismiss button does it too
@@ -87,8 +156,10 @@ ok(`the card's dismiss button clears the target (${closeBox.w}x${closeBox.h} hit
 
 // steering must NOT drop the target — you need to manoeuvre while engaged
 await tapShip();
-await page.touchscreen.tap(box.w * 0.25, box.h * 0.3);
-await sleep(350);
+await page.evaluate(() => { window.__game.player.dest = null; });
+const helmPoint = await seaPoint();
+await page.touchscreen.tap(helmPoint.x, helmPoint.y);
+await waitFor(page, () => !!window.__game.player.dest, 3000);
 const keptWhileSteering = await page.evaluate(() => ({
   target: !!window.__game.target, dest: !!window.__game.player.dest,
 }));

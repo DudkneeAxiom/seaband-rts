@@ -1,6 +1,7 @@
 /* Officers: named people with roles, wages, experience — and little
    hand-drawn portraits generated from their seed. */
 import { OFFICER_ROLES, NAMES } from '../data/gamedata.js';
+import { NAMED_OFFICERS } from '../data/notables.js';
 import { makeRNG, rngPick, rngInt, rngRange, clamp } from '../core/util.js';
 
 let NEXT = 1;
@@ -120,10 +121,51 @@ export function drawPortrait(canvas, o, size = 46) {
   g.strokeRect(0.5, 0.5, size - 1, size - 1);
 }
 
-export function rollTavernOfficers(seedBase, n = 3, exclude = []) {
+/**
+ * Build one of the authored officers.
+ *
+ * They keep every field an ordinary officer has — role, skill, wage, hire,
+ * xp, canCaptain — so nothing downstream needs to know the difference. What
+ * they add is a person: an epithet, a background, traits with names people
+ * use, and something they want that has nothing to do with the player.
+ */
+export function makeNamedOfficer(def) {
+  const base = makeOfficer(def.seed, def.role);
+  base.namedId = def.id;
+  base.name = def.name;
+  base.epithet = def.epithet || null;
+  base.skill = def.skill;
+  base.wage = 6 + def.skill * 4;
+  base.hire = Math.round(150 + def.skill * 110);
+  base.canCaptain = def.skill >= 2 || def.role === 'mate';
+  base.bio = def.bio;
+  base.ambition = def.ambition;
+  base.namedTraits = def.traits.slice();
+  base.arc = def.arc || null;
+  base.arcState = 0;
+  return base;
+}
+
+/**
+ * Who is drinking here tonight.
+ *
+ * A port's own authored officers come first — Mercer is an Ilo Vantu fixture
+ * and should be findable rather than a lottery — and the rest of the room is
+ * filled procedurally as before. `taken` are the ones already hired or hired
+ * and lost, so a named officer never appears twice in the world.
+ */
+export function rollTavernOfficers(seedBase, n = 3, exclude = [], portId = null, taken = []) {
   const out = [];
   const used = new Set(exclude.map(o => o.role));
-  for (let i = 0; i < n; i++) {
+  const gone = new Set(taken);
+  for (const def of NAMED_OFFICERS) {
+    if (out.length >= n) break;
+    if (def.port !== portId || gone.has(def.id) || used.has(def.role)) continue;
+    const o = makeNamedOfficer(def);
+    used.add(o.role);
+    out.push(o);
+  }
+  for (let i = out.length; i < n; i++) {
     let o = makeOfficer(seedBase + i * 131);
     let guard = 0;
     while (used.has(o.role) && guard++ < 8) o = makeOfficer(seedBase + i * 131 + guard * 977);

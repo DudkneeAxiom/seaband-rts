@@ -18,7 +18,12 @@
   --ok:#79c281;
   --panel: rgba(14,34,44,.93);
   --panel-hi: rgba(24,52,64,.96);
-  --stroke: rgba(230,178,94,.34);
+  /* Hemp, not gold. The hairline underneath the rope is the shadow the rope
+     casts, so it wants to be dark and quiet rather than a bright edge of its own. */
+  --stroke: rgba(120,92,56,.55);
+  --rope-lit:#d7b483;
+  --rope-mid:#a87c47;
+  --rope-dark:#6f5029;
   --shadow: 0 10px 30px rgba(0,0,0,.45);
   --r: 14px;
   --tap: 48px;
@@ -296,9 +301,14 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .ammo-btn.on{background:linear-gradient(180deg,#3d6a80,#1d4356); color:var(--parch); border-color:var(--brass);}
 .ammo-btn:active{transform:scale(.94);}
 
-/* ---------- Fleet bar ---------- */
+/* ---------- Fleet bar ----------
+   It lives inside #leftstack in the markup so that a narrow screen can simply
+   let it fall into that column. Where there is room across the bottom it is
+   lifted back out to the centre — fixed, not absolute, because its parent is
+   itself positioned and would otherwise be the thing it centres on. */
 #fleetbar{
-  position:absolute; left:50%; transform:translateX(-50%);
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(10px + var(--sb));
   display:flex; gap:7px; padding:6px; background:var(--panel);
   border:1px solid var(--stroke); border-radius:15px; box-shadow:var(--shadow);
   backdrop-filter:blur(6px);
@@ -311,11 +321,24 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 }
 .fleet-btn .fi{font-size:15px; color:var(--brass);}
 .fleet-btn.on{background:linear-gradient(180deg,#3d6a80,#1d4356); color:#fff; border-color:var(--brass);}
+/* Guns held reads as a warning rather than a selection: it is a thing you
+   have deliberately switched off, and you want to notice it is still off. */
+.fleet-btn.hold-fire.on{background:linear-gradient(180deg,#b7442f,#7a2a1d); border-color:#e88a63; color:#ffe6dd;}
+.fleet-btn.hold-fire.on .fi{color:#ffd9c8;}
 .fleet-btn:active{transform:scale(.95);}
 
 /* ---------- Target card ---------- */
-#targetcard{
+/* The right-hand column: pursuit above, target card below, one gap between.
+   Both used to be absolutely placed at the same top and the same right, so
+   whenever a raider closed while a ship was marked they drew on top of each
+   other. Neither is always present, and a hidden one costs nothing here. */
+#rightstack{
   position:absolute; top:calc(122px + var(--st)); right:calc(10px + var(--sr));
+  display:flex; flex-direction:column; align-items:flex-end; gap:8px;
+  pointer-events:none;
+}
+#rightstack > *{pointer-events:auto;}
+#targetcard{
   width:174px;
   background:linear-gradient(180deg, rgba(26,56,70,.95), rgba(11,29,38,.95));
   border:1px solid var(--stroke);
@@ -409,6 +432,10 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   display:flex; flex-direction:column; gap:6px; align-items:center;
   pointer-events:none; width:100%;
 }
+/* No rope on these. The border is for surfaces you dwell on — a card, a
+   panel, a sheet. A message that is gone in two seconds framed like a
+   ship's nameplate reads as an artefact, and four of them stacked up the
+   middle of the screen read as a fault. */
 .toast{
   background:rgba(10,26,34,.93); border:1px solid var(--stroke); border-radius:10px;
   padding:8px 14px; font-size:13.5px; box-shadow:var(--shadow); animation:toastIn .3s ease-out;
@@ -418,6 +445,8 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .toast.bad{border-color:rgba(217,85,63,.6); color:#f5c4b8;}
 .toast.gold{border-color:var(--brass); color:#ffe6b0;}
 .toast.out{animation:toastOut .35s ease-in forwards;}
+/* how many times you have now been told the same thing */
+.t-again{opacity:.6; font-size:11px; font-variant-numeric:tabular-nums; margin-left:2px;}
 @keyframes toastIn{from{opacity:0;transform:translateY(-10px) scale(.96);}}
 @keyframes toastOut{to{opacity:0;transform:translateY(-6px) scale(.98);}}
 
@@ -430,6 +459,58 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 }
 .obj-glyph{color:var(--brass); font-size:11px; margin-top:1px;}
 #objective b{color:var(--parch);}
+/* where you are in the story, over what it wants of you */
+.obj-kicker{
+  display:block; font-size:9.5px; letter-spacing:.9px; text-transform:uppercase;
+  color:var(--brass-dim); margin-bottom:2px; font-weight:700;
+}
+
+/* ---------- Rope ----------
+   A laid rope is three strands running up at an angle, each one lit on top and
+   dark in the groove between — which is a repeating gradient at 45°, near
+   enough. It goes on a masked ring rather than a border-image, because
+   border-image squares off every corner it touches and these panels are
+   rounded. The mask cuts the middle out of the pseudo-element, leaving only
+   the band, and `border-radius:inherit` keeps it following the corner it wraps.
+
+   Two strand pitches: a fine one for chips and buttons, a heavier lay for the
+   big panels, so a modal does not look like a bracelet. */
+/* Only the ones that are not positioned already. #targetcard, #objective,
+   #speedctl, #fleetbar, .toast and #sheet-body are all absolute, and a blanket
+   `position:relative` here drops them back into normal flow — which is a
+   full-width block at the wrong offset, not a panel where it was put. */
+.rope, .rope-fine, #modal-card, .icon-btn, .stat-chip{position:relative;}
+.rope::after, .rope-fine::after,
+#modal-card::after, #sheet-body::after, #enc-card::after,
+.icon-btn::after, .stat-chip::after, #speedctl::after,
+#targetcard::after, #objective::after, #fleetbar::after,
+#pursuit::after, #battlebar::after{
+  content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor; mask-composite:exclude;
+  /* the twist, then a soft top light across the whole band so it reads round */
+  background-image:
+    linear-gradient(180deg, rgba(255,240,214,.30), rgba(0,0,0,.34)),
+    repeating-linear-gradient(48deg,
+      var(--rope-lit) 0 2px, var(--rope-mid) 2px 4.5px,
+      var(--rope-dark) 4.5px 6px, var(--rope-mid) 6px 7.5px);
+  background-blend-mode:overlay, normal;
+  opacity:.85;
+}
+.rope::after, #modal-card::after, #sheet-body::after, #enc-card::after{padding:4px;}
+.rope-fine::after,
+.icon-btn::after, .stat-chip::after, #speedctl::after,
+#targetcard::after, #objective::after, #fleetbar::after,
+#pursuit::after, #battlebar::after{
+  padding:2.5px;
+  background-image:
+    linear-gradient(180deg, rgba(255,240,214,.26), rgba(0,0,0,.30)),
+    repeating-linear-gradient(48deg,
+      var(--rope-lit) 0 1.4px, var(--rope-mid) 1.4px 3px,
+      var(--rope-dark) 3px 4px, var(--rope-mid) 4px 5px);
+  opacity:.78;
+}
 
 /* ---------- Bottom sheet (ports & menus) ---------- */
 #sheet{position:absolute; inset:0; z-index:20;}
@@ -466,8 +547,27 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 #sheet-tabs{
   display:flex; gap:6px; padding:2px calc(12px + var(--sr)) 8px calc(12px + var(--sl));
   overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; touch-action:pan-x;
+  /* The sheet is a flex column and this row was being squashed to nineteen
+     pixels on a short screen — the 44px tabs inside it clipped clean through
+     the bottom, on every port, which is the kind of thing a layout audit that
+     only looks for *overlaps* will happily pass. It is content-sized and it
+     does not shrink. */
+  flex:0 0 auto; min-height:52px; align-items:flex-start;
 }
+#sheet-tabs .tab{flex:0 0 auto;}
 #sheet-tabs::-webkit-scrollbar{display:none;}
+/* Five tabs do not fit across a phone held upright, so the strip scrolls —
+   but a tab sliced off square at the edge reads as a broken layout rather
+   than as "there is more this way", and SHIPYARD arriving as a lone S is how
+   a player misses the shipyard. Fading the last few pixels says it scrolls
+   without spending any width on saying so. Harmless where they all fit: the
+   fade falls on empty strip and nothing shows. */
+@media (max-width:560px){
+  #sheet-tabs{
+    -webkit-mask-image:linear-gradient(to right, #000 calc(100% - 26px), transparent);
+    mask-image:linear-gradient(to right, #000 calc(100% - 26px), transparent);
+  }
+}
 .tab{
   flex:0 0 auto; height:42px; padding:0 15px; border-radius:11px;
   background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
@@ -479,8 +579,11 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .tab.on{background:linear-gradient(180deg,#3d6a80,#20495c); color:#fff; border-color:var(--brass);}
 #sheet-content{
   overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
-  padding:4px calc(14px + var(--sr)) 18px calc(14px + var(--sl));
+  /* Clear of the home indicator. The last row of a long list — PUT TO SEA,
+     most often — was ending flush with the bottom of the glass. */
+  padding:4px calc(14px + var(--sr)) calc(20px + var(--sb)) calc(14px + var(--sl));
   overscroll-behavior:contain;
+  flex:1 1 auto; min-height:0;
 }
 /* on wide screens keep the reading column sane instead of letting rows sprawl */
 @media (min-width:760px){
@@ -563,12 +666,17 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 /* ---------- Modal ---------- */
 #modal{position:absolute; inset:0; z-index:30; display:grid; place-items:center; background:rgba(4,12,18,.6); padding:20px;}
 #modal-card{
-  width:min(92vw,430px); max-height:82vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  /* The card is a frame that does not move; the prose inside it scrolls. That
+     keeps the title and the buttons where the thumb left them on a long scene,
+     and it keeps the rope wrapped round the card instead of scrolling off it. */
+  width:min(92vw,430px); max-height:82vh; overflow:hidden;
+  display:flex; flex-direction:column;
   background:linear-gradient(180deg, rgba(22,48,60,.99), rgba(11,28,36,.99));
   border:1px solid var(--stroke); border-radius:18px; padding:20px 18px 16px;
   box-shadow:0 20px 60px rgba(0,0,0,.6); animation:modalIn .28s cubic-bezier(.2,.9,.3,1);
   touch-action:pan-y;
 }
+#modal-text{overflow-y:auto; -webkit-overflow-scrolling:touch; min-height:0;}
 @keyframes modalIn{from{opacity:0;transform:translateY(16px) scale(.96);}}
 #modal-title{font-family:var(--font-disp); font-size:22px; color:var(--brass); margin-bottom:9px; line-height:1.2;}
 #modal-text{font-size:14.5px; line-height:1.55; color:var(--parch-dim); margin-bottom:16px;}
@@ -807,18 +915,80 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   background-size:200% 100%; animation:wv 1.3s linear infinite;
 }
 @keyframes wv{to{background-position:-200% 0;}}
+/* where boot has got to, under the wave — small, and only ever readable if
+   you are looking for it, which is exactly when it matters */
+.ld-step{margin-top:10px; font-size:9.5px; letter-spacing:1.4px; color:rgba(230,178,94,.45);}
+.ld-build{margin-top:5px; font-size:9px; letter-spacing:1.2px; color:rgba(230,178,94,.3);}
+
+/* ---------- No scripting: an attachment preview, usually ----------
+   Sits above the loading card, because in this state that card is a lie —
+   nothing is making sail and nothing ever will. Deliberately plain: no
+   custom properties, no viewport units, nothing that needs the rest of this
+   sheet to be understood, since whatever is rendering it is not a browser
+   doing its best work. */
+#nojs{
+  position:fixed; inset:0; z-index:70; background:#07161f; color:#e8dcc0;
+  display:flex; align-items:center; justify-content:center;
+  padding:28px; overflow:auto; -webkit-overflow-scrolling:touch;
+}
+.nojs-card{max-width:32em; font-size:15px; line-height:1.55;}
+.nojs-card h2{
+  margin:0 0 14px; font-size:21px; line-height:1.25; color:#e6b25e;
+  letter-spacing:.4px;
+}
+.nojs-card p{margin:0 0 12px;}
+.nojs-card b{color:#f3e7c8;}
+.nojs-alt{opacity:.72; font-size:13px;}
 
 /* ---------- Portrait: stack the bottom controls instead of racing them ---------- */
 @media (orientation:portrait){
   /* a narrow screen has no room for a wide objective chip beside the target
      card: 10 + chip + gap + card + 10 has to fit across 390px */
   #objective{max-width:min(45vw,176px);}
-  #fleetbar{bottom:calc(var(--sb) + 264px);}
+  /* And no room for it to grow downward either. Narrow enough to wrap a long
+     objective to five or six lines, the chip reached past where the notices
+     start and sat behind them, one rounded corner poking out from under a
+     message — which reads as a bug because it is one. Three lines is enough
+     to say what is wanted; the full text is on the log. The clamp is on the
+     objective alone: including the chapter heading spent two of the three
+     lines on saying which chapter it was. */
+  .obj-body{
+    display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3;
+    overflow:hidden;
+  }
+  /* Let the column place it. It used to be lifted 264px off the bottom to
+     clear the stack below — a guess at that stack's height, which left it
+     hanging in mid-screen with sixty-odd pixels of empty sea underneath and
+     nothing to read it against. Static, it sits on the speed control with the
+     column's own gap and cannot drift out of step with it again. */
+  #fleetbar{position:static; transform:none;}
+  /* Three orders across 244px made the column wider than the ship card under
+     it, and wide enough to reach the action buttons on the other side of a
+     390px screen. Tighter buttons bring the bar in under the card's width;
+     they are still 44px tall, which is the number that matters to a thumb. */
+  .fleet-btn{min-width:52px; padding:0 6px; font-size:10px; letter-spacing:.5px;}
+  #fleetbar{gap:5px; padding:5px;}
   #shipstatus{width:min(50vw,196px);}
   #actions{gap:8px;}
+  /* A centred notice and a right-hand column both want this band on a 390px
+     screen and cannot be separated across it — 174px of card plus 10px of
+     margin reaches to x206, and a 289px notice centred on 390 reaches x339.
+     So they are separated down the screen instead, below whatever the column
+     actually is rather than below a guess at it. --clear is measured by the
+     HUD; the max() keeps the old floor when the column is empty. */
   #notices{width:min(74vw,330px); top:calc(180px + var(--st));}
-  /* the target card is tall once it carries the weight comparison */
-  #notices.low{top:calc(276px + var(--st));}
+  #notices,
+  #notices.low{top:max(calc(180px + var(--st)), var(--clear, 0px));}
+  /* The action banner and the top bar both want the very top of the screen.
+     On a wide one they share it — banner in the middle, chips either side —
+     but across 390px the banner is nearly the full width and was landing
+     squarely on the coin and prestige chips, with the numbers showing
+     through it. Below the bar there is room for both. */
+  #battlebar{
+    top:calc(10px + var(--tap) + var(--st));
+    max-width:calc(100vw - 20px);
+    white-space:normal; text-align:center; justify-content:center;
+  }
 }
 
 /* ---------- Landscape / short screens ---------- */
@@ -835,7 +1005,8 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   .bar-row{margin:3px 0;}
   /* short landscape: the right-hand column has to hold the target card and
      up to four controls, so both ends give a little */
-  #targetcard{top:calc(92px + var(--st)); padding:7px 9px;}
+  #rightstack{top:calc(92px + var(--st));}
+  #targetcard{padding:7px 9px;}
   #tc-power{margin-top:5px; padding-top:5px;}
   .pw-nums{display:none;}
   .pw-scale{height:8px; margin:4px 0 0;}
@@ -873,6 +1044,10 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   display:block; font-family:var(--font-disp); font-size:16px; color:var(--brass);
   margin-bottom:5px;
 }
+#modal-text .story-count{
+  font-family:var(--font-ui); font-size:10px; letter-spacing:1.1px;
+  text-transform:uppercase; color:var(--brass-dim); margin-bottom:2px;
+}
 #modal-text hr{border:0; border-top:1px solid rgba(230,178,94,.2); margin:14px 0;}
 
 /* ---------- key bindings on the helm page ---------- */
@@ -896,3 +1071,292 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 }
 .keyalso{font-size:10px; color:var(--brass-dim); letter-spacing:.4px;}
 .keywhat{font-size:12.5px; color:var(--parch-dim); flex:1 1 auto;}
+
+/* ===========================================================
+   THE CAMPAIGN LAYER: pursuit, encounter, battle
+   Three states the player must never be in doubt about. Each has its own
+   fixed place on screen and its own colour, so the answer to "what is
+   happening to me" is available at a glance rather than by reading.
+   =========================================================== */
+
+/* ---------- being hunted ---------- */
+#pursuit{
+  width:186px; padding:8px 10px 9px; border-radius:12px;
+  background:linear-gradient(180deg, rgba(58,26,22,.94), rgba(26,12,12,.95));
+  border:1px solid rgba(120,64,44,.6); box-shadow:var(--shadow);
+  font-size:12px; color:var(--parch-dim); backdrop-filter:blur(6px);
+  animation:purIn .25s ease-out;
+}
+@keyframes purIn{from{opacity:0; transform:translateX(10px);}}
+.pur-head{display:flex; justify-content:space-between; align-items:baseline; gap:6px; margin-bottom:3px;}
+#pur-name{font-family:var(--font-disp); font-size:13.5px; color:#ffcdb4; letter-spacing:.2px;}
+.pur-pip{font-size:9.5px; letter-spacing:.7px; text-transform:uppercase; color:var(--brass-dim); white-space:nowrap;}
+.pur-row{display:flex; justify-content:space-between; align-items:baseline; font-size:11px;}
+#pur-state{text-transform:uppercase; letter-spacing:.8px; font-weight:700; font-size:10px;}
+#pur-state.gaining{color:#ff8a63;}
+#pur-state.losing{color:#8fd39a;}
+.pur-dist{font-variant-numeric:tabular-nums; color:var(--parch);}
+.pur-dist b{font-size:13px;}
+/* how much of the gap is gone: full bar means she is alongside */
+.pur-bar{height:3px; margin-top:6px; border-radius:2px; background:rgba(0,0,0,.45); overflow:hidden;}
+.pur-bar i{display:block; height:100%; width:0; background:linear-gradient(90deg,#a8552f,#ff8a63); transition:width .2s linear;}
+
+/* ---------- a fleet action is running ---------- */
+#battlebar{
+  position:absolute; left:50%; transform:translateX(-50%); top:calc(8px + var(--st));
+  display:flex; align-items:center; gap:9px; padding:6px 13px; border-radius:11px;
+  background:linear-gradient(180deg, rgba(24,52,64,.95), rgba(10,26,34,.96));
+  border:1px solid var(--stroke); box-shadow:var(--shadow);
+  font-size:11.5px; color:var(--parch-dim); white-space:nowrap; backdrop-filter:blur(6px);
+}
+.bb-kicker{font-size:9.5px; letter-spacing:1.1px; text-transform:uppercase; color:var(--brass);}
+#bb-state{color:var(--parch);}
+.bb-run{font-size:10px; color:var(--brass-dim);}
+.bb-run.armed{color:#8fd39a;}
+
+/* ---------- the encounter ---------- */
+#encounter{
+  position:absolute; inset:0; z-index:34; display:grid; place-items:center;
+  padding:18px; background:rgba(3,10,15,.72); backdrop-filter:blur(3px);
+}
+#enc-card{
+  position:relative; width:min(94vw,440px); max-height:88vh; overflow:hidden;
+  display:flex; flex-direction:column;
+  background:linear-gradient(180deg, rgba(24,50,62,.99), rgba(10,26,34,.99));
+  border:1px solid var(--stroke); border-radius:18px; padding:18px 16px 14px;
+  box-shadow:0 22px 66px rgba(0,0,0,.66);
+}
+#enc-kicker{
+  font-size:10px; letter-spacing:1.6px; text-transform:uppercase;
+  color:#ff9d76; margin-bottom:4px; font-weight:700;
+}
+#enc-title{font-family:var(--font-disp); font-size:21px; color:var(--brass); line-height:1.15;}
+#enc-sub{font-size:12px; color:var(--parch-dim); margin-top:3px;}
+
+/* the two sides, weighed against each other */
+#enc-sides{display:flex; gap:9px; margin:13px 0 4px;}
+.enc-side{
+  flex:1; padding:9px 10px; border-radius:11px; min-width:0;
+  background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.07);
+}
+.enc-side.them{background:rgba(120,48,36,.2); border-color:rgba(150,74,54,.32);}
+.enc-side h4{
+  font-size:9.5px; letter-spacing:1px; text-transform:uppercase;
+  color:var(--brass-dim); margin-bottom:5px; font-weight:700;
+}
+.enc-ship{font-size:12.5px; color:var(--parch); margin-bottom:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.enc-ship small{color:var(--parch-dim);}
+.enc-tot{margin-top:6px; font-size:11px; color:var(--parch-dim); font-variant-numeric:tabular-nums;}
+.enc-tot b{color:var(--parch);}
+#enc-note{
+  margin:10px 0 12px; padding:8px 10px; border-radius:10px; font-size:12px; line-height:1.42;
+  background:rgba(0,0,0,.24); border-left:3px solid var(--brass-dim); color:var(--parch-dim);
+}
+#enc-note b{color:var(--parch);}
+#enc-note .gauge{color:#9fd6ff;}
+
+/* the choices */
+#enc-options{display:flex; flex-direction:column; gap:7px; overflow-y:auto; min-height:0;}
+.enc-opt{
+  display:flex; flex-direction:column; align-items:flex-start; gap:1px;
+  min-height:var(--tap); padding:8px 13px; border-radius:12px; text-align:left; width:100%;
+  background:linear-gradient(180deg,#43738a,#1b3f51); border:1px solid var(--stroke);
+  color:var(--parch); box-shadow:var(--shadow), var(--edge-lit), var(--edge-dark);
+}
+.enc-opt:active{transform:scale(.985); filter:brightness(1.1);}
+.enc-opt b{font-size:13.5px; letter-spacing:.7px;}
+.enc-opt small{font-size:11px; color:rgba(244,231,205,.68); font-weight:400;}
+.enc-opt.fight{background:linear-gradient(180deg,#a5512f,#5f2c17); border-color:rgba(230,140,94,.4);}
+.enc-opt.fight b{color:#ffe0cd;}
+.enc-opt.talk{background:linear-gradient(180deg,#3c6a54,#1a3a2c); border-color:rgba(120,200,150,.28);}
+
+/* the odds, stated rather than hidden */
+.enc-odds{display:flex; align-items:center; gap:7px; margin-top:5px; width:100%;}
+.enc-odds .bar{flex:1; height:4px; border-radius:2px; background:rgba(0,0,0,.4); overflow:hidden;}
+.enc-odds .bar i{display:block; height:100%; background:linear-gradient(90deg,#c9803f,#8fd39a);}
+.enc-odds span{font-size:10px; color:var(--parch-dim); font-variant-numeric:tabular-nums;}
+
+/* what happened */
+#enc-outcome{
+  margin-top:11px; padding-top:11px; border-top:1px solid rgba(230,178,94,.18);
+  font-size:12.5px; line-height:1.45; color:var(--parch-dim);
+}
+#enc-outcome h5{font-family:var(--font-disp); font-size:16px; color:var(--brass); margin-bottom:4px;}
+#enc-outcome .terms{margin:7px 0 0; display:flex; flex-direction:column; gap:2px;}
+#enc-outcome .terms i{font-style:normal; display:flex; justify-content:space-between; font-size:11px;}
+#enc-outcome .terms .up{color:#8fd39a;}
+#enc-outcome .terms .dn{color:#e08a6a;}
+
+/* short screens: the sides stack rather than squeeze */
+@media (max-height:430px){
+  #enc-card{padding:13px 13px 11px;}
+  #enc-title{font-size:18px;}
+  #enc-sides{margin:9px 0 2px;}
+  #enc-note{margin:8px 0 9px; padding:6px 9px; font-size:11.5px;}
+}
+
+/* ---------- boarding: both decks, and something to say about it ---------- */
+.brd-crews{display:flex; gap:8px; margin:9px 0 7px;}
+.brd-crew{
+  flex:1; min-width:0; padding:7px 9px; border-radius:10px; font-size:11px;
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08);
+}
+.brd-crew.them{background:rgba(120,48,36,.2); border-color:rgba(150,74,54,.3);}
+.bc-head{
+  display:flex; justify-content:space-between; gap:6px; align-items:baseline;
+  font-family:var(--font-disp); font-size:12.5px; color:var(--parch);
+  padding-bottom:4px; margin-bottom:4px; border-bottom:1px solid rgba(255,255,255,.09);
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.bc-head b{color:var(--brass); font-size:14px; font-variant-numeric:tabular-nums;}
+.bc-row{display:flex; justify-content:space-between; gap:6px; color:var(--parch-dim); line-height:1.5;}
+.bc-row b{color:var(--parch); font-variant-numeric:tabular-nums;}
+.bc-off{margin-top:4px; font-size:10px; color:var(--brass-dim); font-style:italic;}
+.bc-lost{margin-top:4px; font-size:10.5px; color:#ff8a63; font-weight:700;}
+
+.brd-acts{display:flex; flex-direction:column; gap:5px; margin-top:9px;}
+.brd-act{
+  display:flex; flex-direction:column; align-items:flex-start; gap:0;
+  min-height:44px; padding:6px 11px; border-radius:10px; width:100%; text-align:left;
+  background:linear-gradient(180deg,#3d6a80,#183a4a); border:1px solid var(--stroke);
+  color:var(--parch); font-size:12px; font-weight:700; letter-spacing:.6px;
+}
+.brd-act small{font-size:10.5px; font-weight:400; color:rgba(244,231,205,.62); letter-spacing:0;}
+.brd-act.on{background:linear-gradient(180deg,#a5512f,#5f2c17); border-color:rgba(230,140,94,.45);}
+.brd-act:active{transform:scale(.985);}
+
+/* landscape phones: the decks go side by side with the actions */
+@media (max-height:430px){
+  .brd-crews{margin:6px 0 5px;}
+  .brd-crew{font-size:10px; padding:5px 7px;}
+  .brd-acts{display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-top:6px;}
+  .brd-act{min-height:40px; font-size:11px;}
+  .brd-act small{display:none;}
+}
+
+/* ---- the sound faders ----
+   A slider is a touch target like any other: the thumb is 28px on a 44px
+   rail so a finger finds it, and the row lays out as label-over-slider on a
+   phone where a slider beside text would be too short to aim at. */
+.row.fader { align-items: center; }
+.fwrap { display: flex; align-items: center; gap: 10px; min-width: 172px; }
+.fval {
+  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--parch-dim); min-width: 26px; text-align: right;
+}
+input.slider {
+  -webkit-appearance: none; appearance: none;
+  width: 136px; height: 44px; background: transparent; cursor: pointer;
+  margin: 0; touch-action: pan-y;
+}
+input.slider::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--brass) 0 var(--f, 50%), rgba(255,255,255,.14) var(--f, 50%) 100%);
+  background-color: rgba(255,255,255,.14);
+}
+input.slider::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.14); }
+input.slider::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--brass); }
+input.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 26px; height: 26px; margin-top: -10px; border-radius: 50%;
+  background: var(--parch); border: 2px solid var(--brass);
+  box-shadow: 0 2px 6px rgba(0,0,0,.45);
+}
+input.slider::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--parch); border: 2px solid var(--brass);
+  box-shadow: 0 2px 6px rgba(0,0,0,.45);
+}
+input.slider:focus-visible { outline: 2px solid var(--brass); outline-offset: 4px; }
+@media (max-width: 560px) {
+  .row.fader { flex-wrap: wrap; }
+  .fwrap { min-width: 0; width: 100%; }
+  input.slider { flex: 1; width: auto; }
+}
+
+/* A hull that cannot be worked says so in her own line, not only when you
+   press the button she will refuse. */
+.statline em.warn { color: var(--danger); font-style: normal; opacity: .95; }
+
+/* ---- the town, before the counters ----
+   A render of the real harbour, framed. Short on a short screen: this is a
+   view of a place, not a hero image, and the people below it are the point. */
+.townscene{
+  position:relative; height:clamp(96px, 22vh, 168px); border-radius:12px; overflow:hidden;
+  margin:2px 0 10px; border:1px solid rgba(230,178,94,.22);
+  background:#0b2331 center 42% / cover no-repeat;
+  box-shadow:inset 0 -30px 40px -18px rgba(4,16,22,.9);
+}
+.townscene.noshot{background-image:linear-gradient(#173d4e,#0b2331);}
+.ts-grade{
+  position:absolute; inset:0;
+  background:linear-gradient(180deg,rgba(6,20,28,.45) 0%,rgba(6,20,28,0) 38%,rgba(6,20,28,.72) 100%);
+}
+.ts-name{
+  position:absolute; left:12px; bottom:9px; z-index:2;
+  font-family:var(--font-disp); font-size:20px; color:var(--parch);
+  text-shadow:0 2px 10px rgba(0,0,0,.8);
+}
+.ts-name span{
+  display:block; font-family:var(--font-ui); font-size:10px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--brass); margin-top:1px;
+}
+.ts-flag{
+  position:absolute; top:10px; right:14px; width:26px; height:16px; z-index:2;
+  background:var(--banner,#2f9b8e); opacity:.95;
+  clip-path:polygon(0 0,100% 0,100% 100%,0 100%,10% 50%);
+  box-shadow:0 2px 8px rgba(0,0,0,.5);
+}
+.town-role{
+  font:600 11px/1.5 ui-sans-serif,system-ui; letter-spacing:.08em;
+  color:var(--brass); text-transform:uppercase; margin:0 0 4px;
+}
+.town-problem{
+  display:flex; gap:10px; align-items:flex-start; margin:10px 0 2px; padding:10px 12px;
+  border-radius:10px; background:rgba(230,178,94,.07); border:1px solid rgba(230,178,94,.18);
+  font-size:13px; line-height:1.5; color:var(--parch);
+}
+.tp-k{
+  flex:0 0 auto; font:700 10px/1.6 ui-sans-serif,system-ui; letter-spacing:.1em;
+  color:var(--brass-dim);
+}
+
+/* ---- people ---- */
+.row.notable{align-items:center; gap:10px;}
+canvas.npc-face{border-radius:8px; flex:0 0 auto; box-shadow:0 2px 8px rgba(0,0,0,.35);}
+canvas.npc-face.big{border-radius:10px;}
+.rel{font-weight:700;}
+.rel.hostile,.rel.resentful{color:var(--danger);}
+.rel.suspicious{color:#d3a05f;}
+.rel.neutral{color:var(--parch-dim);}
+.rel.acquainted{color:#a8c8b4;}
+.rel.friendly,.rel.trusted,.rel.devoted{color:#7fc8a9;}
+.npc-card{display:flex; gap:12px; align-items:center; margin-bottom:10px;}
+.npc-name{font:700 17px/1.2 Georgia,serif; color:var(--brass);}
+.npc-title{font-size:12px; color:var(--parch-dim); margin-top:2px;}
+.npc-rel{margin-top:4px; font-size:12px;}
+.npc-say{font-size:14px; line-height:1.6; margin:6px 0;}
+.npc-mem{
+  font-size:12.5px; line-height:1.55; color:var(--parch-dim);
+  border-left:2px solid rgba(230,178,94,.3); padding-left:10px; margin:8px 0;
+}
+/* what standing is still worth earning: quieter than what they say, and it
+   goes away entirely once there is nothing left to open */
+.npc-next{
+  font-size:11.5px; line-height:1.5; color:var(--parch-dim);
+  margin:8px 0 2px; opacity:.85;
+}
+.npc-next b{color:var(--brass); font-weight:600;}
+/* ---- officers as people ---- */
+.epithet{color:var(--parch-dim); font-weight:400; font-style:italic;}
+.stars{color:var(--brass); letter-spacing:1px;}
+.trait-line{display:flex; gap:6px; flex-wrap:wrap; margin:3px 0;}
+.tr{
+  font:600 10px/1.7 ui-sans-serif,system-ui; letter-spacing:.06em; text-transform:uppercase;
+  padding:0 7px; border-radius:999px; color:var(--parch-dim);
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.09);
+}
+.dimtxt{color:var(--parch-dim); opacity:.75; font-style:italic;}
+/* the strip on a location tab: a glance, not a hero image */
+.townscene.small{height:clamp(72px, 15vh, 116px); margin-bottom:12px;}
+.townscene.small .ts-name{font-size:16px; bottom:7px;}

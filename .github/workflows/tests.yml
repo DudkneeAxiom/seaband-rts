@@ -1,0 +1,61 @@
+# Every suite here drives the real game in a real browser through the real UI,
+# so CI needs a Chromium and a few minutes — not the seconds a repo full of
+# unit tests would take. That cost is the point: these checks catch things an
+# assertion against a mock never could.
+name: tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A second push to the same branch makes the first run pointless; don't pay for it.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20   # a wedged browser should fail, not idle for six hours
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20      # package.json asks for >=18; 20 is the LTS
+          cache: npm
+
+      - run: npm ci
+
+      # Chromium is a ~140MB download. The lockfile pins the Playwright version,
+      # so this only re-downloads when that pin moves.
+      - name: Cache Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Runs even on a cache hit: --with-deps also installs system libraries,
+      # and those live outside the cached directory.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # The suites start their own server on :8080 and shut it down after.
+      # --fast skips gunnery and world, which are calibration runs that print
+      # tables rather than verdicts and cost several minutes each.
+      - name: Run the suites
+        run: npm run test:fast
+
+      # The suites screenshot as they go. When one fails, the picture is usually
+      # more use than the assertion that caught it.
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/
+          if-no-files-found: ignore
+          retention-days: 7

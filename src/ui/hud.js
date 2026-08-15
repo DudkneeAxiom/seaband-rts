@@ -1,7 +1,7 @@
 /* The heads-up display. Contextual: buttons exist only while they mean
    something, so the ocean keeps the screen. */
 import { $, el, clear, onTap, toast, setNoticesLow } from './dom.js';
-import { AMMO, FACTIONS } from '../data/gamedata.js';
+import { AMMO, FACTIONS, GOODS, tonsOf } from '../data/gamedata.js';
 import { clamp, clamp01, fmtCoin, normAng, TAU } from '../core/util.js';
 import { worldToScreen } from '../core/input.js';
 
@@ -44,19 +44,32 @@ export class HUD {
     }
   }
 
-  /** Pause / 1× / 2×. Sailing a long leg should not mean waiting a long time. */
+  /** Pause / 1× / fast. Sailing a long leg should not mean waiting a long time. */
   bindSpeed() {
     const g = this.g;
     for (const b of document.querySelectorAll('.spd')) {
       onTap(b, () => {
-        g.speed = +b.dataset.s;
-        for (const o of document.querySelectorAll('.spd')) o.classList.toggle('on', o === b);
-        $('paused-badge').classList.toggle('hidden', g.speed !== 0);
+        /* The fast button is a cycle, not a setting: off it starts at 2×, and
+           each further tap flips 2×↔4×. Coming back from pause or 1× starts
+           at 2× again rather than dropping the player straight into 4×. */
+        this.setSpeed(b.classList.contains('fast') ? (g.speed === 2 ? 4 : 2) : +b.dataset.s);
       }, b.dataset.s === '0' ? 320 : 700);
     }
   }
   setSpeed(n) {
     this.g.speed = n;
+    this.syncSpeed();
+  }
+  /** Paint the strip from `g.speed`, wherever that was set — a battle forcing
+      1× has to move the buttons too, or they lie about the clock. */
+  syncSpeed() {
+    const n = this.g.speed;
+    const fast = document.querySelector('.spd.fast');
+    if (fast) {
+      // shows the speed it is at when lit, and the speed it will select when not
+      fast.dataset.s = n >= 2 ? String(n) : '2';
+      fast.textContent = `${fast.dataset.s}×`;
+    }
     for (const o of document.querySelectorAll('.spd')) o.classList.toggle('on', +o.dataset.s === n);
     $('paused-badge').classList.toggle('hidden', n !== 0);
   }
@@ -87,9 +100,10 @@ export class HUD {
       $('val-infamy').textContent = Math.round(g.infamy);
 
       this.updateCompass(p);
+      this.syncSpeed();
 
       if (p) {
-        $('flag-name').textContent = p.name;
+        $('flag-name').textContent = `${p.name} · ${tonsOf(p.cls)}t`;
         setBar('bar-hull', 'txt-hull', p.hullFrac, Math.round(p.hull));
         setBar('bar-sail', 'txt-sail', p.sailFrac, Math.round(p.sails));
         setBar('bar-crew', 'txt-crew', p.crewFrac, p.crewTotal);
@@ -102,6 +116,15 @@ export class HUD {
           : Math.floor(p.provisions);
         ammo.querySelector('b').textContent = p.shot;
         cargo.querySelector('b').textContent = `${p.cargoUsed}/${p.cls.cargo}`;
+        /* Your own fighting weight, in the same units as the numbers over
+           everybody else's masts. Those pips told you how strong *they* were
+           and there was nothing to hold it against — the comparison only
+           existed on the target card, and only once you had marked somebody.
+           A player who can read 431 over a brig should be able to read their
+           own number without picking a fight to see it. Fleet weight, not
+           hull weight, because consorts turn up to the same action. */
+        const pw = $('mini-power');
+        if (pw) pw.querySelector('b').textContent = Math.round(g.fleetStrength);
         prov.classList.toggle('warn', mins < 8);
         ammo.classList.toggle('warn', p.shot < 6);
       }
@@ -111,12 +134,53 @@ export class HUD {
     if (slow) {
       const hintUp = !$('hint').classList.contains('hidden') && !$('hint').classList.contains('out');
       $('objective').classList.toggle('muted', hintUp);
+      /* Where to sail next is campaign guidance and has nothing to say while
+         the guns are out. Hiding it keeps the two layers visually distinct. */
+      $('objective').classList.toggle('hidden', g.mode === 'battle' || !$('obj-text').innerHTML);
     }
 
     this.updateActions();
     this.updateTargetCard(slow);
     this.updateFleetBar();
     this.updateObjectivePointer();
+    this.updatePursuit();
+    this.updateBattleBar();
+  }
+
+  /* ---------------- being hunted ----------------
+     The one thing a pursuit panel has to answer is "can I get away", and the
+     only fact that bears on it is whether the gap is opening or closing. So
+     that is the biggest word on it. */
+  updatePursuit() {
+    const g = this.g, box = $('pursuit');
+    const p = g.pursuit;
+    if (!p || g.mode !== 'campaign') { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    $('pur-name').textContent = p.ship.name;
+    $('pur-verdict').textContent = p.verdict;
+    const st = $('pur-state');
+    st.textContent = p.gaining ? (p.eta ? `gaining · ${p.eta}s` : 'gaining')
+      : p.losing ? 'falling astern' : 'holding';
+    st.className = p.gaining ? 'gaining' : p.losing ? 'losing' : '';
+    $('pur-dist').textContent = p.dist;
+    // the bar fills as she closes: full means she is aboard you
+    const frac = clamp01(1 - (p.dist - 78) / 820);
+    $('pur-fill').style.width = `${(frac * 100).toFixed(0)}%`;
+  }
+
+  /* ---------------- a fleet action ---------------- */
+  updateBattleBar() {
+    const g = this.g, box = $('battlebar');
+    const b = g.battle;
+    if (!b || g.mode !== 'battle') { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    $('bb-kind').textContent = b.kind.name;
+    $('bb-state').textContent = b.enemies.length === 1
+      ? '1 sail against you' : `${b.enemies.length} sail against you`;
+    const run = $('bb-run');
+    // tell the player the way out exists, and what it costs to use it
+    if (b.escapeArmed) { run.textContent = `run clear in ${Math.round(b.escapeDist)}m`; run.className = 'bb-run armed'; }
+    else { run.textContent = 'too close to break off'; run.className = 'bb-run'; }
   }
 
   /* ---------------- objective pointer ----------------
@@ -155,7 +219,31 @@ export class HUD {
     const ang = Math.atan2(dy, dx) * 180 / Math.PI;
 
     ptr.classList.remove('hidden');
-    ptr.style.transform = `translate(${(px - ptr.offsetWidth / 2).toFixed(0)}px,${(py - ptr.offsetHeight / 2).toFixed(0)}px)`;
+    /* Keep the whole chip on the glass. It is positioned by its centre, so a
+       target off the port bow put its left half — the chevron and the first
+       letters of the name — past the edge of a narrow screen, sliced off
+       square. Clamp after centring: the chevron still points the right way,
+       and the label is still readable, which is the entire job. */
+    const pw = ptr.offsetWidth, ph = ptr.offsetHeight;
+    const tx = clamp(px - pw / 2, 8, Math.max(8, W - pw - 8));
+    const ty = clamp(py - ph / 2, 8, Math.max(8, H - ph - 8));
+    /* And clear of the furniture, measured rather than guessed. The safe rect
+       above keeps the chevron out of the bottom band by a fixed margin, which
+       is a number that was right when it was written: the left column grows a
+       fleet bar the moment you take a consort, and the chip then sat on it.
+       Ask the elements where they actually are and step over whichever one
+       this lands on. */
+    let ty2 = ty;
+    for (const id of ['leftstack', 'actions']) {
+      const box = $(id);
+      if (!box || box.classList.contains('hidden')) continue;
+      const r = box.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const hitsX = tx < r.right + 6 && tx + pw > r.left - 6;
+      const hitsY = ty2 < r.bottom + 6 && ty2 + ph > r.top - 6;
+      if (hitsX && hitsY) ty2 = Math.max(8, r.top - ph - 8);
+    }
+    ptr.style.transform = `translate(${tx.toFixed(0)}px,${ty2.toFixed(0)}px)`;
     ptr.querySelector('.op-arrow').style.transform = `rotate(${ang.toFixed(0)}deg)`;
     void short;
     if (this._ptrKey !== m.label + d) {
@@ -253,12 +341,36 @@ export class HUD {
     if (!p || !p.alive) { this.renderActions([]); return; }
 
     if (g.dockablePort && !p.boarding) acts.push('dock');
-    if (g.boardable) acts.push('board');
+    /* BOARD is offered whenever there is somebody to board, not only once you
+       are already alongside. Getting alongside *is* the manoeuvre, and it was
+       the part with no control on it — the only way to steer in was to tap
+       the water beside her, which is a tap that lands on the ship and unmarks
+       her. The button gives the order and the helm does the closing. */
+    if (g.ctx.combatLive && g.target && g.target.alive && !g.target.captured
+      && !p.boarding && !g.target.boarding) acts.push('board');
     const fireSide = g.fireSide;
-    if (g.target && g.target.alive && !g.target.captured) { acts.push('ammo'); acts.push('fire'); }
+    /* Guns belong to the action. On the campaign layer a marked ship is
+       something you are looking at, not something you are shooting at — so
+       offering FIRE out there, greyed and reading NO ARC, tells the player
+       there is a shot to line up when there is no shot to be had at all. It
+       is the same button that had a tester hunting for a way to attack. */
+    if (g.ctx.combatLive && g.target && g.target.alive && !g.target.captured) {
+      acts.push('ammo'); acts.push('fire');
+    }
 
     const key = acts.join(',') + '|' + (fireSide || '') + '|' + (g.dockablePort ? g.dockablePort.id : '');
     if (key !== this.actionKeys) { this.actionKeys = key; this.renderActions(acts); }
+
+    /* The board button says which of its two jobs it is about to do: throw
+       the grapples, close the range, or stand off from a run already
+       ordered. A button whose meaning changes has to say so. */
+    if (this.buttons.board) {
+      const sub = this.buttons.board.querySelector('.sub');
+      const closing = g.boardRun === g.target;
+      this.buttons.board.classList.toggle('reloading', !g.boardable && !closing);
+      sub.textContent = g.boardable ? `${Math.round(g.boardOdds * 100)}% ODDS`
+        : closing ? 'CLOSING — TAP TO STOP' : 'CLOSE HER';
+    }
 
     // live reload ring
     if (this.buttons.fire) {
@@ -298,7 +410,7 @@ export class HUD {
     }
 
     if (acts.includes('board')) {
-      const b = el('button', 'act-btn board', `BOARD<span class="sub">${Math.round(g.boardOdds * 100)}% ODDS</span>`);
+      const b = el('button', 'act-btn board', `BOARD<span class="sub"></span>`);
       onTap(b, () => g.playerBoard(), 300);
       box.appendChild(b);
       this.buttons.board = b;
@@ -330,16 +442,43 @@ export class HUD {
     // drive this from the card's actual state every tick, not from a
     // transition — a missed edge would leave the two panels overlapping
     setNoticesLow(show);
-    if (!show) return;
-    if (!slow) return;
+    if (!show) { this.cardFor = null; return; }
+    /* The card is revealed on every tick and was only *filled* on the slow
+       one, so marking a ship put an empty card on the glass — blank name,
+       empty bars, "You 0 · 0 Her" — for up to a seventh of a second. Two
+       frames on a desk and plainly visible in a screenshot. Whoever she is,
+       fill it the moment she changes; the slow tick still owns the numbers
+       that move while she is marked. */
+    const changed = this.cardFor !== t;
+    this.cardFor = t;
+    if (!slow && !changed) return;
     $('tc-name').textContent = t.name;
     const fac = FACTIONS[t.faction];
     $('tc-hull').style.width = (t.hullFrac * 100) + '%';
     $('tc-sail').style.width = (t.sailFrac * 100) + '%';
     $('tc-crew').style.width = (t.crewFrac * 100) + '%';
     const d = Math.hypot(t.x - g.player.x, t.z - g.player.z);
-    $('tc-who').textContent = `${fac ? fac.short + ' · ' : ''}${t.cls.name}`;
-    $('tc-range').textContent = `${Math.round(d)}m · ${t.gunsPort + t.gunsStb} guns`;
+    // how big she is, in the one number that compares hulls at a glance
+    $('tc-who').textContent = `${fac ? fac.short + ' · ' : ''}${t.cls.name} · ${tonsOf(t.cls)}t`;
+    /* What a loaded merchant is worth, and what is travelling with her.
+       A convoy should be a decision made at a distance rather than a surprise
+       found in the hold afterwards — so the manifest and the escort count are
+       on the card the moment you mark her, and the second line falls back to
+       her battery for anything that is not carrying cargo. */
+    const m = t.manifest;
+    if (m) {
+      /* Two facts, and the card is 174px wide. Putting the range, the cargo,
+         its worth and the escort on one line ran it off the end — the ellipsis
+         ate the escort count, which is the half that decides whether you go.
+         The line that already names her power carries the escort instead, and
+         the cargo gets the line to itself. */
+      const good = GOODS[m.good];
+      const guard = (t.escorts || []).filter(e => e && e.alive && !e.captured).length;
+      $('tc-range').textContent = `${m.amount} ${good ? good.name : m.good} · ~◆${m.value}`
+        + (guard ? ` · ${guard} escort${guard > 1 ? 's' : ''}` : ' · unescorted');
+    } else {
+      $('tc-range').textContent = `${Math.round(d)}m · ${t.gunsPort + t.gunsStb} guns`;
+    }
 
     // how she measures against everything under your flag
     const w = g.weighUp(t);
@@ -361,7 +500,7 @@ export class HUD {
     const consorts = g.fleet.filter(s => !s.isPlayer && s.alive);
     if (consorts.length === 0) { bar.classList.add('hidden'); this.fleetKey = ''; return; }
     bar.classList.remove('hidden');
-    const key = consorts.length + '|' + g.fleetOrder;
+    const key = consorts.length + '|' + g.fleetOrder + '|' + (g.holdFire ? 'held' : 'free');
     if (key === this.fleetKey) return;
     this.fleetKey = key;
     clear(bar);
@@ -376,6 +515,15 @@ export class HUD {
       onTap(b, () => { g.setFleetOrder(o.id); this.fleetKey = ''; }, 560);
       bar.appendChild(b);
     }
+    /* And whether they shoot, which is a different question from where they
+       sail — so it is a toggle beside the three, not a fourth one of them.
+       Without it a captain trying to take a prize had her own squadron
+       sinking it, and the bigger the fleet the harder capturing anything
+       became, which is exactly backwards. */
+    const hf = el('button', 'fleet-btn hold-fire' + (g.holdFire ? ' on' : ''),
+      `<span class="fi">${g.holdFire ? '✋' : '⁂'}</span>${g.holdFire ? 'HELD' : 'FIRE'}`);
+    onTap(hf, () => { g.setHoldFire(!g.holdFire); this.fleetKey = ''; }, 460);
+    bar.appendChild(hf);
   }
 }
 

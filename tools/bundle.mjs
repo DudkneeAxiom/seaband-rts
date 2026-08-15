@@ -153,9 +153,17 @@ const seen = new Set();
 const css = fs.readFileSync(path.join(ROOT, 'style.css'), 'utf8');
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 // keep only what lives inside <body>, minus the module script tag
+/* Stamp the build into the loading card. "Which copy is that?" is the first
+   question about any bug report from a device, and iOS answers downloads by
+   renaming them -2, -3, -4 rather than replacing them — so a tester can very
+   easily be looking at a file from three builds ago and neither of you can
+   tell. Now the card says. */
+const STAMP = new Date().toISOString().replace('T', ' ').slice(0, 16) + 'Z';
 const body = html
   .slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'))
   .replace(/<script type="module"[\s\S]*?<\/script>/g, '')
+  .replace('data-build="dev"', `data-build="${STAMP}"`)
+  .replace('>dev build<', `>${STAMP}<`)
   .trim();
 
 const def = (id, code) =>
@@ -186,10 +194,19 @@ const script =
   `(function(){\n` +
   `var __m = Object.create(null);\n` +
   `function __def(id, fn){ __m[id] = { fn: fn, e: null }; }\n` +
+  /* Every module names itself on the way in. The entry module runs LAST —
+     everything it imports is evaluated first — so a mark placed inside
+     main.js cannot see the twenty-eight evaluations that happen before it,
+     which is exactly the stretch a boot can die in. A tester's loading card
+     sat there with an empty step line for that reason. Named here, the last
+     line on the card is the module that did not come back. */
   `function __req(id){\n` +
   `  var m = __m[id];\n` +
   `  if (!m) throw new Error('module not bundled: ' + id);\n` +
-  `  if (!m.e) { m.e = {}; var mod = { exports: m.e }; m.fn(m.e, __req, mod); m.e = mod.exports; }\n` +
+  `  if (!m.e) {\n` +
+  `    if (window.__boot) window.__boot(id.replace(/^src\\//, '').replace(/\\.js$/, ''));\n` +
+  `    m.e = {}; var mod = { exports: m.e }; m.fn(m.e, __req, mod); m.e = mod.exports;\n` +
+  `  }\n` +
   `  return m.e;\n` +
   `}\n` +
   def('three/core', three.coreCode) +
