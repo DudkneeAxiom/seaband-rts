@@ -318,33 +318,57 @@ ok(`and every note it invents is in the key (${gen.outOfKey} of ${gen.notes} out
 /* And the adventure gets out of the way when a hunter closes. The sea layers
    are warm and bright on purpose, which is a liability if they stay that way
    into a fight — danger that sounds like a holiday is worse than no score at
-   all. The mixer already ramps the layers; this checks the ear can tell. */
-const duck = await G(async () => {
-  const A = window.__audio;
-  const keep = A.getMix();
-  A.setMix('amb', 0); A.setMix('sfx', 0); A.setMix('master', 1);
-  const read = async (st, secs) => {
-    const until = Date.now() + secs * 1000;
-    while (Date.now() < until) { A.update(1 / 30, st); await new Promise(r => setTimeout(r, 30)); }
-    const bands = new Array(8).fill(0);
-    let n = 0;
-    for (let i = 0; i < 80; i++) {
-      A.update(1 / 30, st);
-      const f = A.spectrum();
-      if (f) { for (let b = 0; b < 8; b++) bands[b] += f[b]; n++; }
-      await new Promise(r => setTimeout(r, 30));
-    }
-    return { state: A.music().state, bright: bands[6] / Math.max(1, n) };
-  };
-  const sea = await read({ mode: 'campaign', tension: 0 }, 9);
-  const danger = await read({ mode: 'campaign', tension: 2 }, 9);
-  for (const k in keep) A.setMix(k, keep[k]);
-  return { sea, danger };
+   all.
+
+   Staged in the real world and waited for, not fed. The first version pushed
+   `{tension: 2}` at the controller thirty times a second while the game's own
+   render loop pushed the truth at sixty — so the debounce never completed,
+   the state never changed, and the check compared open water with open water
+   and called it a pass. It only failed once the full suite happened to run it
+   in a context where the race went the other way. */
+const bright = () => G(async () => {
+  const a2 = window.__audio;
+  const bands = new Array(8).fill(0);
+  let n = 0;
+  for (let i = 0; i < 80; i++) {
+    const f = a2.spectrum();
+    if (f) { for (let b = 0; b < 8; b++) bands[b] += f[b]; n++; }
+    await new Promise(r => setTimeout(r, 30));
+  }
+  return { state: a2.music().state, bright: bands[6] / Math.max(1, n) };
 });
+const keepMix = await G(() => {
+  const A = window.__audio, k = A.getMix();
+  A.setMix('amb', 0); A.setMix('sfx', 0); A.setMix('master', 1);
+  return k;
+});
+await G(() => {
+  const g = window.__game, p = g.player;
+  p.x = -1600; p.z = 200; g.combatHeat = 0; g.pursuit = null;
+  for (const s of g.ships) { if (!s.isPlayer) { s.hostileToPlayer = false; s.chaseHold = 900; } }
+  g.encounterCooling = 900;
+});
+const calmSeen = await believe('sea', 20);
+/* Let the crossfade finish before listening to it. The mixer moves these
+   layers with a four-second ramp, so sampling the moment the controller
+   changes its mind measures the fade rather than the destination — which is
+   how this read "sea -87dB -> tension -88dB" on one run and passed on the
+   next. `believe` answers when the state changes; the sound arrives after. */
+await sleep(5000);
+const calm = await bright();
+await G(() => { window.__game.combatHeat = 120; });      // a hunter, and the room goes cold
+/* Either tension state answers the question. What is under test is that the
+   warmth leaves when danger arrives, not which shade of danger the heat
+   happens to buy — pinning it to `tension_high` was testing the staging. */
+const dangerSeen = await waitFor(page,
+  () => /^tension_/.test(window.__audio.music().state), 20000);
+await sleep(5000);
+const danger = await bright();
+await G(k => { const A = window.__audio; for (const x in k) A.setMix(x, k[x]); }, keepMix);
 ok(`the sparkle belongs to the adventure and leaves with it `
-  + `(${duck.sea.state} ${duck.sea.bright.toFixed(0)}dB -> ${duck.danger.state} ${duck.danger.bright.toFixed(0)}dB)`,
-duck.sea.state === 'sea' && duck.danger.state === 'tension_high'
-  && duck.danger.bright < duck.sea.bright - 12);
+  + `(${calm.state} ${calm.bright.toFixed(0)}dB -> ${danger.state} ${danger.bright.toFixed(0)}dB)`,
+calmSeen && dangerSeen && calm.state === 'sea' && /^tension_/.test(danger.state)
+  && danger.bright < calm.bright - 12);
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
