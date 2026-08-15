@@ -5,6 +5,37 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 79. Two checks the suite did not have  (P3, coverage)
+
+Neither found a bug. Both cover a rule the codebase states and nothing
+verified, which is the kind of gap that only shows up as a regression later.
+
+**A captain broke at sea can still get home.** "Nothing blocks the player
+permanently" was checked at a quay — a broke captain can take work — and not
+on the water, which is where a player actually meets it. From the deepest
+water furthest from any harbour (2178m off Ilo Vantu), with empty barrels,
+no rigging at all, 5% hull, no coin and a bare working watch, she crawls
+alongside in about twelve minutes at two knots and loses nobody: the crew
+floor holds at `crewMin`. Written as a check so it stays true.
+
+**A whole voyage survives save and load.** The suite covered the flagship
+and the fleet across a reload; it did not cover the save *format*, which is
+what rots when a field is added and the serializer is not told — as one was
+today (the manner clock of finding 73, which is a grind gate and therefore
+has to survive a reload or it is not a gate). Twenty-three fields of a rich
+state — fleet, prizes, officers, quests, discovered water, standing, stats,
+memories, what you have learned about people — compared one by one.
+
+Writing the first of these turned up a latent flake in a neighbour:
+`provoke` correctly turns every same-faction hull within 500m hostile, so
+the "firing on a stranger" case could be handed a merchant who was already
+hostile from the "firing on a friend" case a line above, and `provoke`
+no-ops on those — the check then measured nothing and reported `−0
+standing`. It now picks a second merchant at least 600m clear, and the
+stranding check hands the sea back as it found it.
+
+---
+
 ## 78. The layout audit could not see the objective chip  (P1, suite catch)
 
 **Symptom.** A full-suite run reported `OVERLAP #objective x #pursuit

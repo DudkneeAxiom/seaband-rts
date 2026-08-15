@@ -149,6 +149,67 @@ const destitute = await G(() => {
   g.completeQuest(q);
   return { afterAdvance, cost, canAfford, leftForFood, deliverable, ended: g.coin };
 });
+/* ---------- and a captain broke *at sea* can still get home ----------
+   The check above proves a captain standing on a quay with nothing can take
+   work. This is the harder half of the same rule, and the half a player
+   actually meets: empty barrels, rigging shot away, hull nearly gone, no
+   coin, at the point in the Shoals furthest from any harbour. If she cannot
+   crawl home from there, that is a save with no future in it. She sails —
+   nothing is teleported once she starts. */
+const crawl = await G(async () => {
+  const T = await import('/src/world/terrain.js');
+  const g = window.__game, p = g.player;
+  // the deepest water furthest from every harbour: the worst berth there is
+  let far = null;
+  for (let x = -g.limit; x <= g.limit; x += 260) {
+    for (let z = -g.limit; z <= g.limit; z += 260) {
+      if (T.depthAt(x, z) < 14) continue;
+      let d = 1e9;
+      for (const q of g.PORTS) d = Math.min(d, Math.hypot(x - q.x, z - q.z));
+      if (!far || d > far.d) far = { x, z, d };
+    }
+  }
+  p.x = far.x; p.z = far.z; p.speed = 0; p.dest = null; p.route = null;
+  p.alive = true; p.boarding = null; p.lockTo = null;
+  p.hull = Math.max(1, p.hullMax * 0.05);
+  p.sails = 0;                      // no rigging left at all
+  p.provisions = 0; p.shot = 0; p.hungry = 0; p.morale = 0.5;
+  g.coin = 0;
+  for (const k in p.cargo) delete p.cargo[k];
+  for (const k in p.crew) p.crew[k] = 0;
+  p.crew.sailor = p.cls.crewMin;
+  g.encounterCooling = 1e9;         // this is about the sea, not about raiders
+  for (const s of g.ships) if (!s.isPlayer) { s.hostileToPlayer = false; s.target = null; s.chaseHold = 1e9; }
+  let near = null, nd = 1e9;
+  for (const q of g.PORTS) {
+    const d = Math.hypot(p.x - q.x, p.z - q.z);
+    if (d < nd) { nd = d; near = q; }
+  }
+  g.commandMove(near.x, near.z);
+  const started = { d: Math.round(nd), crew: p.crewTotal };
+  let docked = false;
+  for (let i = 0; i < 60 * 60 * 30 && !docked && p.alive; i++) {
+    g.update(1 / 60);
+    if (i % 3600 === 0 && !p.dest && !(p.route && p.route.length)) g.commandMove(near.x, near.z);
+    if (g.dockablePort) docked = true;
+  }
+  const out = { port: near.name, started, docked, alive: p.alive,
+    crew: p.crewTotal, min: p.cls.crewMin,
+    left: Math.round(Math.hypot(p.x - near.x, p.z - near.z)),
+    mins: Math.round(g.time / 60) };
+  /* Hand the sea back as it was found. Half an hour of world with every hull
+     held off the player leaves traffic clustered and cooldowns pinned, and
+     the sections after this one read both. */
+  g.encounterCooling = 0;
+  for (const s of g.ships) if (!s.isPlayer) s.chaseHold = 0;
+  return out;
+});
+ok(`a captain broke at sea can still crawl home (${crawl.started.d}m off ${crawl.port} with no rigging `
+  + `and empty barrels -> ${crawl.docked ? `alongside, ${crawl.left}m` : `STRANDED, ${crawl.left}m still to go`})`,
+crawl.docked && crawl.alive);
+ok(`and hunger never strips her below a working watch (${crawl.crew} hands, minimum ${crawl.min})`,
+  crawl.crew >= crawl.min);
+
 ok(`a broke captain can take work (advance put ◆${destitute.afterAdvance} in an empty box)`,
   destitute.afterAdvance > 0);
 ok(`the advance buys the load it asks for (◆${destitute.cost} of cargo)`, destitute.canAfford);
@@ -602,7 +663,15 @@ const price = await G(() => {
   const g = window.__game;
   const ms = g.ships.filter(s => s.role === 'merchant' && !s.hostileToPlayer);
   if (ms.length < 2) return null;
-  const [a, b] = ms;
+  /* Two merchants who are not each other's neighbours. `provoke` turns
+     every same-faction hull within 500m — correctly; her friends take
+     notice — so picking the first two in the list could hand the second
+     one over already hostile, and `provoke` no-ops on a hull that is. The
+     check then measured nothing and reported "−0 standing". */
+  const a = ms[0];
+  const b = ms.slice(1).find(s => Math.hypot(s.x - a.x, s.z - a.z) > 600
+    && !s.hostileToPlayer);
+  if (!b) return null;
   g.standing[a.faction] = 40;                       // a power that had come to trust you
   const s0 = g.standing[a.faction], i0 = g.infamy;
   g.provoke(a);

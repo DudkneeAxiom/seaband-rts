@@ -728,6 +728,71 @@ ok(`and swings the duel broadside-on across the frame (${cam.sq} rad off square,
   camStaged && cam.sq !== null && cam.sq < 0.35);
 await leaveBattle(page);
 
+/* ---- a whole voyage survives the round trip ----
+   Not "does it load" — does every part of a rich state come back the same.
+   Individual checks cover the flagship and the fleet; this covers the save
+   *format*, which is the thing that rots when a field is added and the
+   serializer is not told. Built by playing rather than by hand where it can
+   be, then compared field by field. */
+const roundTrip = await G(() => {
+  const g = window.__game, p = g.player;
+  g.coin = 4321; g.prestige = 37; g.infamy = 11;
+  g.standing = { freehold: 21, admiralty: -8, compact: 14, sable: 3, veyra: -2 };
+  g.chapter = 2;
+  g.stats = { sunk: 4, captured: 3, broadsides: 91, distance: 12345, crewLost: 7, tally: 5 };
+  p.hull = p.hullMax * 0.62; p.sails = p.sailMax * 0.77;
+  p.provisions = 63; p.shot = 44;
+  p.cargo = { pepper: 5, iron: 9 };
+  g.prizes = [{ name: 'Saved Prize', classId: p.classId, hull: 40, guns: 4 }];
+  g.discovered.add('poi_test');
+  const S = g.social;
+  S.met.kesk = true; S.rel.kesk = 47;
+  S.remember('kesk', 'tag1', 'You carried timber when nobody else would.', 12);
+  S.learn('kesk', 'town'); S.learn('kesk', 'ties');
+  S.noteSpoke('kesk', g.time);
+  S.flag('kesk_book');
+  const snap = () => {
+    const gg = window.__game, pp = gg.player;
+    return {
+      coin: Math.round(gg.coin), prestige: Math.round(gg.prestige), infamy: Math.round(gg.infamy),
+      standing: { ...gg.standing }, chapter: gg.chapter, stats: { ...gg.stats },
+      hull: Math.round(pp.hull), sails: Math.round(pp.sails),
+      prov: Math.round(pp.provisions), shot: pp.shot, cargo: { ...pp.cargo },
+      classId: pp.classId, name: pp.name,
+      fleet: gg.fleet.filter(s => !s.isPlayer).map(s => s.name).sort(),
+      prizes: gg.prizes.map(x => x.name).sort(),
+      officers: gg.officers.map(o => o.name).sort(),
+      discovered: [...gg.discovered].sort(),
+      relKesk: Math.round(gg.social.of('kesk')),
+      memKesk: gg.social.memories('kesk').map(m => m.tag).sort(),
+      knowsTown: gg.social.knows('kesk', 'town'),
+      /* The manner clock. It is a grind gate, and a grind gate that a reload
+         reopens is not a gate — so the save format has to carry it. */
+      spokeBlocked: !gg.social.canSpeakAgain('kesk', gg.time),
+      flagBook: gg.social.hasFlag('kesk_book'),
+      capt: pp.capt ? { ...pp.capt } : null,
+    };
+  };
+  g.mode = 'campaign';
+  const before = snap();
+  if (!g.save()) return { note: 'save refused' };
+  if (!g.load()) return { note: 'load refused' };
+  const after = snap();
+  const diffs = [];
+  const walk = (a, b, path) => {
+    if (a && typeof a === 'object' && !Array.isArray(a)) {
+      for (const k of new Set([...Object.keys(a), ...Object.keys(b || {})])) walk(a[k], (b || {})[k], `${path}.${k}`);
+      return;
+    }
+    if (JSON.stringify(a) !== JSON.stringify(b)) diffs.push(`${path}: ${JSON.stringify(a)} -> ${JSON.stringify(b)}`);
+  };
+  walk(before, after, '');
+  return { note: null, diffs, fields: Object.keys(before).length };
+});
+ok(`a whole voyage survives save and load (${roundTrip.note
+  || `${roundTrip.fields} fields, ${roundTrip.diffs.length ? roundTrip.diffs.join('; ') : 'none changed'}`})`,
+!roundTrip.note && roundTrip.diffs.length === 0);
+
 /* ---- your quarry is yours to take ----
    Reported: "other warships kill your target ship before you could engage
    it". Staged by construction — a bounty accepted against a live hull, then
