@@ -45,11 +45,28 @@ export class Market {
     const s = Number.isFinite(st.stock[goodId]) ? st.stock[goodId] : 0;
     const scar = clamp(1.45 - s / 110, 0.74, 1.42);
     let v = this.base(portId, goodId) * scar;
-    v *= forSale ? 1.08 : 0.92;      // the harbour takes its cut both ways
-    // a haggler buys cheaper and sells dearer, both by the same margin
-    const h = clamp(this.haggle, 0, 0.6) * 0.35;
-    v *= forSale ? 1 - h : 1 + h;
-    return Math.max(2, Math.round(v));
+    /* The harbour takes its cut both ways, and a haggler wears that cut
+       down — never through it.
+       This used to apply the skill as a *separate* margin on top of the cut,
+       discounting the buy and inflating the sell by the same amount. The two
+       cross at h = 0.08, which is a trade skill of 0.229, and the
+       questionnaire can hand out 0.38 — so a captain who answered it for
+       haggling could stand at one counter buying a barrel and selling it
+       straight back at a profit. Worse, a buy-then-sell round trip leaves
+       stock exactly where it started, so the price never moved against it:
+       measured at ◆200 per two hundred presses, unlimited, without the ship
+       ever leaving the quay.
+       Haggling gets you toward the fair price. It never gets you paid to
+       trade with yourself. */
+    const CUT = 0.08;
+    const worn = 1 - clamp(this.haggle, 0, 0.6) / 0.6 * 0.75;
+    v *= forSale ? 1 + CUT * worn : 1 - CUT * worn;
+    /* And the rounding takes the harbour's side, because `Math.round` does
+       not: on a cheap shelf a worn-down cut put both prices in the same penny
+       — Tideglass fish at buy 8, sell 8 — and a free round trip is still a
+       loop the game has no answer to. A counter always costs you something to
+       cross, even if it is one coin. */
+    return forSale ? Math.max(2, Math.ceil(v)) : Math.max(1, Math.floor(v));
   }
   buyPrice(portId, goodId) { return this.price(portId, goodId, true); }
   sellPrice(portId, goodId) { return this.price(portId, goodId, false); }

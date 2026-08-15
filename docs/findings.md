@@ -5,6 +5,91 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 78. The layout audit could not see the objective chip  (P1, suite catch)
+
+**Symptom.** A full-suite run reported `OVERLAP #objective x #pursuit
+(11x39px)` on a narrow screen. Run standalone, the same suite on the same
+tree reported clean — five viewports, no problems — and went on doing so
+while the overlap was measurably there.
+
+**Root cause, two of them.** The bug itself is mine: widening the objective
+chip to the new column width (finding 67) put its right edge at 205 on a
+390px screen, and the pursuit panel starts at 194. The original CSS carried a
+comment warning about exactly this arithmetic. A chip *lifted out* of the
+column is no longer bound to the column's width — it answers to whatever
+shares its band, which there is the right-hand stack.
+
+The worse one is the audit. `#objective` has `transition:opacity .2s`, and
+`measure` skips anything below 5% opacity as invisible. The suite applied a
+pose and measured 220ms later, so the chip was photographed mid-fade and
+dropped from the audit **entirely** — it never appeared in the box list at
+all. Every viewport reported clean about a panel it could not see. The full
+run caught it only by being slow enough that the fade had finished, which is
+why it looked like a flake.
+
+**Change.** Portrait gives the chip its own width again, with the reason
+written down. The audit polls for the chip to finish fading before measuring,
+and now requires the objective — like the pursuit panel, the target card and
+the fleet bar — to be up before it will believe its own verdict.
+
+**Verification.** With the CSS reverted the audit reports the overlap on
+every run; a direct probe confirms the geometry independently (right edge
+205, pursuit left 194).
+
+---
+
+## 77. A merchant kept listing an escort the world had removed  (P2, flake)
+
+**Symptom.** `and her escort takes it personally` failed one run in two,
+reporting `0 of 1` — an escort that existed and did not react. Identical code
+passed on the run before.
+
+**Root cause.** `escorts` / `escortFor` are the only cross-references between
+hulls that outlive a cull, and `removeShip` cleaned the fleet, the wakes and
+the player's target but not those. So a merchant went on listing a hull the
+culler had taken away; `provoke` swept the *live* ships, found nobody to
+turn, and the check counted a ghost. Whether it bit depended on which
+merchant happened to be first in the list, which is why it read as a flake.
+
+**Change.** `removeShip` unlinks both directions. The check counts live
+escorts and additionally asserts none are listed that are not afloat, so it
+states what it means rather than depending on the fix.
+
+---
+
+## 76. A haggler could print money at one counter  (P1, probe)
+
+**Symptom.** Found by asking the economy a question nothing had asked: is
+there a loop that pays without sailing?
+
+**Root cause.** The harbour takes 8% each way. The haggling skill applied its
+own margin *on top* of that — discounting the buy and inflating the sell by
+the same amount — and the two cross at a skill of 0.229. The questionnaire
+hands out up to **0.38** by a perfectly ordinary path (counting / ledger /
+boy / sank), so a captain who answered it for trade could buy a barrel and
+sell it straight back at a profit. And a buy-then-sell round trip leaves
+stock exactly where it started, so the price never moved against it:
+measured at ◆200 per two hundred presses, unlimited, without the ship ever
+leaving the quay.
+
+**Change.** Haggling wears the harbour's cut down rather than crossing it —
+at the top of the skill you pay a fifth of the spread instead of being paid
+to trade with yourself. And the rounding takes the harbour's side (buy up,
+sell down), because `Math.round` did not: on a cheap shelf a worn-down cut
+put both prices in the same penny — Tideglass fish at buy 8, sell 8 — and a
+*free* round trip is still a loop the game has no answer to. That second
+case was caught by the first version of the regression check, which is what
+it was for.
+
+**Verification.** trade.mjs sweeps every port, every good, and the whole
+reachable range of the skill including the questionnaire's own maximum
+(computed from `ORIGIN_STEPS` rather than typed in, so it cannot drift), and
+asserts no shelf ever sells for what it buys — and separately that haggling
+still visibly pays, since a fix that makes the skill worthless is a different
+bug.
+
+---
+
 ## 75. An escort was posted seventeen metres up a hillside  (P1, soak)
 
 **Symptom.** A forty-minute unattended soak — nothing staged, the player

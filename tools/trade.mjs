@@ -333,6 +333,56 @@ const uiOffer = await page.evaluate(() => {
 });
 ok(`the harbourmaster's board shows the advance (${uiOffer.offers} offers)`, uiOffer.offers >= 3);
 
+/* ---------- a haggler cannot print money at one counter ----------
+   The harbour's cut is 8% each way; the skill used to add its own margin on
+   top, discounting the buy and inflating the sell. The two cross at a trade
+   skill of 0.229 and the questionnaire hands out up to 0.38 — so a captain
+   who answered it for haggling could buy a barrel and sell it straight back
+   for profit, at a counter, for ever. A round trip leaves stock exactly
+   where it began, so nothing ever corrected it. Swept across every port,
+   every good, and the whole reachable range of the skill. */
+const spread = await G(async () => {
+  const D = await import('/src/data/gamedata.js');
+  const O = await import('/src/data/origins.js');
+  const g = window.__game, M = g.market;
+  const was = M.haggle;
+  // the most haggling a questionnaire can actually produce
+  let maxTrade = 0;
+  for (const step of O.ORIGIN_STEPS) {
+    let best = 0;
+    for (const o of step.options) best = Math.max(best, (o.fx && o.fx.capt && o.fx.capt.trade) || 0);
+    maxTrade += best;
+  }
+  const bad = [];
+  let widest = -1e9;
+  for (const h of [0, 0.1, 0.2, 0.229, 0.3, maxTrade, 0.6, 1]) {
+    M.haggle = h;
+    for (const port of g.PORTS) {
+      for (const good in D.GOODS) {
+        const buy = M.price(port.id, good, true), sell = M.price(port.id, good, false);
+        widest = Math.max(widest, sell - buy);
+        if (sell >= buy) bad.push(`${port.id}/${good} at trade ${h}: buy ${buy}, sell ${sell}`);
+      }
+    }
+  }
+  // and the skill still has to be worth answering for
+  const port = g.PORTS[0];
+  const dear = Object.keys(D.GOODS).sort((a, b) => D.GOODS[b].base - D.GOODS[a].base)[0];
+  M.haggle = 0;
+  const green = { buy: M.price(port.id, dear, true), sell: M.price(port.id, dear, false) };
+  M.haggle = maxTrade;
+  const sharp = { buy: M.price(port.id, dear, true), sell: M.price(port.id, dear, false) };
+  M.haggle = was;
+  return { maxTrade: +maxTrade.toFixed(3), bad: bad.slice(0, 4), n: bad.length,
+    widest, good: dear, green, sharp };
+});
+ok(`the questionnaire's best haggler is ${spread.maxTrade} — and no shelf ever sells above it buys `
+  + `(${spread.n ? spread.bad.join('; ') : `worst gap ${spread.widest}`})`,
+spread.n === 0 && spread.widest < 0);
+ok(`and haggling is still worth answering for (${spread.good}: `
+  + `buy ${spread.green.buy}->${spread.sharp.buy}, sell ${spread.green.sell}->${spread.sharp.sell})`,
+spread.sharp.buy < spread.green.buy && spread.sharp.sell > spread.green.sell);
+
 /* ---------- one notice per ship, on the board and on the page ----------
    Reported twice: "bounties are showing duplicates of the same ship, same
    name and wanted poster". Asserted on the rendered board as well as on the
@@ -561,16 +611,24 @@ const price = await G(() => {
   const s1 = g.standing[b.faction], i1 = g.infamy;
   g.provoke(b);
   const stranger = { standing: s1 - g.standing[b.faction], infamy: g.infamy - i1 };
-  return { friend, stranger, escortsTurned: (a.escorts || []).filter(e => e.hostileToPlayer).length,
-    hadEscorts: (a.escorts || []).length };
+  /* Live escorts only. A merchant used to keep listing hulls the culler had
+     already removed, so this counted ghosts and reported "0 of 1" whenever
+     the first merchant in the list happened to be carrying one. `removeShip`
+     unlinks them now; asserting on live ones as well means the check states
+     what it means rather than relying on that. */
+  const live = (a.escorts || []).filter(e => g.ships.includes(e) && e.alive);
+  return { friend, stranger, escortsTurned: live.filter(e => e.hostileToPlayer).length,
+    hadEscorts: live.length, listed: (a.escorts || []).length };
 });
 ok(`firing on a merchant costs standing and infamy (${price ? `stranger −${price.stranger.standing} standing` : 'no pair to test'})`,
   !!price && price.stranger.standing > 0 && price.stranger.infamy > 0);
 ok(`and costs more from a power that trusted you (friend −${price ? price.friend.standing : '?'} `
   + `vs stranger −${price ? price.stranger.standing : '?'})`,
 !!price && price.friend.standing > price.stranger.standing);
-ok(`and her escort takes it personally (${price ? `${price.escortsTurned} of ${price.hadEscorts}` : '?'})`,
-  !!price && (price.hadEscorts === 0 || price.escortsTurned === price.hadEscorts));
+ok(`and her escort takes it personally (${price ? `${price.escortsTurned} of ${price.hadEscorts} afloat`
+  + `${price.listed !== price.hadEscorts ? `, ${price.listed - price.hadEscorts} GHOST(S) LISTED` : ''}` : '?'})`,
+!!price && (price.hadEscorts === 0 || price.escortsTurned === price.hadEscorts)
+  && price.listed === price.hadEscorts);
 
 /* ---- last: clearing for action against a friend is what costs ----
    Dead last in the file because it opens a real action, which changes the

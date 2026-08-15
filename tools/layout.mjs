@@ -53,6 +53,14 @@ for (const vp of Object.keys(VIEWPORTS)) {
       con.x = p.x + 40; con.z = p.z + 30;
       g.fleet.push(con);
     }
+    /* And the objective chip up, which is furniture like any other and was
+       only ever measured when the story happened to have something to say.
+       The overlap it had with the pursuit panel on a 390px screen therefore
+       appeared in a full-suite run and not in a standalone one — the worst
+       kind of layout fault, because it looks like a flake. */
+    g.chapter = 0;
+    g.storyOver = false;
+    g.refreshObjective();
     return { pir: !!pir, con: !!con };
   });
 
@@ -151,7 +159,21 @@ for (const vp of Object.keys(VIEWPORTS)) {
     await page.evaluate(poses[key]);
     await sleep(220);
     await page.evaluate(poses[key]);
-    await sleep(220);
+    /* Wait for the chip to finish fading rather than sleeping at it. The
+       objective chip carries `transition:opacity .2s`, and `measure` skips
+       anything under 5% opacity — so pose B was photographing it mid-fade and
+       dropping it from the audit entirely. Every viewport reported "clean" on
+       a screen where the chip overlapped the pursuit panel by 11px; a full
+       suite run caught it only because it happened to be slow enough that the
+       fade had finished. A layout audit that cannot see a panel cannot judge
+       it, and this one silently could not see this one. */
+    await waitFor(page, k => {
+      const n = document.getElementById('objective');
+      if (!n) return true;
+      const lit = +getComputedStyle(n).opacity >= 0.05;
+      return k === 'B' ? lit : true;      // pose A deliberately mutes it
+    }, 4000, key);
+    await sleep(120);
     const r = await page.evaluate(measure, [TARGETS, MIN_TAP]);
     if (key === 'A') res = r;
     for (const p of r.problems) allProblems.push(`[${key}] ${p}`);
@@ -166,11 +188,13 @@ for (const vp of Object.keys(VIEWPORTS)) {
     const g = window.__game;
     return {
       pursuit: seen('pursuit'), target: seen('targetcard'), fleet: seen('fleetbar'),
+      objective: seen('objective'),
       why: `mode ${g.mode}, pursuit ${g.pursuit ? 'set' : 'none'}, target `
-        + `${g.target ? g.target.name : 'none'}, fleet ${g.fleet.length}, paused ${g.paused}`,
+        + `${g.target ? g.target.name : 'none'}, fleet ${g.fleet.length}, `
+        + `chapter ${g.chapter}, paused ${g.paused}`,
     };
   });
-  const missing = ['pursuit', 'target', 'fleet'].filter(k => !up[k]);
+  const missing = ['pursuit', 'target', 'fleet', 'objective'].filter(k => !up[k]);
   if (missing.length) {
     bad++;
     console.log(`\n   !! NOTHING TO MEASURE: ${missing.join(', ')} never came up — ${up.why}`);

@@ -1068,6 +1068,13 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   /* a narrow screen has no room for a wide objective chip beside the target
      card: 10 + chip + gap + card + 10 has to fit across 390px */
   :root{--lcol:min(50vw,196px);}
+  /* Lifted out of the column, the chip is no longer bound to the column's
+     width — it answers to whatever shares its band, and on 390px that is the
+     right-hand stack: 10 + chip + gap + card + 10 has to fit across. Matching
+     it to the column put its edge at 205 and the target card's at 206, and
+     the pursuit panel is wider than the card, so the two overlapped by 11px.
+     Column width is for things standing in the column. */
+  #objective{width:min(45vw,176px);}
   /* And no room for it to grow downward either. Narrow enough to wrap a long
      objective to five or six lines, the chip reached past where the notices
      start and sat behind them, one rounded corner poking out from under a

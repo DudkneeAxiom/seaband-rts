@@ -580,6 +580,20 @@ export class Game {
     if (i >= 0) this.ships.splice(i, 1);
     const j = this.fleet.indexOf(s);
     if (j >= 0) this.fleet.splice(j, 1);
+    /* And nobody is left pointing at her.
+       `escorts` and `escortFor` are the one pair of cross-references between
+       hulls that outlives a cull, and a merchant kept listing an escort the
+       world had already taken away — so `provoke` swept the live ships,
+       found nobody to turn, and her guard "did not react", while the manifest
+       still said she had one. It read as a flake in the suite because whether
+       it bit depended on which merchant happened to be first in the list. */
+    for (const o of this.ships) {
+      if (o.escortFor === s) o.escortFor = null;
+      if (o.escorts && o.escorts.length) {
+        const k = o.escorts.indexOf(s);
+        if (k >= 0) o.escorts.splice(k, 1);
+      }
+    }
     this.wakes.release(s);
     s.dispose(this.scene);
     if (this.target === s) this.target = null;
