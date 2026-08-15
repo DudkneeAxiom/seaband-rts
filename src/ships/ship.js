@@ -523,6 +523,21 @@ export class Ship {
     this._hitFlash = 1;
     this.lastHitT = 0;
     if (from) { this.aggro = 1; this.lastAttacker = from; }
+    /* Your quarry is yours to take.
+       Reported as "other warships kill your target before you can engage it":
+       a patrol on the same errand gets there first, and the ship you were
+       named to hunt is a wreck by the time you are in gun range — the bounty
+       comes down, the story's quarry respawns somewhere else, and the chase
+       you were promised never happened. Nobody else lands the killing blow on
+       a hull the player has been sent after: she is beaten down to a hulk and
+       strikes for the sea room to run, which leaves the fight where it should
+       be — between the two captains it was posted about. */
+    if (this.hull <= 0 && this.isQuarry && from && !from.isPlayer && from.faction !== 'player') {
+      this.hull = Math.max(1, this.hullMax * 0.06);
+      this.fleeing = true;
+      this.morale = Math.min(this.morale, 0.2);
+      return res;
+    }
     if (this.hull <= 0) { this.hull = 0; this.sink(); }
     void silent;
     return res;

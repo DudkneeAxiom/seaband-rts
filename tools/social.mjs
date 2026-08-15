@@ -345,6 +345,70 @@ ok(`every standing opens something new (${Object.entries(rungs).map(([k, v]) => 
   && rungs.trusted > rungs.friendly);
 
 
+/* ---- how you answer is a choice, and it is a different choice per person ----
+   Reported as "the NPCs' options are all the same". The manner list is the
+   same handful of ways of speaking; what must differ is what each of them
+   *does*, because that is read off traits these people already had. */
+const manners = await G(async () => {
+  const T = await import('/src/data/talk.js');
+  const N = await import('/src/data/notables.js');
+  const g = window.__game, S = g.social;
+  const cast = N.NOTABLES;
+  // every reaction line the cast can actually reach, keyed by who said it
+  const byPerson = {};
+  for (const w of cast) {
+    byPerson[w.id] = T.MANNERS.map(m => {
+      const r = T.reactionTo(w, m.id);
+      return `${m.id}:${r.how}:${r.line.slice(0, 24)}`;
+    }).join('|');
+  }
+  const shapes = new Set(Object.values(byPerson));
+  // and the same button really does land differently on two named people
+  const keskPlain = T.reactionTo(N.NOTABLE_BY_ID.kesk, 'plain');
+  const marroqPlain = T.reactionTo(N.NOTABLE_BY_ID.marroq, 'plain');
+  // nobody is left with a card of one option, and nobody gets more than four
+  S.rel.kesk = 90; S.met.kesk = true;
+  const rich = T.mannersFor(N.NOTABLE_BY_ID.kesk, S, 'tavern').length;
+  S.rel.kesk = 0;
+  const stranger = T.mannersFor(N.NOTABLE_BY_ID.kesk, S, 'harbour').length;
+  /* Two directions, and they are different questions. A reaction keyed to a
+     trait nobody in the game has is a typo; a trait on somebody you can talk
+     to that no manner has a view about is a person the system cannot see. The
+     officers' traits count for the first — they are real people in the same
+     file, and the table is ready for them — but only the cast can be spoken
+     to, so only the cast has to be covered. */
+  const anyone = new Set([...cast, ...N.NAMED_OFFICERS].flatMap(w => w.traits));
+  const orphans = [];
+  const keyed = new Set();
+  for (const id in T.REACTIONS) {
+    for (const side of ['likes', 'dislikes']) {
+      for (const t in T.REACTIONS[id][side]) {
+        keyed.add(t);
+        if (!anyone.has(t)) orphans.push(`${id}.${side}.${t}`);
+      }
+    }
+  }
+  const unseen = [...new Set(cast.flatMap(w => w.traits))].filter(t => !keyed.has(t));
+  return {
+    cast: cast.length, shapes: shapes.size, orphans, unseen,
+    kesk: `${keskPlain.how}/${keskPlain.trait}`, marroq: `${marroqPlain.how}/${marroqPlain.trait}`,
+    rich, stranger,
+    flat: Object.values(byPerson).filter(v => /:flat:/.test(v.split('|')[0])).length,
+  };
+});
+ok(`the same manner lands differently on different people `
+  + `(Kesk ${manners.kesk}, Marroq ${manners.marroq})`,
+manners.kesk.startsWith('warm') && manners.marroq.startsWith('cool')
+  && manners.kesk !== manners.marroq);
+ok(`the cast does not share one conversation (${manners.shapes} distinct of ${manners.cast} people)`,
+  manners.shapes >= Math.ceil(manners.cast * 0.75));
+ok(`a card offers between two and four ways of speaking (stranger ${manners.stranger}, friend in a tavern ${manners.rich})`,
+  manners.stranger >= 2 && manners.stranger <= 4 && manners.rich <= 4 && manners.rich > manners.stranger);
+ok(`every authored reaction names a trait somebody in the game has (${manners.orphans.join(', ') || 'none orphaned'})`,
+  manners.orphans.length === 0);
+ok(`and every trait on somebody you can speak to is seen by some manner `
+  + `(${manners.unseen.join(', ') || 'all covered'})`, manners.unseen.length === 0);
+
 /* The PEOPLE page shows who you have met. Cheap existence check: the page
    renders from the same social state the sections above have been building,
    and it was the one screen nothing ever looked at. */

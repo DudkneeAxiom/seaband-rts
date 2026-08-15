@@ -9,6 +9,7 @@ import { AMBITIONS, CHAPTERS } from '../data/origins.js';
 import { KEYMAP } from '../core/keys.js';
 import { PORT_IDENTITY, NOTABLES, notablesAt, tiesFor, NOTABLE_BY_ID } from '../data/notables.js';
 import { greetingFor, tierOf } from '../sim/social.js';
+import { mannersFor, reactionTo } from '../data/talk.js';
 import { COLOURS_STANDING, COLOURS_INFAMY } from '../sim/encounter.js';
 import { fmtCoin, clamp } from '../core/util.js';
 import { sfxCoin, toggleMute, audio, getMix, setMixLevel, mixDefaults } from '../core/audio.js';
@@ -19,6 +20,10 @@ let qtyMult = 1;
 /* Which deck new hands join. Reset when a port opens, so it can never point
    at a ship you sold or a prize in another harbour. */
 let recruitTo = null;
+/* Who you have already found a way of speaking to since you tied up here.
+   Cleared with the port, so the manner is something you choose on arriving
+   somewhere rather than a button to lean on at the counter. */
+const spokeThisVisit = new Set();
 
 export function initSheet(game) {
   G = game;
@@ -76,6 +81,7 @@ function refresh() { renderTab(true); }
 export function openPort(port) {
   current = { port };
   recruitTo = null;   // this harbour's fleet, not the last one's
+  spokeThisVisit.clear();
   const svc = port.services;
   const tabs = [];
   /* The town before the transactions.
@@ -445,6 +451,48 @@ function openNotable(who, port) {
   if (nextStep) body.push(`<p class="npc-next">${nextStep}</p>`);
 
   const acts = [];
+
+  /* How you answer them.
+     Reported as "the NPCs' options are all the same" — and they were: four
+     identical topic buttons on every person in the Shoals, each printing a
+     paragraph. The choice that was missing is the interesting one, which is
+     not *what* to ask but *how to speak to this particular person*. Their own
+     traits decide whether it lands, so the same button is a different button
+     depending on who is standing in front of you.
+
+     It pays once per visit, not once per press. A manner you can lean on at
+     the counter is the sixty-six-press grind again with better prose; a
+     manner that pays when you have been away and come back is a thing you do
+     when you arrive somewhere. */
+  const place = who.at;
+  for (const m of mannersFor(who, S, place)) {
+    if (spokeThisVisit.has(who.id)) break;
+    if (m.coin && G.coin < m.coin) continue;
+    acts.push({
+      label: m.label, sub: m.tip,
+      fn: () => {
+        spokeThisVisit.add(who.id);
+        if (m.coin) G.coin -= m.coin;
+        const re = reactionTo(who, m.id);
+        /* Warm is worth having, cool actually costs — a choice with no wrong
+           answer is not a choice. Small either way: this is the manner of one
+           conversation, and the standing still moves because you did
+           something for somebody. */
+        const moved = re.how === 'warm' ? S.bump(who.id, 3, 'helped')
+          : re.how === 'cool' ? S.bump(who.id, -2, 'slighted') : 0;
+        modal({
+          title: who.name, dismissable: true,
+          text: `<p class="npc-do">${m.say}</p>`
+            + `<p class="npc-say">“${re.line}”</p>`
+            + (re.trait ? `<p class="npc-mem">${re.how === 'warm' ? 'That was the right way to speak to' : 'That was the wrong way to speak to'}`
+              + ` someone <b>${re.trait}</b>.</p>` : '')
+            + (moved ? `<p class="npc-move ${re.how}">${moved > 0 ? '+' : ''}${Math.round(moved)} standing</p>` : ''),
+          actions: [{ label: 'GO ON', cls: 'gold', fn: () => openNotable(who, port) }],
+        });
+      },
+    });
+  }
+
   // what they know about the town — always available, and how rumours travel
   /* Their own view of the place, not the town's press release. Ten people
      reciting one sentence about the harbour is how a cast of characters turns

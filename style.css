@@ -27,6 +27,12 @@
   --shadow: 0 10px 30px rgba(0,0,0,.45);
   --r: 14px;
   --tap: 48px;
+  /* One width for the whole left-hand column. The objective chip, the speed
+     control and the ship's state each used to size themselves — 260, 154 and
+     232 on a desktop — which read as three panels that happened to land near
+     each other rather than one column. Overridden per viewport below, in one
+     place instead of three. */
+  --lcol: min(46vw, 250px);
   --font-ui: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --font-disp: ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
   --st: env(safe-area-inset-top, 0px);
@@ -183,15 +189,19 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 #leftstack{
   position:absolute; left:calc(10px + var(--sl));
   display:flex; flex-direction:column; align-items:flex-start; gap:8px;
+  width:var(--lcol);
 }
+#leftstack > *{box-sizing:border-box;}
 #speedctl{
-  display:flex; gap:4px; padding:4px;
+  width:100%; display:flex; gap:4px; padding:4px;
   background:linear-gradient(180deg, rgba(24,52,66,.94), rgba(10,27,36,.94));
   border:1px solid var(--stroke); border-radius:13px;
   box-shadow:var(--shadow), var(--edge-lit), var(--edge-dark); backdrop-filter:blur(6px);
 }
 .spd{
-  min-width:48px; height:44px; border-radius:10px;
+  /* Share the column's width between them rather than sitting in a short
+     strip inside it: three equal buttons, each wider than a thumb needs. */
+  flex:1 1 0; min-width:48px; height:44px; border-radius:10px;
   font-size:14px; font-weight:800; letter-spacing:.6px; color:var(--parch-dim);
   display:flex; align-items:center; justify-content:center;
   font-variant-numeric:tabular-nums;
@@ -213,7 +223,7 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 
 /* ---------- Ship status ---------- */
 #shipstatus{
-  width:min(46vw, 232px); position:relative; overflow:hidden;
+  width:100%; position:relative; overflow:hidden;
   background:linear-gradient(180deg, rgba(24,52,66,.95), rgba(10,27,36,.95));
   border:1px solid var(--stroke); border-radius:var(--r);
   padding:9px 11px 8px;
@@ -452,11 +462,28 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 @keyframes toastOut{to{opacity:0;transform:translateY(-6px) scale(.98);}}
 
 #objective.muted{opacity:0; pointer-events:none;}
+/* At the head of the left column by default — see the note in index.html.
+   Lifted out to the top-left wherever a screen is tall enough to want it
+   there, which is the same trick the fleet bar uses in the other direction. */
 #objective{
-  position:absolute; transition:opacity .2s; left:calc(10px + var(--sl)); top:calc(96px + var(--st));
-  max-width:min(52vw,260px); display:flex; gap:7px; align-items:flex-start;
+  transition:opacity .2s; width:100%;
+  display:flex; gap:7px; align-items:flex-start;
   background:rgba(10,26,34,.82); border:1px solid rgba(230,178,94,.25); border-radius:10px;
   padding:7px 11px; font-size:12.5px; line-height:1.3; color:var(--parch-dim); box-shadow:var(--shadow);
+}
+/* Where there is vertical room the chip belongs at the top, so it is lifted
+   out of the column — the fleet bar's trick, the other way up. The condition
+   is height, not orientation: what decides this is whether the screen has a
+   spare band above the column, and a short landscape phone has none. */
+@media (min-height:560px){
+  #objective{
+    /* fixed, not absolute: its parent is the positioned column it was just
+       taken out of, so `absolute` measures the lift from the very thing it is
+       escaping — it landed 96px below the ship's panel. The fleet bar carries
+       this same note for the same reason, one direction over. */
+    position:fixed; left:calc(10px + var(--sl)); top:calc(96px + var(--st));
+    width:var(--lcol); box-sizing:border-box;
+  }
 }
 .obj-glyph{color:var(--brass); font-size:11px; margin-top:1px;}
 #objective b{color:var(--parch);}
@@ -742,7 +769,15 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
     width:min(95vw,780px); max-height:92vh;
     display:grid; grid-template-columns:1fr minmax(210px,250px);
     column-gap:18px; row-gap:6px; align-items:start; padding:16px 16px 14px;
+    /* The card is only as tall as it needs to be. It used to stretch to the
+       height of whichever column was longer, so a short line of dialogue
+       beside five choices left a hand's width of empty panel under the
+       prose — most visible on the conversation cards, which are three lines
+       and four buttons almost every time. */
+    align-content:start;
   }
+  /* and the prose sits against the choices rather than at the top of a void */
+  #modal-text{align-self:center;}
   #modal-title{grid-column:1 / -1; font-size:19px; margin-bottom:4px;}
   #modal-text{font-size:13.5px; line-height:1.45; margin-bottom:0; max-height:62vh; overflow-y:auto;}
   #modal-actions{gap:7px;}
@@ -993,7 +1028,7 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 @media (orientation:portrait){
   /* a narrow screen has no room for a wide objective chip beside the target
      card: 10 + chip + gap + card + 10 has to fit across 390px */
-  #objective{max-width:min(45vw,176px);}
+  :root{--lcol:min(50vw,196px);}
   /* And no room for it to grow downward either. Narrow enough to wrap a long
      objective to five or six lines, the chip reached past where the notices
      start and sat behind them, one rounded corner poking out from under a
@@ -1017,7 +1052,6 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
      they are still 44px tall, which is the number that matters to a thumb. */
   .fleet-btn{min-width:52px; padding:0 6px; font-size:10px; letter-spacing:.5px;}
   #fleetbar{gap:5px; padding:5px;}
-  #shipstatus{width:min(50vw,196px);}
   #actions{gap:8px;}
   /* A centred notice and a right-hand column both want this band on a 390px
      screen and cannot be separated across it — 174px of card plus 10px of
@@ -1049,7 +1083,8 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   #wind-label{bottom:-11px; font-size:9px; left:-28px; right:-28px;}
   #notices.low{top:calc(178px + var(--st));}
   #paused-badge{top:calc(84px + var(--st));}
-  #shipstatus{width:min(38vw,200px); padding:7px 9px 6px;}
+  :root{--lcol:min(38vw,210px);}
+  #shipstatus{padding:7px 9px 6px;}
   .ship-name{font-size:13px; margin-bottom:4px;}
   .bar-row{margin:3px 0;}
   /* short landscape: the right-hand column has to hold the target card and
@@ -1064,7 +1099,7 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   .pw-scale{display:none;}
   .tc-bars{margin:5px 0 3px;}
   .tc-follow{margin-top:5px;}
-  #objective{top:calc(72px + var(--st)); font-size:11.5px; max-width:min(40vw,220px);}
+  #objective{font-size:11.5px; padding:6px 9px;}
   /* fixed heights, not min-heights: on a 375px-tall screen the right-hand
      column has an exact budget and content must not push past it */
   .act-btn{height:45px; min-height:0; min-width:104px; font-size:14.5px; padding:4px 14px; line-height:1.05;}
@@ -1084,8 +1119,7 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   .fleet-btn{height:44px; min-width:62px;}
 }
 @media (min-width:820px){
-  :root{--r:16px;}
-  #shipstatus{width:250px;}
+  :root{--r:16px; --lcol:250px;}
   .act-btn{min-width:132px;}
 }
 
@@ -1400,6 +1434,21 @@ canvas.npc-face.big{border-radius:10px;}
   margin:8px 0 2px; opacity:.85;
 }
 .npc-next b{color:var(--brass); font-weight:600;}
+/* what you did, before what it got you: stage direction, then their answer */
+.npc-do{font-size:12.5px; line-height:1.55; color:var(--parch-dim); font-style:italic; margin:2px 0 8px;}
+.npc-move{
+  font:700 12px/1 ui-sans-serif,system-ui; letter-spacing:.06em; text-transform:uppercase;
+  margin:10px 0 0; display:inline-block; padding:5px 10px; border-radius:999px;
+}
+.npc-move.warm{color:#7fc8a9; background:rgba(127,200,169,.12); border:1px solid rgba(127,200,169,.3);}
+.npc-move.cool{color:var(--danger); background:rgba(200,90,70,.12); border:1px solid rgba(200,90,70,.32);}
+/* a modal action that explains itself — the dialogue manners, mostly */
+.btn.has-sub{
+  flex-direction:column; align-items:flex-start; gap:2px;
+  padding-top:9px; padding-bottom:9px; text-align:left; line-height:1.25;
+}
+.btn.has-sub .blbl{font-weight:700;}
+.btn.has-sub .sub{font-size:10.5px; font-weight:500; opacity:.72; letter-spacing:.01em; text-transform:none;}
 /* ---- officers as people ---- */
 .epithet{color:var(--parch-dim); font-weight:400; font-style:italic;}
 .stars{color:var(--brass); letter-spacing:1px;}

@@ -375,6 +375,29 @@ export class Game {
     return [...Object.values(NEMESES).map(n => n.ship), 'Long Answer'];
   }
 
+  /**
+   * A name no other hull afloat is using.
+   *
+   * Both spawn sites used to roll twelve times and then append " II" without
+   * checking whether *that* was taken either — so a busy sea grew two hulls
+   * called `Fair Return II`, and because `Ship.seed` is derived from the name,
+   * the twins shared a seed: same procedural details, same portrait. On the
+   * bounty board that read as the same ship posted twice, with the same face
+   * on both notices, which is exactly how it was reported. The suffix walks
+   * until it finds daylight now, and there is only one of these.
+   */
+  uniqueShipName(names, r = Math.random) {
+    const used = new Set([...this.ships.map(s => s.name), ...this.reservedNames()]);
+    let name = names[(r() * names.length) | 0];
+    for (let i = 0; i < 12 && used.has(name); i++) name = names[(r() * names.length) | 0];
+    if (!used.has(name)) return name;
+    const SUFFIX = ['II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+    for (const base of [name, ...names]) {
+      for (const s of SUFFIX) if (!used.has(`${base} ${s}`)) return `${base} ${s}`;
+    }
+    return `${name} ${Math.round(this.time * 10) % 997}`;   // a sea this full has other problems
+  }
+
   /** Populate the sea and let it run behind the title screen. */
   startAttract() {
     this.seedTraffic();
@@ -619,11 +642,7 @@ export class Game {
     } else {
       faction = 'admiralty'; classId = r() > 0.6 ? 'frigate' : 'brig'; role = 'patrol'; names = NAMES.ship_admiralty;
     }
-    const used = new Set([...this.ships.map(s => s.name), ...this.reservedNames()]);
-    let name = names[(r() * names.length) | 0];
-    let g2 = 0;
-    while (used.has(name) && g2++ < 12) name = names[(r() * names.length) | 0];
-    if (used.has(name)) name += ' II';
+    const name = this.uniqueShipName(names, r);
 
     const s = new Ship({ classId, faction, name, role, x, z, yaw: r() * TAU });
     // the first Tally captains a new captain meets are thin-crewed opportunists
@@ -719,10 +738,7 @@ export class Game {
          that are worth a brig. */
       const classId = v >= 2200 ? 'brig' : 'lugger';
       const names = faction === 'compact' ? NAMES.ship_compact : NAMES.ship_admiralty;
-      const used = new Set([...this.ships.map(x => x.name), ...this.reservedNames()]);
-      let name = names[(r() * names.length) | 0], g2 = 0;
-      while (used.has(name) && g2++ < 12) name = names[(r() * names.length) | 0];
-      if (used.has(name)) name += ' II';
+      const name = this.uniqueShipName(names, r);
       const side = i === 0 ? 1 : -1;
       const e = new Ship({
         classId, faction, name, role: 'escort',
@@ -1169,6 +1185,7 @@ export class Game {
 
   updateContext(dt) {
     const p = this.player;
+    this.markQuarry();
     /* The mark goes out when she gets there — "there" being no destination
        and no route left to run, which is what arriving looks like from here.
        Also when she has no helm to speak of: dead, boarding, or in port. */
@@ -1593,6 +1610,26 @@ export class Game {
   }
 
   /** Where the current objective is, for the on-screen pointer. */
+  /**
+   * Who the player has been named to hunt, flagged on the hulls themselves.
+   *
+   * A bounty you have taken, the story's own quarry, and Sant. The flag is
+   * what `Ship.damage` reads to refuse anybody else the killing blow, and it
+   * is recomputed rather than stored, so cancelling a contract or closing a
+   * chapter releases the hull on the next tick — the same derive-don't-store
+   * rule the questionnaire follows.
+   */
+  markQuarry() {
+    const wanted = new Set();
+    for (const q of this.quests) {
+      if (q.kind === 'bounty' && q.active && !q.done && q.targetId != null) wanted.add(q.targetId);
+    }
+    const story = this.storyQuarry();
+    for (const s of this.ships) {
+      s.isQuarry = wanted.has(s.id) || s === story;
+    }
+  }
+
   /** The ship the story is currently about, if any is on the water. */
   storyQuarry() {
     const ch = CHAPTERS[this.chapter];

@@ -103,7 +103,16 @@ export function modal({ title, text, actions = [], dismissable = false }) {
   const box = $('modal-actions');
   clear(box);
   for (const a of actions) {
-    const b = el('button', 'btn ' + (a.cls || ''), a.label);
+    /* An action can carry a second line saying what it means. The dialogue
+       manners need it — "Speak plainly" and "Pay your respects" are choices
+       about tone, and a player deserves to know which is which before they
+       find out from somebody's face. */
+    const b = el('button', 'btn ' + (a.cls || ''), a.sub ? '' : a.label);
+    if (a.sub) {
+      b.classList.add('has-sub');
+      b.appendChild(el('span', 'blbl', a.label));
+      b.appendChild(el('span', 'sub', a.sub));
+    }
     onTap(b, () => { closeModal(); a.fn && a.fn(); }, a.freq || 620);
     box.appendChild(b);
   }

@@ -64,6 +64,14 @@
 
     <!-- bottom-left stack: time controls above the flagship's condition -->
     <div id="leftstack" class="safe-bottom">
+    <!-- What the game wants of you, at the head of the left-hand column.
+         It used to be pinned to the top-left on its own while the column grew
+         from the bottom, at a third width again — three panels, three widths,
+         and a ragged edge measured at 66–98px of spread on every viewport.
+         Where a screen is tall enough for the chip to belong at the top it is
+         lifted back out of the flow by CSS, the way the fleet bar is lifted
+         out to the bottom centre on a wide one. -->
+    <div id="objective" class="hidden"><span class="obj-glyph">➤</span><span id="obj-text"></span></div>
     <!-- Fleet orders live in this column, not beside it. On a wide screen they
          float free at the bottom centre; on a phone held upright there is no
          room for them down there, and lifting them clear of the stack left
@@ -140,7 +148,6 @@
       <div id="hint" class="hidden"></div>
       <div id="toasts"></div>
     </div>
-    <div id="objective" class="hidden"><span class="obj-glyph">➤</span><span id="obj-text"></span></div>
 
     <!-- and where you are while a fleet action is running -->
     <div id="battlebar" class="hidden">

@@ -5,6 +5,102 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 70. Everyone in the Shoals had the same conversation  (P2, player report)
+
+**Symptom.** "The NPCs' options are all the same." They were: four identical
+topic buttons on every person in the game — ask about the port, ask about
+the others, is there work, what is wrong — each printing a paragraph at you
+with a BACK button under it. Ten authored characters, one menu.
+
+**Root cause.** Nothing in the conversation read *who they were*. The traits
+in `notables.js` were used only as a multiplier inside `Social.bump`, never
+as something the player could see or play against.
+
+**Change.** The choice the player never had was the interesting one: not
+what to ask but **how to speak to this particular person**. A new
+`data/talk.js` holds five manners — speak plainly, pay your respects, talk
+business, press them, stand them a drink — gated by standing and by place,
+so a card offers two to four of them and never the same set everywhere. Which
+one lands is read off their own traits: Kesk is pragmatic and thanks you for
+being blunt; Marroq is proud and thinks you rude for exactly the same
+button. Warm is +3, cool is −2, and it pays once per **visit**, not once per
+press — the sixty-six-press lesson, kept.
+
+**Verification.** social.mjs: the same manner lands warm on Kesk and cool on
+Marroq; all ten of the cast hold distinct conversation shapes; a card offers
+between two and four manners; and the reaction table is checked both ways —
+no line keyed to a trait nobody has, no trait on anybody speakable that no
+manner has a view about. That second check failed first time and was right
+to: four traits belonged to named officers, not the town cast.
+
+---
+
+## 69. Twin ships, one face, two notices  (P2, player report)
+
+**Symptom.** "Bounties are showing duplicates of the same ship, and have the
+same name and wanted poster."
+
+**Root cause.** Both spawn sites rolled a name twelve times and then appended
+` II` **without checking whether that was taken either**. `Ship.seed` is
+derived from the name, and the poster portrait is drawn from the seed — so
+two hulls called `Fair Return II` were twins down to the face. The bounty
+board dedupes by ship id, correctly, and cheerfully posted both.
+
+**Change.** One `uniqueShipName()` used by both sites, walking II…X and then
+the rest of the name list until it finds daylight.
+
+---
+
+## 68. Somebody else kept killing your quarry  (P2, player report)
+
+**Symptom.** "Other warships seemed to kill your target ship before you
+could engage it, or scale your fleet to battle it properly with the pacing."
+
+**Root cause.** Nothing reserved the player's quarry. An Admiralty patrol on
+the same errand gets there first; the bounty comes down unpaid, and the
+story's own quarry is respawned somewhere else entirely — the chase the game
+promised never happens. `settleSharedKill` pays out only above a quarter of
+the damage, so arriving late paid nothing at all.
+
+**Change.** Your quarry is yours to take. A hull the player has been named
+to hunt — an accepted bounty, the nemesis, Sant — cannot be finished by
+anybody else's guns: the killing blow leaves her a hulk at 6% and running
+instead. Other captains still fight her, still drive her off; they just do
+not get to end it. `markQuarry()` derives the flag every tick from live
+quests and the chapter, so cancelling a contract releases the hull on the
+next tick rather than leaving a stale invulnerability behind.
+
+---
+
+## 67. Three panels, three widths, no column  (P2, player report)
+
+**Symptom.** "The placement of things still seems awkward."
+
+**Root cause.** Measured at all five viewports: the left-hand furniture —
+objective chip, speed control, ship's state — sized itself three different
+ways (260 / 154 / 232 on a desktop), giving a ragged right edge with
+**66–98px of spread** everywhere. The chip was also pinned to the top-left
+on its own while the other two grew from the bottom, so on a landscape phone
+there were three boxes at three widths with a 42px hole punched in the
+middle of them.
+
+**Change.** One `--lcol` for the column, set once per breakpoint instead of
+three times; the speed buttons share that width rather than sitting in a
+short strip inside it; and the chip is a child of the column, lifted back out
+to the top-left only where the screen has a spare band above it
+(`min-height:560px`) — height, not orientation, being the thing that actually
+decides it. Spread is now **0px at every viewport**, gaps a uniform 8px. The
+lift had to be `position:fixed`, not `absolute`: its parent is the positioned
+column it was escaping, and `absolute` measured the offset from that, landing
+the chip 96px *below* the ship's panel. The fleet bar carries the same note
+for the same reason.
+
+Also: a landscape modal no longer stretches to its tallest column, so a
+three-line conversation beside four buttons stopped leaving a hand's width
+of empty panel under the prose.
+
+---
+
 ## 66. A consort ground along the apron chasing her slot  (P1, suite catch)
 
 **Symptom.** The Greywake errand check went red twice in five runs — a
