@@ -224,7 +224,11 @@ export const CHAPTERS = [
     id: 'stores',
     title: 'Ship’s Stores',
     obj: () => 'Make <b>Ilo Vantu</b> and dock. Shot and provisions before anything else.',
-    done: g => !!g.hintState.docked,
+    /* The port it names, not any port. `hintState.docked` is set by the first
+       harbour of any kind, so putting into Marasay closed a chapter that had
+       told you to make Ilo Vantu — which is how a story starts reading as a
+       pop-up that fires off ordinary play rather than something you did. */
+    done: g => !!g.hintState.port_ilovantu,
     close: () => 'The harbour takes your money and gives you back a ship that will not embarrass you. That is all a harbour is for.',
     coin: 0, prestige: 2,
   },
@@ -246,7 +250,11 @@ export const CHAPTERS = [
        only to "put her down" will sail alongside pulling a trigger that is
        not there. */
     obj: () => 'Find a <b>Tally</b> raider — black hull, red trim — and <b>sail right up to her</b>. Close alongside and she has to answer for it.',
-    done: g => g.stats.sunk + g.stats.captured >= 1,
+    /* A Tally hull, because that is what the chapter asks for by name and what
+       its closing line claims you did. This counted any ship of any flag, so
+       taking a Compact trader announced "One Tally hull fewer" — the story
+       telling you about a deed you had not done. */
+    done: g => (g.stats.tally || 0) >= 1,
     close: () => 'One Tally hull fewer. The islands notice that sort of thing faster than they notice anything good you do.',
     coin: 180, prestige: 8,
   },
@@ -255,7 +263,10 @@ export const CHAPTERS = [
     title: 'A Second Deck',
     open: () => 'Sinking them is satisfying and stupid. A hull on the bottom is worth salvage; a hull under your flag is worth a fleet. Cut the next one’s rigging instead, take the way off her, and go aboard.',
     obj: () => 'Cut a ship’s rigging, board her, and keep her. Two hulls under one flag.',
-    done: g => g.fleet.length > 1,
+    /* Taken *and* kept. A second hull by any other road closed this chapter on
+       a closing line about somebody aboard her deciding you were worth
+       following, which is only true if you went and got her. */
+    done: g => g.fleet.length > 1 && g.stats.captured >= 1,
     close: () => 'You look astern and there is a ship there, flying your colours, keeping station because somebody aboard her decided you were worth following.',
     coin: 220, prestige: 10,
   },

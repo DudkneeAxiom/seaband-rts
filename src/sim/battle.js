@@ -297,13 +297,22 @@ export class Battle {
       for (const s of this.enemies) s.chaseHold = 45;
     }
 
-    const taken = this.startEnemies.filter(s => g.fleet.includes(s) || s.faction === 'player');
+    /* Taken means her colours came down, not what you did with her afterwards.
+       This asked whether she had ended up in your fleet — which is true of
+       exactly one of the four things the prize dialog offers. Board a ship,
+       win, choose "send her home as a prize", and the reckoning told you
+       `Sunk · 0, Taken · 0`: she is not dead so she is not sunk, and she is not
+       in the fleet so she was never taken. The best thing that can happen in
+       this game reported as nothing happening at all. Salvaged and scuttled
+       hulls counted the same way — you still took them. */
+    const taken = this.startEnemies.filter(s => s.captured || g.fleet.includes(s) || s.faction === 'player');
     this.result = {
       outcome,
       kind: this.kind,
       crewLost: Math.max(0, this.startCrew - p.crewTotal),
       hullLost: Math.max(0, Math.round(this.startHull - p.hull)),
-      sunk: this.startEnemies.filter(s => !s.alive).length,
+      // and a hull you took is not also a hull you sank, whatever you did with her
+      sunk: this.startEnemies.filter(s => !s.alive && !s.captured).length,
       taken: taken.length,
       takenNames: taken.map(s => s.name),
       fought: this.startEnemies.length,

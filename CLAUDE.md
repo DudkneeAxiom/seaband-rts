@@ -249,6 +249,13 @@ that is written down, and everything that asks "can I fire", "can I dock",
   three ports quietly lost their refuge. Neither change was wrong on its own,
   and neither suite that covered them failed. The run-down does not route into
   guarded water now: a refuge that can be routed into is not a refuge.
+- **A story beat must test the deed it names.** Three of six chapters closed on
+  something other than what they described — "Make Ilo Vantu and dock" closed
+  on any harbour, "Find a Tally raider" on any hull of any flag — so taking a
+  Compact trader printed "One Tally hull fewer". A beat that fires on deeds you
+  did not do reads as a pop-up watching you play, which is exactly how it was
+  reported. Same rule as the origin chips: the promise and the mechanic are one
+  thing, or they drift.
 - **A relationship is earned by playing, not by pressing.** Getting to know a
   notable meant sixty-six presses of "Ask about the port" at +1 each, and the
   main loop of the game — carrying cargo — moved nobody's opinion at all,

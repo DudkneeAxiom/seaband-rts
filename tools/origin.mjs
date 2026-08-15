@@ -245,10 +245,20 @@ const story = await page.evaluate(() => {
 });
 ok(`the voyage opens on chapter one ("${story.title}")`, story.chapter === 0 && /Ilo Vantu/.test(story.obj));
 
-// dock, and the first chapter closes with its own scene
+/* Dock, and the first chapter closes with its own scene.
+   Through the game's own `enterPort` — the call the DOCK button makes — rather
+   than by setting `hintState.docked` by hand. The chapter names Ilo Vantu and
+   now checks for Ilo Vantu, so a fabricated "docked somewhere" flag no longer
+   stands for having been there; and faking the flag was the thing this repo's
+   own rules tell you not to do. */
 await page.evaluate(() => {
   const g = window.__game;
-  g.hintState.docked = 1;
+  const port = g.PORTS.find(p => p.id === 'ilovantu');
+  g.player.x = port.x; g.player.z = port.z; g.player.speed = 0;
+  g.enterPort(port);
+  g.leavePort();
+  document.getElementById('sheet').classList.add('hidden');
+  g.paused = false;
 });
 await ffUntilModal();
 const ch1 = await page.evaluate(() => ({
@@ -393,6 +403,54 @@ const reach = await page.evaluate(async () => {
   return r.bottom <= window.innerHeight + 1 && r.top >= 0;
 });
 ok('MAKE SAIL can always be scrolled to', reach);
+
+/* ---- a chapter closes on the deed it names, and on nothing else ----
+
+   Reported: the story "feels random and just like a pop up after completing
+   normal gameplay". Three of the six chapters were closing on something other
+   than what they described, and the early three at that — the ones a new
+   captain meets:
+
+     "Make Ilo Vantu and dock"                closed on docking anywhere
+     "Find a Tally raider — black hull"       closed on taking any hull at all
+     "board her, and keep her"                closed on any second ship
+
+   So taking a Compact trader printed "One Tally hull fewer", and putting into
+   Marasay closed a chapter that had asked for Ilo Vantu. A story that fires on
+   deeds you did not do is a story that reads as a pop-up watching you play. */
+const spine = await page.evaluate(async () => {
+  const O = await import('/src/data/origins.js');
+  const g = window.__game;
+  const CH = O.CHAPTERS;
+  const ch = id => CH.find(c => c.id === id);
+  const clean = () => {
+    g.hintState = {};
+    g.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0, tally: 0 };
+    g.quests = [];
+    while (g.fleet.length > 1) g.fleet.pop();
+  };
+  const ask = (id, set) => { clean(); set(); return !!ch(id).done(g); };
+  const out = {
+    storesWrongPort: ask('stores', () => { g.hintState.docked = 1; g.hintState.port_marasay = 1; }),
+    storesRightPort: ask('stores', () => { g.hintState.docked = 1; g.hintState.port_ilovantu = 1; }),
+    bloodAnyHull: ask('blood', () => { g.stats.captured = 1; g.stats.sunk = 1; }),
+    bloodTally: ask('blood', () => { g.stats.tally = 1; }),
+    consortBought: ask('consort', () => { g.fleet.push(g.player); }),
+    consortTaken: ask('consort', () => { g.fleet.push(g.player); g.stats.captured = 1; }),
+  };
+  clean();
+  return out;
+});
+ok(`"Make Ilo Vantu and dock" wants Ilo Vantu (elsewhere ${spine.storesWrongPort ? 'CLOSES IT' : 'does not'}, `
+  + `Ilo Vantu ${spine.storesRightPort ? 'does' : 'DOES NOT'})`,
+  !spine.storesWrongPort && spine.storesRightPort);
+ok(`"Find a Tally raider" wants a Tally (any hull ${spine.bloodAnyHull ? 'CLOSES IT' : 'does not'}, `
+  + `a Tally ${spine.bloodTally ? 'does' : 'DOES NOT'})`,
+  !spine.bloodAnyHull && spine.bloodTally);
+ok(`"board her, and keep her" wants her boarded (a second hull alone `
+  + `${spine.consortBought ? 'CLOSES IT' : 'does not'}, one taken ${spine.consortTaken ? 'does' : 'DOES NOT'})`,
+  !spine.consortBought && spine.consortTaken);
+
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');

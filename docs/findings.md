@@ -5,6 +5,85 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 57. The reckoning said you took nothing after you took her  (P1, playtest)
+
+**Symptom.** Board a Tally cutter, win, send her home as a prize. The
+after-action card:
+
+```
+THE WATER IS YOURS
+Enemy sail engaged · 1
+Sunk · 0
+Taken · 0
+```
+
+while `stats.captured` is 1 and *Hook & Halter* is sitting in the roads.
+
+**Root cause.** The tally asked whether the hull had ended up in your fleet:
+
+```js
+const taken = this.startEnemies.filter(s => g.fleet.includes(s) || s.faction === 'player');
+```
+
+That is true of exactly one of the four things the prize dialog offers. Send
+her home, salvage her or scuttle her and she is in none of them — and she is
+not dead either, so `sunk` does not count her. The best thing that can happen
+in this game reported as nothing happening at all.
+
+**Change.** Taken means her colours came down — `s.captured` — whatever you did
+with her afterwards; and a hull you took is not also a hull you sank.
+
+**Found by** playing the half of the game I had not played this month: take a
+prize, bring her home, put a captain in her. Two harness notes from the same
+run — the first version fired twelve broadsides and never closed, because it
+never steered (the BOARD button's `playerBoard` starts the run, and calling it
+was the whole trick); and "the yard offers no way to commission her" was my own
+navigation failing on a tab labelled `⚒ SHIPYARD`, not a bug.
+
+## 56. The story fired on deeds you had not done  (P1, reported)
+
+**Symptom.** Reported: "the main story line progression … feels random and just
+like a pop up after completing normal gameplay."
+
+**Root cause.** Three of the six chapters — the early three, the ones a new
+captain actually meets — closed on something other than what they described:
+
+| the objective says | what actually closed it |
+|---|---|
+| "Make **Ilo Vantu** and dock" | docking at *any* port (`hintState.docked`) |
+| "Find a **Tally** raider — black hull, red trim" | `sunk + captured >= 1`, *any* hull of *any* flag |
+| "Cut her rigging, board her, **and keep her**" | `fleet.length > 1`, a second hull by *any* road |
+
+So the game read as a thing that watches you play and then congratulates you
+for whatever you happened to do — which is exactly what a pop-up is. Worse, the
+closing prose then told you about a deed you had not done: take a Compact
+trader and the card says **"One Tally hull fewer."** Put into Marasay and a
+chapter that had asked for Ilo Vantu closes on the harbour it names.
+
+**Change.** Each chapter now tests the deed it names. `stores` wants the port
+it names (`hintState.port_ilovantu`, which `enterPort` already sets per
+harbour); `blood` wants a Tally hull, counted at the moment she strikes rather
+than after the prize disposition — commissioning her sets `faction = 'player'`,
+so asking later asks a question whose answer has been overwritten; `consort`
+wants her taken *and* kept.
+
+**Verification.** The wrong deed no longer closes the chapter and the right one
+still does:
+
+```
+no      stores:  docked at Marasay          CLOSES  stores:  docked at Ilo Vantu
+no      blood:   took a trader              CLOSES  blood:   took a Tally
+no      consort: a second hull, not boarded CLOSES  consort: boarded and kept
+```
+
+Three checks in `origin`, one per chapter, each asserting both halves.
+
+**And it caught a check that had been faking its own state.** "Making port
+closes chapter one" set `hintState.docked = 1` by hand rather than docking —
+the one thing this repo's testing rules name outright — and it only surfaced
+because the flag stopped standing for having been anywhere in particular. It
+goes through `enterPort` now, which is the call the DOCK button makes.
+
 ## 55. Sixty-six presses of one button was the whole relationship  (P1, reported)
 
 **Symptom.** Reported: "one thing i would say still needs work is the dialogue

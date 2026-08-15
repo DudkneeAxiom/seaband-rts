@@ -99,7 +99,7 @@ export class Game {
     this.coin = 0; this.prestige = 0; this.infamy = 0;
     this.standing = { freehold: 0, admiralty: 0, compact: 0, sable: 0, veyra: 0 };
     this.crewXP = 0;
-    this.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 };
+    this.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0, tally: 0 };   // `tally`: Tally hulls sunk or taken, which a chapter asks for by name
     this.officers = [];
     this.prizes = [];
     this.quests = [];
@@ -215,7 +215,7 @@ export class Game {
     this.coin = 240; this.prestige = 0; this.infamy = 0;
     this.standing = { freehold: 6, admiralty: 0, compact: 0, sable: 0, veyra: 0 };
     this.crewXP = 0;
-    this.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 };
+    this.stats = { sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0, tally: 0 };   // `tally`: Tally hulls sunk or taken, which a chapter asks for by name
     this.officers = []; this.prizes = []; this.quests = [];
     this.discovered = new Set();
     this.tavernCache = {};
@@ -466,7 +466,7 @@ export class Game {
          opens on a world that simply has two more powers in it than it had. */
       this.standing = { freehold: 0, admiralty: 0, compact: 0, sable: 0, veyra: 0, ...(data.standing || {}) };
       this.crewXP = data.crewXP || 0;
-      this.stats = Object.assign({ sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0 }, data.stats);
+      this.stats = Object.assign({ sunk: 0, captured: 0, broadsides: 0, distance: 0, crewLost: 0, tally: 0 }, data.stats);
       this.windAng = data.windAng ?? 2.1; this.windTargetAng = this.windAng;
       this._chEarned = false; this._storyCool = 0;   // re-earned from state, not remembered
       this.discovered = new Set(data.discovered || []);
@@ -2044,6 +2044,8 @@ export class Game {
     if (s.rewarded) return;
     s.rewarded = true;
     this.stats.sunk++;
+    // counted by whose hull she was, because a chapter asks for a Tally by name
+    if (s.faction === 'pirate') this.stats.tally = (this.stats.tally || 0) + 1;
     this.markStoryTarget(s);
     const value = Math.round(HULLS[s.classId].value * 0.10 + s.cls.guns * 6);
     if (s.faction === 'pirate') {
@@ -2135,6 +2137,10 @@ export class Game {
 
   offerPrize(prize) {
     prize.rewarded = true;       // she is yours; no shared-kill share on top
+    /* Whose hull she was, counted here rather than after the disposition:
+       commissioning her sets `faction = 'player'`, so counting later would ask
+       the question when the answer had already been overwritten. */
+    if (prize.faction === 'pirate') this.stats.tally = (this.stats.tally || 0) + 1;
     const cls = HULLS[prize.classId];
     const p = this.player;
     this.paused = true;
