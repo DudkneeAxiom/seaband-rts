@@ -206,8 +206,17 @@ function runDownTo(ship, x, z, dt, world) {
      ground both hulls are already standing on, and sending a raider off to
      work round a headland when she is 126m from her enemy is how a duel stops
      ending: measured, an action that would not close with the enemy on 34%
-     hull. The same exception the beat carries, for the same reason. */
-  if (LIVE || clearWater(ship.x, ship.z, x, z, keelFor(ship.draft))) {
+     hull. The same exception the beat carries, for the same reason.
+
+     And never *into* a harbour. Routing the chase, plus harbour works that are
+     now solid to a keel, together taught raiders to work their way through
+     Greywake's mouth after a captain who had run for shelter — three ports lost
+     their refuge and the suite caught it. A hull under the shore batteries is
+     not a hull you follow round a breakwater to reach: the rhumb line and the
+     lead line are all a chase gets, and `sheerOffFromPort` does the rest. A
+     refuge that can be routed into is not a refuge. */
+  if (LIVE || portGuarding(x, z)
+    || clearWater(ship.x, ship.z, x, z, keelFor(ship.draft))) {
     if (ship.brain) { ship.brain.path = null; ship.brain.pathGoal = null; }
     steerTo(ship, x, z, dt);
     return;

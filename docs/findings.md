@@ -72,6 +72,18 @@ contracts at Ilo Vantu:  written by two different hands, not one
 Four checks in `social`; the two that matter fail with the owner taken back off
 carrying work.
 
+**And the full suite caught what the social work hid.** Two earlier changes
+this session combined badly: harbour works that are now solid to a keel, plus a
+chase that routes round land. Together they taught raiders to work their way
+through Greywake's mouth after a captain who had run for shelter — three ports
+lost their refuge (`-49m`, `-54m`, `-85m`, all still in `hunt`), which the
+rhumb line could never have done because `avoidLand` simply bounced them off
+the arm. The run-down does not route into guarded water now: a hull under the
+shore batteries is not one you follow round a breakwater to reach. All five
+ports refuge again, every raider in `sheer`. **A refuge that can be routed into
+is not a refuge** — and two fixes that are each right can still be wrong
+together.
+
 **One thing I nearly shipped.** The next-rung line first read "she will talk
 about the other people here" — for Doro Kesk, and for everyone else. Pronouns
 are not in `notables.js` and a name does not tell you them, so it is "they".

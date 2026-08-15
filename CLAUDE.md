@@ -243,6 +243,12 @@ that is written down, and everything that asks "can I fire", "can I dock",
   bulk `for (…) g.update()` inside `page.evaluate` cannot click the button that
   clears it. Both "findings" they produced were fiction. Check `g.time` moved,
   check she is floating, check nothing is paused — before believing anything.
+- **Two fixes that are each right can be wrong together.** Harbour works made
+  solid to a keel, and a chase taught to route round land, combined to teach
+  raiders through Greywake's mouth after a captain who had run for shelter —
+  three ports quietly lost their refuge. Neither change was wrong on its own,
+  and neither suite that covered them failed. The run-down does not route into
+  guarded water now: a refuge that can be routed into is not a refuge.
 - **A relationship is earned by playing, not by pressing.** Getting to know a
   notable meant sixty-six presses of "Ask about the port" at +1 each, and the
   main loop of the game — carrying cargo — moved nobody's opinion at all,
