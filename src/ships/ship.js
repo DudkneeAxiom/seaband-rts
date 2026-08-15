@@ -543,9 +543,24 @@ export class Ship {
     return res;
   }
 
-  killCrew(n) {
+  /**
+   * Losses, taken off the bottom of the muster book — the newest hands first,
+   * which is who is standing where the fighting is worst.
+   *
+   * `fromBest` turns it over and spends the people you would rather keep.
+   * That is what pressing an attack actually costs: the card promises "ground
+   * fast, and pay for it", and measured across three hundred staged boardings
+   * it paid nothing at all — pressing won more often, ended sooner *and*
+   * buried fewer of your own than holding steady, which makes STEADY the dead
+   * option rather than PRESS the expensive one. Raising the casualty rate
+   * cannot fix that, because in this model losing people is the same axis as
+   * losing the fight. Spending your veterans instead is a cost you feel in the
+   * next action rather than this one, which is the bargain the card describes.
+   */
+  killCrew(n, fromBest = false) {
     let left = n, killed = 0;
     const order = ['deckhand', 'sailor', 'rigger', 'gunner', 'marine', 'veteran'];
+    if (fromBest) order.reverse();
     for (const k of order) {
       while (left > 0 && this.crew[k] > 0) { this.crew[k]--; left--; killed++; }
       if (left <= 0) break;

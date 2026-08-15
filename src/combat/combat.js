@@ -304,7 +304,17 @@ export class Boarding {
 
     const lossA = Math.max(0, Math.round((pd / (pa + 1)) * 1.5 * (0.6 + Math.random()) * m.ourLoss));
     const lossD = Math.max(0, Math.round((pa / (pd + 1)) * 1.5 * (0.6 + Math.random()) * m.theirLoss));
-    const ka = a.killCrew(Math.min(lossA, Math.max(0, a.crewTotal - 1)));
+    /* Pressing spends the people you would rather keep — see `killCrew`.
+       Only the *extra* losses, though: press kills at 1.5x, and it is that
+       surplus third which comes off the top of the muster book. Taking all of
+       them from the top instead swung it too far the other way — a boarding
+       loses power as it loses its best fighters, so pressing went from
+       winning 67% of an even fight to winning 4% of one, and the dead option
+       was simply the other one. A third is the difference between spending
+       your veterans and throwing them away. */
+    const cap = Math.min(lossA, Math.max(0, a.crewTotal - 1));
+    const best = this.stance === 'press' ? Math.round(cap / 3) : 0;
+    const ka = a.killCrew(best, true) + a.killCrew(cap - best);
     const kd = d.killCrew(Math.min(lossD, Math.max(0, d.crewTotal - 1)));
     a.morale = clamp(a.morale - ka * 0.012 + (swing > 0 ? 0.02 : 0), 0.05, 1);
     d.morale = clamp(d.morale - kd * 0.018 + (swing < 0 ? 0.02 : 0), 0.05, 1);

@@ -5,6 +5,44 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 80. Pressing the attack cost nothing  (P2, probe)
+
+**Symptom.** The boarding card offers four ways to fight and sells PRESS as a
+bargain — *"Ground fast, and pay for it."* Measured over 300 staged boardings
+per stance at matched crews, pressing won **35 points more often** than
+holding steady, ended **2.3 seconds sooner**, and buried **five fewer** of
+your own people. It paid nothing. That does not make press too strong so much
+as it makes STEADY the dead option, which is the same shape as `Friendly`
+opening nothing (finding in `CLAUDE.md`): a rung that gives you no reason to
+stand on it.
+
+**Root cause.** `ourLoss: 1.5` raises the casualty *rate* per exchange, but
+pressing also ends the fight in fewer exchanges, and the second effect is the
+larger one. Raising the rate further cannot fix it: in this model losing
+people **is** losing the fight, because `boardingPower` is crew. Swept it —
+at `ourLoss` 2.3 press wins 38% against steady's 57%, and at 2.8 it wins 15%.
+There is no value that is faster, costlier and still worth ordering.
+
+**Change.** The rate stays; *who it falls on* does not. A third of press's
+losses come off the top of the muster book — your veterans and marines rather
+than the newest hands. That is a cost you feel in the next action instead of
+this one, which is exactly the bargain the card describes. Taking **all** of
+them from the top was tried first and swung it the other way (press won 4% of
+an even fight, because a boarding loses power as it loses its best fighters);
+a third is the difference between spending your veterans and throwing them
+away. Measured after: press is 1.4s faster, keeps 6.3 of 8 elite against
+steady's 8.0, and still beats steady where it should — 30% against 20% at
+even odds, where you press because you are losing.
+
+**Also learned, not changed.** The stance only decides anything in a narrow
+band of odds. Against a crew 0.7× your own you win every time whatever you
+order; against **1.4× you win none of them, at any stance**. That cliff is a
+legitimate rule — do not board a bigger crew — but it is nowhere in the UI,
+and the weight indicator reads `EVEN` up to 1.25×. Worth a player-facing
+answer at some point; it is a design call rather than a defect.
+
+---
+
 ## 79. Two checks the suite did not have  (P3, coverage)
 
 Neither found a bug. Both cover a rule the codebase states and nothing

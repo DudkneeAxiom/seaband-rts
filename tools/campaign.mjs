@@ -486,6 +486,58 @@ const rail = await G(() => {
 });
 ok(`falling back can get you off her rail (${rail && rail.result})`,
   !rail || (rail.result === 'broken' ? !rail.captured && rail.free : true));
+/* The three stances have to be three different bargains, not three buttons.
+   Measured over staged boardings rather than watched once: PRESS promises
+   "ground fast, and pay for it" and for a long time did neither — it won more
+   often than STEADY, ended sooner *and* buried fewer of your own, which makes
+   steady the dead option. The cost is real now and it falls where the card
+   says: a third of press's losses come off the top of the muster book, so it
+   is your veterans you spend. Asserted on the decision the rule makes — who
+   is left standing — and not on the outcome of any one fight. */
+const stances = await G(async () => {
+  const C = await import('/src/combat/combat.js');
+  const g = window.__game, p = g.player;
+  const N = 260;
+  const out = {};
+  for (const stance of ['steady', 'press', 'marines']) {
+    let won = 0, secs = 0, elite = 0;
+    for (let t = 0; t < N; t++) {
+      const mk = (crew) => {
+        const s = Object.create(Object.getPrototypeOf(p));
+        Object.assign(s, p);
+        s.crew = { ...crew }; s.morale = 0.7; s.officers = [];
+        s.boarding = null; s.lockTo = null; s.alive = true; s.captured = false;
+        s.x = 0; s.z = 0; s.yaw = 0; s.speed = 0;
+        return s;
+      };
+      const a = mk({ deckhand: 6, sailor: 8, gunner: 2, marine: 4, rigger: 1, veteran: 4 });
+      const d = mk({ deckhand: 5, sailor: 7, gunner: 2, marine: 3, rigger: 1, veteran: 2 });
+      const bd = new C.Boarding(a, d, { onBoardTick: () => { }, onBoardEnd: () => { } });
+      bd.stance = stance;
+      let n = 0;
+      while (!bd.done && n < 500) {
+        if (stance !== 'marines' || n === 0) bd.stance = stance;   // marines is spent once
+        bd.update(0.1); n++;
+      }
+      if (bd.result === 'attacker') won++;
+      secs += bd.t;
+      elite += a.crew.veteran + a.crew.marine;
+    }
+    out[stance] = { win: +(won / N * 100).toFixed(1), secs: +(secs / N).toFixed(2),
+      elite: +(elite / N).toFixed(2) };
+  }
+  return out;
+});
+ok(`pressing takes the deck faster than holding steady `
+  + `(${stances.press.secs}s vs ${stances.steady.secs}s)`,
+stances.press.secs < stances.steady.secs * 0.92);
+ok(`and pays for it in the people you would rather keep `
+  + `(${stances.press.elite} of 8 veterans and marines left, against ${stances.steady.elite} steady)`,
+stances.press.elite < stances.steady.elite - 0.75);
+ok(`while the marines are the throw that wins it, once `
+  + `(${stances.marines.win}% vs ${stances.steady.win}% steady, ${stances.marines.elite} elite left)`,
+stances.marines.win >= stances.steady.win - 2 && stances.marines.elite >= stances.press.elite);
+
 ok('and the boarding card offers the choice at all',
   await G(() => {
     const g = window.__game, p = g.player;
