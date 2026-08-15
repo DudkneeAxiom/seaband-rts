@@ -47,16 +47,28 @@ function openSheet(title, sub, tabs, initial) {
 function renderTabs() {
   const box = $('sheet-tabs');
   clear(box);
+  /* The sheet may have gone. `closeSheet` sets `current` to null, and a tap
+     already on its way to a tab — or one landing as the sheet is dismissed by
+     the scrim, by leaving port, or by an action opening over it — arrived
+     here to find nothing to render. `Cannot set properties of null (setting
+     'tab')`, three times in one suite run, thrown into a page that then
+     carried on looking fine. A handler reads the world at the tap; this one
+     has to check the world is still there. */
+  if (!current) { box.classList.add('hidden'); return; }
   if (current.tabs.length < 2) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
   for (const t of current.tabs) {
     const b = el('button', 'tab' + (t.id === current.tab ? ' on' : ''), `${t.icon || ''} ${t.label}`);
-    onTap(b, () => { current.tab = t.id; renderTabs(); renderTab(); }, 700);
+    onTap(b, () => {
+      if (!current) return;
+      current.tab = t.id; renderTabs(); renderTab();
+    }, 700);
     box.appendChild(b);
   }
 }
 function renderTab(keepScroll = false) {
   const c = $('sheet-content');
+  if (!current) { clear(c); return; }
   /* Switching tabs starts at the top; redrawing the tab you are already on
      must not move your eye. Every purchase, recruitment and refit calls
      refresh(), which rebuilds the whole list — and that used to throw the

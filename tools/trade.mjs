@@ -773,12 +773,29 @@ const ruined = await G(async () => {
   const laid = !!(p.dest || (p.route && p.route.length));
   const t0 = g.time;
   for (let i = 0; i < 240; i++) { g.paused = false; g.update(1 / 60); }
-  // and hunger, at its very worst, cannot take the last of the watch
+  // read her way while she is still under way, before she is hove to below
+  const way = { maxSpeed: +p.maxSpeed.toFixed(2), moving: p.speed > 0.2 };
+  /* And hunger, at its very worst, cannot take the last of the watch —
+     hunger alone. She is hove to in deep water with no course for this part,
+     because a starving ship left sailing can touch bottom, and gunnery and
+     grounding have a *lower* floor than hunger does by design (a third of
+     the working minimum). Letting her sail through it measured the sea and
+     blamed the barrels: 4 hands of a minimum 5, with hunger innocent. */
+  p.dest = null; p.route = null; p.throttle = 0; p.speed = 0;
+  p.x = far.x; p.z = far.z;
+  p.hull = p.hullMax;
+  for (const k in p.crew) p.crew[k] = 0;
+  p.crew.sailor = p.cls.crewMin;
+  p.hungry = 1;
   const before = p.crewTotal;
-  for (let i = 0; i < 60 * 60 * 5; i++) { g.paused = false; g.update(1 / 60); }
+  for (let i = 0; i < 60 * 60 * 5; i++) {
+    g.paused = false;
+    p.provisions = 0; p.hungry = 1;      // held at the worst it can be
+    g.update(1 / 60);
+  }
   return { far: Math.round(far.d), port: near.name, laid,
     ran: +(g.time - t0).toFixed(1),
-    maxSpeed: +p.maxSpeed.toFixed(2), moved: p.speed > 0.2,
+    maxSpeed: way.maxSpeed, moved: way.moving,
     crewBefore: before, crewAfter: p.crewTotal, min: p.cls.crewMin, alive: p.alive };
 });
 ok(`the world was running for it (${ruined.ran}s)`, ruined.ran > 60);
@@ -786,8 +803,9 @@ ok(`a course home can be laid from the worst berth in the Shoals `
   + `(${ruined.far}m off ${ruined.port})`, ruined.laid);
 ok(`and a ruined ship still makes way (no rigging, 5% hull, starving: `
   + `${ruined.maxSpeed} knots of her own)`, ruined.maxSpeed > 0.5 && ruined.moved);
-ok(`while hunger never takes the last of the watch (${ruined.crewAfter} hands, minimum ${ruined.min})`,
-  ruined.crewAfter >= ruined.min && ruined.alive);
+ok(`while hunger never takes the last of the watch (${ruined.crewBefore} hands `
+  + `starving for five minutes -> ${ruined.crewAfter}, minimum ${ruined.min})`,
+ruined.crewAfter >= ruined.min && ruined.crewAfter === ruined.crewBefore && ruined.alive);
 
 /* ---------- LAST: a thumb faster than the screen cannot overfill a hull ----------
    At the end of the file, with the other sections that leave a mark: this
