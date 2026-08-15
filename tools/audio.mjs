@@ -297,6 +297,14 @@ const voices = await G(async () => {
   const M = await import('/src/core/music.js');
   const g = window.__game;
   g.inPort = null;
+  /* Wait for the band to be playing before counting it. The sea deliberately
+     alternates passages of tune and passages of near-quiet, and a rest bar is
+     three voices by design — so a sampler that happens to open during one
+     counts the thin texture and calls it a regression. The controller already
+     says which passage it is in; ask it. */
+  for (let i = 0; i < 400 && window.__audio.music().passage !== 'play'; i++) {
+    await new Promise(r => setTimeout(r, 50));
+  }
   const seen = {};
   let bars = 0, best = 0;
   for (let i = 0; i < 240; i++) {
@@ -305,10 +313,11 @@ const voices = await G(async () => {
     if (n) { bars++; best = Math.max(best, n); for (const k in b) seen[k] = (seen[k] || 0) + 1; }
     await new Promise(r => setTimeout(r, 60));
   }
-  return { names: Object.keys(seen).sort(), best, bars };
+  return { names: Object.keys(seen).sort(), best, bars, passage: window.__audio.music().passage };
 });
 ok(`the sea is a band, not a whistle and a drone `
-  + `(${voices.best} voices in a bar at most: ${voices.names.join(', ')}; top band ${band6.toFixed(0)}dB)`,
+  + `(${voices.best} voices in a bar at most during a ${voices.passage} passage: `
+  + `${voices.names.join(', ')}; top band ${band6.toFixed(0)}dB)`,
 voices.best >= 5 && voices.names.includes('strings') && voices.names.includes('bass')
   && voices.names.includes('harp') && voices.names.includes('flute'));
 ok(`the sea is not silent for long stretches (${(score.quietFrac * 100).toFixed(0)}% under 0.01)`,

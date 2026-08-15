@@ -260,13 +260,34 @@ function melodyFor(bar, n) {
 const LAYER_NAMES = ['whistle', 'fiddle', 'pluck', 'drone', 'drum', 'horn', 'bell',
   'strings', 'harp', 'bass', 'shake'];
 
+/* Where each voice stands. Everything went down the middle before, which is
+   most of what "it does not blend" means: a band crowded into one point has
+   nowhere for anything to sit, so the parts mask each other instead of
+   making room. A real one is spread across the front — the strings wide, the
+   harp off to one side, the lead down the centre where the ear expects it,
+   and the bass and drum in the middle where the weight belongs. */
+const PAN = {
+  strings: -0.32, harp: 0.38, bell: 0.26, shake: -0.45, fiddle: -0.24,
+  whistle: 0, bass: 0, drum: 0, drone: 0, horn: 0.14, pluck: -0.18,
+};
+
 export function initMusic(graph) {
   G = graph;
   layers = {};
   for (const n of LAYER_NAMES) {
     const g = G.ctx.createGain();
     g.gain.value = 0.0001;
-    g.connect(G.musBus);
+    /* StereoPanner is standard everywhere this game runs, but the mixer's own
+       rule applies: the score may never be the reason the page fails. If it
+       is missing the layer simply goes straight to the bus, in mono. */
+    let out = G.musBus;
+    if (G.ctx.createStereoPanner) {
+      const p = G.ctx.createStereoPanner();
+      p.pan.value = G.num(PAN[n] || 0, 0, -1, 1);
+      p.connect(G.musBus);
+      out = p;
+    }
+    g.connect(out);
     layers[n] = g;
   }
   barStart = G.ctx.currentTime + 0.2;
@@ -589,18 +610,24 @@ function arrangeSea(t0, spb, bar) {
   const ch = chordAt(bar);
   const barLen = spb * SEA_BEATS;
   const thin = passage === 'rest';
+  /* A phrase leans. Every bar came out at the same weight before, which is
+     what "flat" is — four identical bars, then four more. It swells into the
+     third bar and eases off the fourth, the way a played line does, and the
+     whole passage sits a little back when the flute is resting. */
+  const lean = [0.88, 0.96, 1.1, 0.94][(bar - phrase.at + 4) % 4];
+  const dyn = lean * (thin ? 1 : 1.02);
 
   // the floor: strings on the chord, always, so the sea is never empty
-  strings(t0, [ch[0], ch[1], ch[2]], barLen * 1.02, thin ? 0.055 : 0.085);
+  strings(t0, [ch[0], ch[1], ch[2]], barLen * 1.02, (thin ? 0.055 : 0.085) * dyn);
   // and the bottom of the roll
-  bass(t0, ch[0], spb * 2.4, thin ? 0.055 : 0.095);
-  if (!thin) bass(t0 + spb * 3, ch[0] + (phrase.arp ? 7 : 0), spb * 2.4, 0.065);
+  bass(t0, ch[0], spb * 2.4, (thin ? 0.055 : 0.095) * dyn);
+  if (!thin) bass(t0 + spb * 3, ch[0] + (phrase.arp ? 7 : 0), spb * 2.4, 0.065 * dyn);
 
   // the harp: a rolled chord on the bar, running figures through the middle
   if (phrase.arp || thin) {
     const roll = [ch[0], ch[1], ch[2], ch[3]];
     for (let i = 0; i < roll.length; i++) {
-      harp(t0 + i * 0.055, roll[i], (thin ? 0.04 : 0.055) * (1 - i * 0.08));
+      harp(t0 + i * 0.055, roll[i], (thin ? 0.04 : 0.055) * (1 - i * 0.08) * dyn);
     }
   }
   if (!thin && phrase.arp) {
@@ -617,7 +644,7 @@ function arrangeSea(t0, spb, bar) {
     for (let k = 0; k < notes.length; k++) {
       const [semi, at] = notes[k];
       const next = notes[k + 1] ? notes[k + 1][1] : SEA_BEATS;
-      whistle(t0 + at * spb, semi, (next - at) * spb * 0.88, 0.135 * dialect.whistle,
+      whistle(t0 + at * spb, semi, (next - at) * spb * 0.88, 0.135 * dialect.whistle * dyn,
         { grace: Math.random() < 0.3, high: false });
     }
   }
@@ -909,11 +936,17 @@ function scheduleBar(t0, spb, bar) {
     case 'tension_high': arrangeTension(t0, spb, bar, true); break;
     case 'port': arrangePort(t0, spb, bar); break;
     case 'approach': {
-      /* the approach is literally both mixes at once: the sea arrangement
-         thinning while the town's dialect begins to answer — the crossfade
-         in applyMix does the moving, this keeps both hands playing */
-      arrangeSea(t0, spb, bar);
-      if (bar % 2 === 0) arrangePort(t0, spb, bar);
+      /* One band at a time. This used to play both arrangements over the same
+         bar, which was harmless when the sea was a whistle and the town was a
+         fiddle — they shared almost nothing. They share strings, harp, bass
+         and shaker now, and worse, the approach runs on the sea's six-eight
+         clock while the port arrangement counts four to a bar: two full bands
+         at two different metres, on top of each other, every other bar.
+         Reported as the music "layering itself", and it is loudest exactly
+         where a player spends time in menus, because that is where the
+         approach state lives. The town answers the sea by turns instead. */
+      if (bar % 2 === 0) arrangeSea(t0, spb, bar);
+      else arrangePort(t0, spb * 1.5, bar);      // her own four to the bar
       break;
     }
     default: arrangeSea(t0, spb, bar);
