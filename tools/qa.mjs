@@ -102,7 +102,15 @@ export async function ff(page, seconds, step = 1 / 30) {
     for (let i = 0; i < n; i++) {
       g.update(st);
       const p = g.player;
-      if (p) g.rig.update(st, { x: p.x, z: p.z, yaw: p.yaw, speed: p.speed }, null, 0);
+      if (p) {
+        // mirror the live loop: the marked ship is the camera's interest, and
+        // the rig is told how much of an action this is — so staged fights
+        // frame themselves the same way here as under the real render loop
+        const t = g.target;
+        const interest = t && t.alive && !t.captured
+          && Math.hypot(t.x - p.x, t.z - p.z) < 420 ? { x: t.x, z: t.z } : null;
+        g.rig.update(st, { x: p.x, z: p.z, yaw: p.yaw, speed: p.speed }, interest, 0, g.cameraBattle());
+      }
     }
   }, [seconds, step]);
   await sleep(120);

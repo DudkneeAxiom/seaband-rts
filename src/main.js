@@ -351,7 +351,7 @@ function frame(now) {
       const t = game.target;
       const interest = t && t.alive && !t.captured &&
         Math.hypot(t.x - p.x, t.z - p.z) < 420 ? { x: t.x, z: t.z } : null;
-      rig.update(dt, { x: p.x, z: p.z, yaw: p.yaw, speed: p.speed }, interest, game.combatHeat > 0 ? 1 : 0);
+      rig.update(dt, { x: p.x, z: p.z, yaw: p.yaw, speed: p.speed }, interest, game.combatHeat > 0 ? 1 : 0, game.cameraBattle());
     } else {
       // attract mode: a slow pass across the roads of Ilo Vantu
       rig.azimuth += dt * 0.028;

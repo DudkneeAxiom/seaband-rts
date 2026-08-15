@@ -671,6 +671,9 @@ ok(`she works 620m dead to windward in boards (${beat.left}m left, ${beat.tacks}
 await page.click('.spd.fast');
 await page.click('.spd.fast');
 await waitFor(page, () => window.__game.speed === 4, 4000);
+// remember what the camera looks like in peacetime, for the check after the action
+await waitFor(page, () => window.__game.rig.heat < 0.1, 8000);
+await G(() => { window.__calmPitch = window.__game.rig.pitch; });
 const gotAction = await intoBattle(page);
 /* Report the layer too. "clock read 4x" is also what you get when no action
    ever opened, and those are different bugs — one is the rule failing, the
@@ -690,7 +693,68 @@ const clockInAction = await G(() => ({
 ok(`an action at 4x opens at 1x (clock read ${clockInAction.speed}x on the `
   + `${clockInAction.mode} layer, strip lit "${clockInAction.lit}")`,
 clockInAction.mode === 'battle' && clockInAction.speed === 1 && !!gotAction && strip);
+
+/* ---- the camera knows it is in a fight ----
+   Same battle, so nothing extra is staged; the battle marks its lead as the
+   target itself and ff() mirrors the live loop's feed to the rig, so this is
+   the wiring under test, not the class. calmPitch was recorded on the
+   campaign layer before the action opened. The azimuth is first pointed
+   straight down the duel line — the worst seat in the house — because from a
+   lucky starting angle this check passed with the drift removed. */
+const camStaged = await G(() => {
+  const g = window.__game, p = g.player, t = g.target;
+  if (!t || !t.alive) return false;
+  g.rig.azimuth = Math.atan2(t.x - p.x, t.z - p.z);   // looking along the line
+  g.rig.orbitHold = 0;
+  return true;
+});
+await ff(page, 6);
+const cam = await G(() => {
+  const g = window.__game, p = g.player, t = g.target;
+  let sq = null;
+  if (t && t.alive) {
+    const b = Math.atan2(t.x - p.x, t.z - p.z);
+    // how far the view direction is from square-on to the duel line
+    let d = Math.abs((g.rig.azimuth - b) % Math.PI);
+    d = Math.min(d, Math.PI - d);
+    sq = +Math.abs(d - Math.PI / 2).toFixed(2);
+  }
+  return { mode: g.mode, heat: +g.rig.heat.toFixed(2), pitch: +g.rig.pitch.toFixed(2),
+    calm: +window.__calmPitch.toFixed(2), mark: t ? t.name : null, sq };
+});
+ok(`an action drops the camera toward the water (${cam.calm} calm -> ${cam.pitch} in action, heat ${cam.heat})`,
+  cam.mode === 'battle' && cam.heat > 0.6 && cam.pitch < cam.calm - 0.08);
+ok(`and swings the duel broadside-on across the frame (${cam.sq} rad off square, mark ${cam.mark})`,
+  camStaged && cam.sq !== null && cam.sq < 0.35);
 await leaveBattle(page);
+
+/* ---- a prize is sent to the yard you can reach ----
+   Three ports have a yard and the pointer named whichever came first in
+   PORTS, so a captain who took a prize off Tideglass was aimed the width of
+   the Shoals at Ilo Vantu — past the slipway she was moored beside. */
+const yards = await G(() => {
+  const g = window.__game, p = g.player;
+  const was = { x: p.x, z: p.z, quests: g.quests.slice() };
+  g.quests.length = 0;                    // an errand outranks a prize in the marker
+  g.prizes.length = 0;
+  g.prizes.push({ name: 'Marker Prize', classId: g.player.classId, hull: 40, guns: 4 });
+  const yardPorts = g.PORTS.filter(x => x.services.includes('shipyard'));
+  const out = { n: yardPorts.length, quarry: null, rows: [] };
+  if (g.storyQuarry()) out.quarry = 'the story has a quarry in sight';
+  for (const port of yardPorts) {
+    const b = g.harbourBerth(port);
+    p.x = b.x; p.z = b.z;
+    const m = g.objectiveMarker();
+    out.rows.push({ at: port.name, points: m ? m.label : null });
+  }
+  p.x = was.x; p.z = was.z;
+  g.quests.push(...was.quests);
+  g.prizes.length = 0;
+  return out;
+});
+ok(`a prize points you at the nearest yard, not the first one `
+  + `(${yards.quarry || yards.rows.map(r => `${r.at}->${r.points}`).join(', ')})`,
+!yards.quarry && yards.n >= 2 && yards.rows.every(r => r.points === r.at));
 
 /* ---- a prize you can never man is a dead end ----
    Reported: "I captured one of the main flagships which had 64 crew slots,

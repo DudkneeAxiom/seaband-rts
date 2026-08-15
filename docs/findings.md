@@ -5,6 +5,68 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 59. The camera treated a broadside like a survey  (P2, player report)
+
+**Symptom.** "The camera angle should be more cinematic during combat, and a
+bit more engaging for movement vs just the standard view on the world map."
+One rig served every moment of the game: pitch came from zoom alone, the
+azimuth never moved on its own, and the only thing an action changed was a
+12% widen. A duel and a chart-read were shot from the same chair.
+
+**Change.** Two moods on top of the same rig, both eased by a damped `heat`
+so a mode flip is a camera move rather than a cut:
+
+- *Action* — `game.cameraBattle()` (1 in battle, 0.5 with the guns still
+  warm) drops the pitch toward the water, tightens the field a touch, and,
+  when the player has a mark, drifts the azimuth round to put the duel
+  broadside-on across the frame. Two bearings satisfy broadside-on; the rig
+  takes the nearer, so it never crosses the fight to get to its seat. A
+  finger on the sea always wins: `orbit()` now arms a five-second hold and
+  the drift waits it out.
+- *Under way* — speed past a walking pace leans the pitch down a shade,
+  lengthens the lead-ahead, and opens the field toward 57°, so the sea the
+  player is crossing is in front of them rather than under them.
+
+The flag is derived once, in `cameraBattle()`, and both the live loop and
+the harness's `ff()` feed it to the rig — `ff` now mirrors the live loop's
+interest too, so a staged fight frames itself the same way under test.
+
+**Verification.** Two checks in `systems.mjs` ride the existing 4x battle
+staging: calm pitch is recorded on the campaign layer, then the action must
+drop well below it, and — with the azimuth first pointed straight down the
+duel line, the worst seat in the house — the drift must bring it square-on.
+Both fail with the mood code neutralized; the broadside check only fails
+honestly after staging the bad seat, because from a lucky starting angle it
+passed with the drift removed.
+
+---
+
+## 58. Every prize pointed at Ilo Vantu  (P2, arc probe)
+
+**Symptom.** Take a prize anywhere and send her home: the hint says "find
+her a captain at the shipyard in Ilo Vantu" and the objective marker agrees —
+even moored in Tideglass, a yard town, or Greywake, another one.
+
+**Root cause.** Both the marker and the hint asked
+`PORTS.find(services includes 'shipyard')` — *the first yard in the list*,
+which is Ilo Vantu forever. Written when Ilo Vantu was the only yard; two
+more yards later, nobody re-asked the question. Same shape as the route
+grid's one-keel constant: a fact about the world that was actually a fact
+about the world as of the day it was written.
+
+**Change.** `nearestYard(x, z)`, asked from where the player (marker) or the
+prize (hint) actually is.
+
+**Verification.** `systems.mjs` parks the player in each yard town with a
+prize on the books and asks the marker where to go; it must answer the town
+she is standing in. Fails with the fix reverted (everything points at
+Ilo Vantu). Found while verifying finding 56's stricter chapter predicates
+end-to-end: an arc probe that plays the six chapters without teleporting
+confirmed the story closes through "A Second Deck" once the shore business
+(hire a commander, commission the prize) is done through the real buttons.
+
+---
+
 ## 57. The reckoning said you took nothing after you took her  (P1, playtest)
 
 **Symptom.** Board a Tally cutter, win, send her home as a prize. The

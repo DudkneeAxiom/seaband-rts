@@ -942,6 +942,14 @@ export class Game {
      ========================================================= */
   get currentChapter() { return this.storyOver ? null : CHAPTERS[this.chapter] || null; }
 
+  /* How much of an action this is, for the camera: a battle owns the frame
+     outright, guns still warm on the campaign lean it, quiet sailing is none
+     of it. Derived here once so the live loop and the QA harness's
+     fast-forward feed the rig the same answer. */
+  cameraBattle() {
+    return this.mode === 'battle' ? 1 : (this.combatHeat > 0 ? 0.5 : 0);
+  }
+
   /** Busy with somebody. Guns lately, a ship marked and close, or a hostile
       in your lap — no time to be handed a page of prose. */
   get engaged() {
@@ -1633,6 +1641,19 @@ export class Game {
     for (const p of PORTS) { const d = dist(x, z, p.x, p.z); if (d < bd) { bd = d; best = p; } }
     return best ? best.name : null;
   }
+  /* Three ports have a yard, and both the prize marker and the prize hint used
+     to name whichever came first in the list — so a captain who took a prize
+     off Tideglass was pointed the width of the Shoals to Ilo Vantu, past the
+     yard she was standing in. */
+  nearestYard(x, z) {
+    let best = null, bd = 1e9;
+    for (const p of PORTS) {
+      if (!p.services.includes('shipyard')) continue;
+      const d = dist(x, z, p.x, p.z);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
 
   objectiveMarker() {
     const p = this.player;
@@ -1662,7 +1683,7 @@ export class Game {
       if (t) return { x: t.x, z: t.z, label: t.name };
     }
     if (this.prizes.length) {
-      const yard = PORTS.find(x => x.services.includes('shipyard'));
+      const yard = this.nearestYard(p.x, p.z);
       if (yard) return { x: yard.x, z: yard.z, label: yard.name };
     }
     if (!this.hintState.docked) {
@@ -2340,7 +2361,8 @@ export class Game {
     this.removeShip(prize);
     this.finishPrize(prize);
     toast(`${prize.name} taken. A prize crew will bring her into port.`, 'gold', 4000);
-    hint('Find her a captain at the shipyard in Ilo Vantu.', 5000);
+    const yard = this.nearestYard(prize.x, prize.z);
+    hint(`Find her a captain at the shipyard in ${yard ? yard.name : 'Ilo Vantu'}.`, 5000);
     this.mark('prize');
   }
   salvagePrize(prize, loot) {
