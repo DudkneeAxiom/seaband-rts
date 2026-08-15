@@ -5,6 +5,68 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 84. The music was weak, and it was measurably weak  (P1, player report)
+
+**Symptom.** "The music audio is really weak. I'd like more of an adventure
+Wind Waker vibe that's loop proof and pleasant to listen to."
+
+**What it actually was.** Measured before touching anything, with the other
+buses muted so only the score was heard: mean level **0.14**, median **0.11**,
+with visible dropouts. Worse, the fatigue system rested the sea for **50 to
+160 seconds at a time**, during which the entire soundtrack was one drone at
+volume 0.05. And the spectrum told the rest of it — energy peaked at 180–360
+Hz and everything above 2.8 kHz sat at **−112 dB**. A sine whistle over a
+drone: no body, no daylight, and silent for minutes.
+
+**Change.** The sea has its own music now rather than a thin arrangement of
+the folk tune, which stays where it belongs — harbours and danger. A rolling
+6/8 in bright D major with the flat seventh a shanty leans on: warm strings
+under a flute, a harp through the middle, pizzicato bass, a shaker on the
+off-beats, a glockenspiel on the turn of each phrase. A "rest" passage now
+thins the band instead of stopping it.
+
+**Loop-proof by construction.** There is no fixed melody to wear out. Chords
+come from a pool of eight four-bar progressions, never the same one twice
+running, and the flute improvises over them from a contour and a rhythm cell
+drawn fresh each phrase. Sixty phrases: eight distinct progressions, zero
+back-to-back.
+
+**Three defects found in the new code by measuring it, not by ear.**
+- The strings and bass went in an octave too low — 37 Hz is mud, not warmth.
+- The melody generator could invent a G♯ in D major: a chord tone plus a whole
+  step is the sharp fourth above the third. Passing notes are snapped into
+  the key now; 961 generated notes checked, none out.
+- The first brightness fix read the spectrum's *mean*, which measured whether
+  the sampler was lucky — the sparkle is carried by instruments that do not
+  sound in every bar. It reads the score at its brightest instead.
+
+**Verification.** Mean level 0.14 → 0.35, median 0.11 → 0.41, dropouts gone;
+the band above 2.8 kHz reaches −80 dB against −112 before; peak under full
+load with cannon fire 0.49, well inside the limiter. Six new checks in
+audio.mjs hold all of it, against a new spectrum tap on the mixer, because
+peak level cannot see the difference between a thin sound and a full one.
+
+**Not verified: whether it is *good*.** I cannot hear it. Everything above is
+a measurement, and taste is not measurable.
+
+---
+
+## 83. My own fix for the duel check made a standoff  (P2, suite catch)
+
+**Symptom.** `fighting her out ends the action` failed again — this time
+`still running, No Quarter Given hull 26% fleeing 235m off`.
+
+**Root cause.** Finding 60's driver ran her down and fired, but it only
+turned onto the beam inside **230m**, and the guns reach 235m. So a fleeing
+hull sat at 235 with the player's bow pointed straight at her: no side
+bearing, nothing fired, and neither ship closing. A driver that could
+neither shoot nor catch — the previous failure mode traded for its mirror.
+
+**Change.** Turn onto the beam well inside gun range (190m) rather than at
+its edge. The guns are what bounds this check; they have to be able to bear.
+
+---
+
 ## 82. The stale-tap bug was in four more places  (P1, probe)
 
 **Symptom.** Found by looking for the shape rather than the symptom. The

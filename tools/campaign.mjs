@@ -377,7 +377,15 @@ for (let i = 0; i < 200 && !ended; i++) {
       const d = Math.hypot(t.x - p.x, t.z - p.z);
       const b = Math.atan2(t.x - p.x, t.z - p.z);
       p.throttle = 1;
-      p.setHeading(d > 230 ? b : b + Math.PI / 2);
+      /* Turn onto the beam INSIDE gun range, not outside it. Steering at her
+         until 230m and only then presenting the broadside is a standoff: her
+         guns bear at 235m, so a fleeing hull sat at 235 with our bow pointed
+         at her, no side bearing, nothing fired, and neither ship closed. One
+         run in the full suite deadlocked there for the whole window with her
+         at 26% hull — a driver that can neither shoot nor catch. Close to
+         well inside the range and hold the beam; the guns do the rest, and
+         the guns are what bounds this. */
+      p.setHeading(d > 190 ? b : b + Math.PI / 2);
       p.ammo = 'round';
       if (g.fireSide && p.reload[g.fireSide] <= 0) g.playerFire();
     }
