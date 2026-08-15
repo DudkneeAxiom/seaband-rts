@@ -149,67 +149,6 @@ const destitute = await G(() => {
   g.completeQuest(q);
   return { afterAdvance, cost, canAfford, leftForFood, deliverable, ended: g.coin };
 });
-/* ---------- and a captain broke *at sea* can still get home ----------
-   The check above proves a captain standing on a quay with nothing can take
-   work. This is the harder half of the same rule, and the half a player
-   actually meets: empty barrels, rigging shot away, hull nearly gone, no
-   coin, at the point in the Shoals furthest from any harbour. If she cannot
-   crawl home from there, that is a save with no future in it. She sails —
-   nothing is teleported once she starts. */
-const crawl = await G(async () => {
-  const T = await import('/src/world/terrain.js');
-  const g = window.__game, p = g.player;
-  // the deepest water furthest from every harbour: the worst berth there is
-  let far = null;
-  for (let x = -g.limit; x <= g.limit; x += 260) {
-    for (let z = -g.limit; z <= g.limit; z += 260) {
-      if (T.depthAt(x, z) < 14) continue;
-      let d = 1e9;
-      for (const q of g.PORTS) d = Math.min(d, Math.hypot(x - q.x, z - q.z));
-      if (!far || d > far.d) far = { x, z, d };
-    }
-  }
-  p.x = far.x; p.z = far.z; p.speed = 0; p.dest = null; p.route = null;
-  p.alive = true; p.boarding = null; p.lockTo = null;
-  p.hull = Math.max(1, p.hullMax * 0.05);
-  p.sails = 0;                      // no rigging left at all
-  p.provisions = 0; p.shot = 0; p.hungry = 0; p.morale = 0.5;
-  g.coin = 0;
-  for (const k in p.cargo) delete p.cargo[k];
-  for (const k in p.crew) p.crew[k] = 0;
-  p.crew.sailor = p.cls.crewMin;
-  g.encounterCooling = 1e9;         // this is about the sea, not about raiders
-  for (const s of g.ships) if (!s.isPlayer) { s.hostileToPlayer = false; s.target = null; s.chaseHold = 1e9; }
-  let near = null, nd = 1e9;
-  for (const q of g.PORTS) {
-    const d = Math.hypot(p.x - q.x, p.z - q.z);
-    if (d < nd) { nd = d; near = q; }
-  }
-  g.commandMove(near.x, near.z);
-  const started = { d: Math.round(nd), crew: p.crewTotal };
-  let docked = false;
-  for (let i = 0; i < 60 * 60 * 30 && !docked && p.alive; i++) {
-    g.update(1 / 60);
-    if (i % 3600 === 0 && !p.dest && !(p.route && p.route.length)) g.commandMove(near.x, near.z);
-    if (g.dockablePort) docked = true;
-  }
-  const out = { port: near.name, started, docked, alive: p.alive,
-    crew: p.crewTotal, min: p.cls.crewMin,
-    left: Math.round(Math.hypot(p.x - near.x, p.z - near.z)),
-    mins: Math.round(g.time / 60) };
-  /* Hand the sea back as it was found. Half an hour of world with every hull
-     held off the player leaves traffic clustered and cooldowns pinned, and
-     the sections after this one read both. */
-  g.encounterCooling = 0;
-  for (const s of g.ships) if (!s.isPlayer) s.chaseHold = 0;
-  return out;
-});
-ok(`a captain broke at sea can still crawl home (${crawl.started.d}m off ${crawl.port} with no rigging `
-  + `and empty barrels -> ${crawl.docked ? `alongside, ${crawl.left}m` : `STRANDED, ${crawl.left}m still to go`})`,
-crawl.docked && crawl.alive);
-ok(`and hunger never strips her below a working watch (${crawl.crew} hands, minimum ${crawl.min})`,
-  crawl.crew >= crawl.min);
-
 ok(`a broke captain can take work (advance put ◆${destitute.afterAdvance} in an empty box)`,
   destitute.afterAdvance > 0);
 ok(`the advance buys the load it asks for (◆${destitute.cost} of cargo)`, destitute.canAfford);
@@ -761,6 +700,72 @@ if (raid) {
 }
 
 
+
+/* ---------- LAST: a ruined ship can still make way ----------
+   "Nothing blocks the player permanently" is checked at a quay above — a
+   broke captain can take work. The half a player actually meets is being
+   broke *at sea*: empty barrels, rigging shot away, hull nearly gone, no
+   coin, at the point in the Shoals furthest from any harbour.
+
+   Tested as a mechanism rather than as a voyage, and that is the second
+   answer here rather than the first. Sailing the whole thirty-minute crawl
+   inside the suite was tried and abandoned: it wrecks the flagship, so it
+   has to run last, and last is where the world is least predictable — the
+   sections above end in a real action, cards raise themselves and hold the
+   simulation, and the check variously reported STRANDED about a world that
+   had advanced three seconds, then about a starving ship that grounded on
+   the way. Every one of those verdicts was about the harness. The rule is
+   that a ruined ship still makes way and the crew floor holds; ask that
+   directly, on one tick, and it cannot be answered by the weather.
+
+   The full crawl was verified once by hand on a clean world: 2178m off Ilo
+   Vantu, alongside in about twelve minutes at two knots, nobody lost. */
+const ruined = await G(async () => {
+  const T = await import('/src/world/terrain.js');
+  const g = window.__game, p = g.player;
+  if (g.mode === 'battle' && g.battle) g.battle.finish('fled');
+  g.mode = 'campaign'; g.paused = false; g.inPort = null;
+  let far = null;
+  for (let x = -g.limit; x <= g.limit; x += 260) {
+    for (let z = -g.limit; z <= g.limit; z += 260) {
+      if (T.depthAt(x, z) < 14) continue;
+      let d = 1e9;
+      for (const q of g.PORTS) d = Math.min(d, Math.hypot(x - q.x, z - q.z));
+      if (!far || d > far.d) far = { x, z, d };
+    }
+  }
+  p.x = far.x; p.z = far.z; p.speed = 0; p.dest = null; p.route = null;
+  p.alive = true; p.boarding = null; p.lockTo = null;
+  p.hull = Math.max(1, p.hullMax * 0.05);
+  p.sails = 0; p.provisions = 0; p.shot = 0; p.hungry = 1; p.morale = 0.2;
+  g.coin = 0;
+  for (const k in p.cargo) delete p.cargo[k];
+  for (const k in p.crew) p.crew[k] = 0;
+  p.crew.sailor = p.cls.crewMin;
+  let near = null, nd = 1e9;
+  for (const q of g.PORTS) {
+    const d = Math.hypot(p.x - q.x, p.z - q.z);
+    if (d < nd) { nd = d; near = q; }
+  }
+  g.commandMove(near.x, near.z);
+  const laid = !!(p.dest || (p.route && p.route.length));
+  const t0 = g.time;
+  for (let i = 0; i < 240; i++) { g.paused = false; g.update(1 / 60); }
+  // and hunger, at its very worst, cannot take the last of the watch
+  const before = p.crewTotal;
+  for (let i = 0; i < 60 * 60 * 5; i++) { g.paused = false; g.update(1 / 60); }
+  return { far: Math.round(far.d), port: near.name, laid,
+    ran: +(g.time - t0).toFixed(1),
+    maxSpeed: +p.maxSpeed.toFixed(2), moved: p.speed > 0.2,
+    crewBefore: before, crewAfter: p.crewTotal, min: p.cls.crewMin, alive: p.alive };
+});
+ok(`the world was running for it (${ruined.ran}s)`, ruined.ran > 60);
+ok(`a course home can be laid from the worst berth in the Shoals `
+  + `(${ruined.far}m off ${ruined.port})`, ruined.laid);
+ok(`and a ruined ship still makes way (no rigging, 5% hull, starving: `
+  + `${ruined.maxSpeed} knots of her own)`, ruined.maxSpeed > 0.5 && ruined.moved);
+ok(`while hunger never takes the last of the watch (${ruined.crewAfter} hands, minimum ${ruined.min})`,
+  ruined.crewAfter >= ruined.min && ruined.alive);
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');

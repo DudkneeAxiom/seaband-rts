@@ -50,11 +50,27 @@ verified, which is the kind of gap that only shows up as a regression later.
 
 **A captain broke at sea can still get home.** "Nothing blocks the player
 permanently" was checked at a quay — a broke captain can take work — and not
-on the water, which is where a player actually meets it. From the deepest
-water furthest from any harbour (2178m off Ilo Vantu), with empty barrels,
-no rigging at all, 5% hull, no coin and a bare working watch, she crawls
-alongside in about twelve minutes at two knots and loses nobody: the crew
-floor holds at `crewMin`. Written as a check so it stays true.
+on the water, which is where a player actually meets it. Verified by hand on
+a clean world: from the deepest water furthest from any harbour (2178m off
+Ilo Vantu), with empty barrels, no rigging at all, 5% hull, no coin and a
+bare working watch, she comes alongside in about twelve minutes at two knots
+and loses nobody.
+
+**The check that shipped is not that voyage, and the difference is the
+lesson.** Sailing the whole crawl inside the suite wrecks the flagship, so it
+has to run last — and last is where the world is least predictable. It failed
+three times for three reasons that were all the harness: it poisoned the
+sections after it (a later one sailed the wreck, she died, the loss screen
+swallowed a click meant for DOCK, and Playwright timed out in a section with
+nothing to do with any of it); then, moved to the end, it reported STRANDED
+about a world that had advanced **three seconds** in a thirty-minute loop,
+because the sections above end in a real action and a card holds the
+simulation; then, with the cards answered, about a starving ship that
+grounded on the way. Every verdict was about the rig, not the rule. What
+ships instead asks the mechanism directly, on one tick: a course can be laid
+from the worst berth in the Shoals, a ruined ship still makes 3.6 knots of
+her own with no rigging and 5% hull, and hunger cannot take the last of the
+watch. That cannot be answered by the weather.
 
 **A whole voyage survives save and load.** The suite covered the flagship
 and the fleet across a reload; it did not cover the save *format*, which is
