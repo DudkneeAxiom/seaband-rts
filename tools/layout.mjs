@@ -176,6 +176,57 @@ for (const vp of Object.keys(VIEWPORTS)) {
     console.log(`\n   !! NOTHING TO MEASURE: ${missing.join(', ')} never came up — ${up.why}`);
   }
 
+  /* And the port sheet, which this audit had never once opened — so the tab
+     strip could slice a tab off square at the reading column's edge on a
+     desktop and nothing said a word. Reported as "the tavern is cut off".
+     The rule is reachability, not position: a strip that scrolls may run its
+     tabs past the edge because a thumb can bring them back, but one that
+     does not scroll must hold all of them. */
+  const tabs = await page.evaluate(async () => {
+    const g = window.__game, p = g.player;
+    const port = g.PORTS[0];
+    const b = g.harbourBerth(port);
+    p.x = b.x; p.z = b.z; p.speed = 0; p.throttle = 0; p.dest = null;
+    g.paused = false;
+    for (let i = 0; i < 20 && !g.dockablePort; i++) g.update(1 / 30);
+    if (!g.dockablePort) return { note: 'never came alongside' };
+    g.enterPort(g.dockablePort);
+    await new Promise(r => setTimeout(r, 250));
+    const strip = document.getElementById('sheet-tabs');
+    if (!strip) return { note: 'no tab strip' };
+    const sr = strip.getBoundingClientRect();
+    const cs = getComputedStyle(strip);
+    const scrolls = strip.scrollWidth > strip.clientWidth + 1;
+    const all = [...strip.querySelectorAll('.tab')];
+    const cut = all.filter(t => {
+      const r = t.getBoundingClientRect();
+      return r.right > sr.right + 1 || r.left < sr.left - 1;
+    }).map(t => t.textContent.trim());
+    /* "It scrolls" is not the same as "you can get at it". The strip hides
+       its scrollbar on every platform, so on a desktop a clipped tab has no
+       bar, no fade, and no thumb to drag it back — which is why TAVERN read
+       as simply cut off. A tab past the edge is only acceptable if the strip
+       both scrolls *and* carries the fade that says so. */
+    const fade = (cs.maskImage && cs.maskImage !== 'none')
+      || (cs.webkitMaskImage && cs.webkitMaskImage !== 'none');
+    return {
+      note: null, count: all.length, scrolls, wrap: cs.flexWrap, fade: !!fade,
+      rows: new Set(all.map(t => Math.round(t.getBoundingClientRect().top))).size,
+      cut, bad: cut.length && !(scrolls && fade) ? cut : [],
+    };
+  });
+  if (tabs.note) { bad++; console.log(`\n   !! PORT SHEET: ${tabs.note}`); }
+  else {
+    if (tabs.bad.length) {
+      bad++;
+      allProblems.push(`CLIPPED TAB ${tabs.bad.join(', ')} — past the edge with `
+        + `${tabs.scrolls ? 'no fade to say so' : 'no way to scroll to it'}`);
+    }
+    console.log(`\n   port tabs: ${tabs.count} over ${tabs.rows} row(s), `
+      + `${tabs.scrolls ? 'scrolls' : 'no scroll'}${tabs.fade ? ' +fade' : ''}, wrap ${tabs.wrap}`
+      + `${tabs.cut.length ? `, past the edge: ${tabs.cut.join(', ')}` : ''}`);
+  }
+
   console.log(`\n== ${vp}  ${res.W}x${res.H} ==  staged ${JSON.stringify(staged)}`);
   for (const b of res.boxes) console.log(`   ${b.sel.padEnd(16)} ${String(b.x).padStart(5)},${String(b.y).padStart(4)}  ${b.w}x${b.h}`);
   const uniq = [...new Set(allProblems)];

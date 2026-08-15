@@ -2711,6 +2711,14 @@ export class Game {
     for (const q of this.quests) {
       if (q.active || q.done || q.board !== 'harbour') continue;
       if (q.portId && q.portId !== port.id) continue;
+      /* Bounties are posted on this same board and are `bountiesAt`'s
+         business a few lines down — collected here as well, every unaccepted
+         one came back twice and the board drew two notices for one quest
+         object. Identical by construction: same ship, same name, same face,
+         which is exactly how it was reported. Accepting one hid the symptom,
+         because `q.active` then skipped it here and only the second pass
+         returned it. */
+      if (q.kind === 'bounty') continue;
       out.push(q);
     }
     const epoch = this.contractEpoch[port.id] || 0;

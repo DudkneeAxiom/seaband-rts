@@ -5,6 +5,58 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 72. Every bounty was posted twice  (P1, player report, twice)
+
+**Symptom.** "Bounties are showing duplicates of the same ship, and have the
+same name and wanted poster." Reported again after a fix that missed.
+
+**Root cause — the first answer was wrong.** I blamed name collisions
+(finding 69, a real but separate bug) and did not check the board itself.
+`contractsAt` collects every quest with `board === 'harbour'`, and bounties
+carry `board: 'harbour'` — then it calls `bountiesAt` and appends those too.
+The same quest object came back twice and the wall drew two notices from it.
+Identical by construction, which is exactly what "same name and same poster"
+meant. Accepting one hid it: `q.active` then skipped the first sweep, so only
+the second pass returned it and the twin vanished.
+
+**Change.** The first sweep skips bounties; `bountiesAt` owns them.
+
+**Verification.** trade.mjs stages two raiders in reach of the port, opens
+the real WORK tab, and counts entries, posters, names and rendered faces.
+With the fix reverted it prints `Hook & Halter / Bad Weather / Hook & Halter`
+— the reported symptom, reproduced. The first version of the check passed on
+an empty board (0 posters, 0 names, green), so it now asserts the staging
+happened before it counts anything.
+
+---
+
+## 71. TAVERN was cut off, and the audit had never opened the sheet  (P2, player report)
+
+**Symptom.** "The tavern is cut off on the UI on desktop. Also the scroll bar
+looks bad on desktop."
+
+**Root cause.** Adding the WORK tab made seven, and on ≥760px the sheet is a
+720px reading column — seven do not fit. The strip scrolls, but its scrollbar
+is hidden on every platform and the "there is more this way" fade was pinned
+to `max-width:560px`, so on a desktop the last tab was sliced off square with
+no bar, no fade, and no thumb to drag it back. The layout suite passed
+because it had **never once opened the port sheet** — five viewports of
+careful overlap measurement on a screen that did not contain the bug.
+
+**Change.** Wide screens wrap the strip to a second row instead of scrolling
+it; the fade now covers every width that still scrolls. Scrollbars in the
+sheet and the modal are dressed — thin, brass, no trough — instead of the
+platform's grey.
+
+**Verification.** The layout suite opens a port at every viewport and checks
+tab *reachability*: a tab past the edge is a fault unless the strip both
+scrolls and shows the fade. The first version of that check tested
+`!scrolls && clipped` and passed on the reported bug — the desktop strip does
+scroll, it just cannot be operated — which is the difference between a rule
+about geometry and a rule about what a player can do.
+
+---
+
 ## 70. Everyone in the Shoals had the same conversation  (P2, player report)
 
 **Symptom.** "The NPCs' options are all the same." They were: four identical

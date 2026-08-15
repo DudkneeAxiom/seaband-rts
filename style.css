@@ -590,12 +590,20 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
    a player misses the shipyard. Fading the last few pixels says it scrolls
    without spending any width on saying so. Harmless where they all fit: the
    fade falls on empty strip and nothing shows. */
-@media (max-width:560px){
+/* Wherever the strip can actually scroll, say so. This was pinned to phone
+   widths, and then the reading column capped the sheet at 720px on a desktop
+   — where seven tabs do not fit either, so TAVERN was sliced off square with
+   nothing to suggest it was there at all. */
+@media (max-width:759px){
   #sheet-tabs{
     -webkit-mask-image:linear-gradient(to right, #000 calc(100% - 26px), transparent);
     mask-image:linear-gradient(to right, #000 calc(100% - 26px), transparent);
   }
 }
+/* On a wide screen there is no need to hide anything: the sheet is a fixed
+   reading column with the whole desktop underneath it, so let the strip take
+   a second row rather than scroll a tab out of sight. */
+
 .tab{
   flex:0 0 auto; height:42px; padding:0 15px; border-radius:11px;
   background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
@@ -613,6 +621,37 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   overscroll-behavior:contain;
   flex:1 1 auto; min-height:0;
 }
+/* On a wide screen there is no need to hide anything: the sheet is a fixed
+   reading column with the whole desktop underneath it, so let the strip take
+   a second row rather than scroll a tab out of sight. */
+@media (min-width:760px){
+  #sheet-tabs{flex-wrap:wrap; overflow-x:visible; row-gap:6px;}
+}
+
+/* ---------- Scrollbars ----------
+   A phone draws an overlay bar that fades; a desktop draws a permanent light
+   grey trough down the side of the panel, which is the one piece of furniture
+   in the game that had never been dressed. Thin, brass, no trough, and it
+   only appears over the panel it belongs to. Firefox takes the two-value
+   form; everything else takes the pseudo-elements. */
+#sheet-content, #modal-text, .posterwall{
+  scrollbar-width:thin;
+  scrollbar-color:rgba(230,178,94,.34) transparent;
+}
+#sheet-content::-webkit-scrollbar,
+#modal-text::-webkit-scrollbar{width:9px; height:9px;}
+#sheet-content::-webkit-scrollbar-track,
+#modal-text::-webkit-scrollbar-track{background:transparent;}
+#sheet-content::-webkit-scrollbar-thumb,
+#modal-text::-webkit-scrollbar-thumb{
+  background:rgba(230,178,94,.28); border-radius:999px;
+  border:2px solid transparent; background-clip:content-box;
+}
+#sheet-content::-webkit-scrollbar-thumb:hover,
+#modal-text::-webkit-scrollbar-thumb:hover{background:rgba(230,178,94,.5); background-clip:content-box;}
+#sheet-content::-webkit-scrollbar-corner,
+#modal-text::-webkit-scrollbar-corner{background:transparent;}
+
 /* on wide screens keep the reading column sane instead of letting rows sprawl */
 @media (min-width:760px){
   #sheet-head, #sheet-tabs, #sheet-content{

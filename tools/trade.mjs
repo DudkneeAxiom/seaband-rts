@@ -333,6 +333,56 @@ const uiOffer = await page.evaluate(() => {
 });
 ok(`the harbourmaster's board shows the advance (${uiOffer.offers} offers)`, uiOffer.offers >= 3);
 
+/* ---------- one notice per ship, on the board and on the page ----------
+   Reported twice: "bounties are showing duplicates of the same ship, same
+   name and wanted poster". Asserted on the rendered board as well as on the
+   list behind it, because the fault was neither in the generator nor in the
+   page — `contractsAt` collected every unaccepted bounty twice, once in its
+   own sweep of harbour-board quests and once from `bountiesAt`, and the two
+   were the same object. A check on `bountiesAt` alone passes happily. */
+/* A board with nothing on it proves nothing, and the first version of this
+   check passed on exactly that — 0 posters, 0 names, green. A bounty is
+   posted against a live enemy hull within 2600m of the port, so put two
+   there and let the game decide it wants to name them. */
+await G(() => {
+  const g = window.__game;
+  const port = g.inPort || g.PORTS[0];
+  for (let i = 0; i < 2; i++) {
+    const s = g.spawnNPC('pirate');
+    if (!s) continue;
+    s.x = port.x + 900 + i * 120; s.z = port.z + 700;
+    s.alive = true; s.captured = false;
+  }
+});
+await page.click('#sheet-close').catch(() => { });
+await sleep(250);
+await page.click('.act-btn.dock').catch(() => { });
+await sleep(700);
+await goPortTab(page, 'WORK');
+await sleep(400);
+const board = await G(() => {
+  const g = window.__game;
+  const port = g.inPort || g.PORTS[0];
+  const all = g.contractsAt(port).filter(q => q.kind === 'bounty');
+  const ids = all.map(q => q.id);
+  const posters = [...document.querySelectorAll('.poster')];
+  const names = posters.map(p => (p.querySelector('.po-name') || {}).textContent || '');
+  const faces = posters.map(p => { const c = p.querySelector('.po-face'); return c ? c.width + 'x' + c.height + ':' + (c.toDataURL().length) : ''; });
+  return {
+    listed: ids.length, uniqueIds: new Set(ids).size,
+    targets: new Set(all.map(q => q.targetId)).size,
+    posters: posters.length, uniqueNames: new Set(names).size,
+    uniqueFaces: new Set(faces).size, names,
+  };
+});
+ok(`there are notices on the board to count (${board.posters} posted)`, board.posters >= 1);
+ok(`the board lists each bounty once (${board.listed} entries, ${board.uniqueIds} distinct)`,
+  board.listed >= 1 && board.listed === board.uniqueIds && board.listed === board.targets);
+ok(`and the wall draws one poster per notice (${board.posters} posters, `
+  + `${board.uniqueNames} names: ${board.names.join(' / ') || 'none posted'})`,
+board.posters === board.listed && board.uniqueNames === board.posters
+  && board.uniqueFaces === board.posters);
+
 /* ---------- a thumb faster than the screen cannot break the economy ----------
 
    Every trade calls `refresh()`, which throws the row away and builds a new
