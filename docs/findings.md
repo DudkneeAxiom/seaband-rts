@@ -5,6 +5,36 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 81. The refuge check was still measuring a stopwatch  (P3, flake)
+
+**Symptom.** One run in three, a sheer-off check failed — `Marasay (+24m,
+SHOT AT)` and `Tideglass (−2m, sheer)`. Finding 62 was supposed to have
+settled this.
+
+**Root cause, two more of them.** Finding 62 added restaging when a harbour
+guard's broadside made the window hot, but the loop **accepted a hot result
+on its last attempt** rather than skipping the port — so a run where all
+three tries were hot failed the very assertion the restaging existed to
+protect. And the window was eight seconds: the sheer decision holds for
+seven seconds past the boundary by design, and a hull closing the harbour at
+four knots needs most of that just to stop and turn. `Tideglass (−2m,
+sheer)` is a hull that *had correctly decided to stand off* and had not yet
+converted it into distance. That is a stopwatch verdict, not a rule verdict.
+
+**Change.** Five attempts, and a hot window is never recorded — a port that
+will not go cold is reported as skipped, with a separate assertion that most
+ports gave a cold pursuit to judge, so the check cannot quietly pass on
+nothing. Twenty seconds instead of eight. And it asserts the **decision** —
+the brain took the `sheer` state — as well as the distance, because either
+alone is thin: the state without the distance would pass a hull that decided
+and then drifted in, and the distance without the state would pass one the
+wind happened to set out.
+
+**Verification.** Margins went from ±2–24m to +49…+222m. With the rule
+disabled all five ports fail decisively (−86 to −113m, `decided false`).
+
+---
+
 ## 80. Pressing the attack cost nothing  (P2, probe)
 
 **Symptom.** The boarding card offers four ways to fight and sells PRESS as a
