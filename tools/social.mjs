@@ -404,6 +404,45 @@ ok(`the cast does not share one conversation (${manners.shapes} distinct of ${ma
   manners.shapes >= Math.ceil(manners.cast * 0.75));
 ok(`a card offers between two and four ways of speaking (stranger ${manners.stranger}, friend in a tavern ${manners.rich})`,
   manners.stranger >= 2 && manners.stranger <= 4 && manners.rich <= 4 && manners.rich > manners.stranger);
+/* Nothing is lost by getting to know somebody. The card is capped at four,
+   and the first cut simply took the first four in list order — so standing a
+   tavern-keeper a drink was offered to a stranger and then disappeared for
+   the rest of the game the moment `press` unlocked above it. A manner that
+   exists only in one room is exactly the one that must not be the casualty. */
+const reach = await G(async () => {
+  const T = await import('/src/data/talk.js');
+  const N = await import('/src/data/notables.js');
+  const g = window.__game, S = g.social;
+  const tiers = ['neutral', 'acquainted', 'friendly', 'trusted', 'devoted'];
+  const vals = { neutral: 0, acquainted: 14, friendly: 32, trusted: 60, devoted: 90 };
+  const lost = [];
+  const everSeen = new Set();
+  for (const w of N.NOTABLES) {
+    const was = S.rel[w.id];
+    S.met[w.id] = true;
+    for (const t of tiers) {
+      S.rel[w.id] = vals[t];
+      const ids = T.mannersFor(w, S, w.at).map(m => m.id);
+      ids.forEach(i => everSeen.add(i));
+      if (ids.length > 4) lost.push(`${w.id}@${t}: ${ids.length} options`);
+      // a manner offered at a lower standing must not vanish at a higher one
+      if (t !== 'neutral') {
+        S.rel[w.id] = vals[tiers[tiers.indexOf(t) - 1]];
+        const before = T.mannersFor(w, S, w.at).map(m => m.id);
+        S.rel[w.id] = vals[t];
+        for (const b of before) if (!ids.includes(b) && (b === 'drink' || b === 'press')) {
+          lost.push(`${w.id}: ${b} lost on reaching ${t}`);
+        }
+      }
+    }
+    S.rel[w.id] = was === undefined ? 0 : was;
+  }
+  return { lost, everSeen: [...everSeen].sort(), all: T.MANNERS.map(m => m.id).sort() };
+});
+ok(`no way of speaking is lost by getting to know somebody (${reach.lost.join('; ') || 'none lost'})`,
+  reach.lost.length === 0);
+ok(`and every manner in the book is reachable somewhere (${reach.everSeen.join(', ')})`,
+  reach.all.every(id => reach.everSeen.includes(id)));
 ok(`every authored reaction names a trait somebody in the game has (${manners.orphans.join(', ') || 'none orphaned'})`,
   manners.orphans.length === 0);
 ok(`and every trait on somebody you can speak to is seen by some manner `

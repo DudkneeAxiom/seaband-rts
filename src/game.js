@@ -740,11 +740,27 @@ export class Game {
       const names = faction === 'compact' ? NAMES.ship_compact : NAMES.ship_admiralty;
       const name = this.uniqueShipName(names, r);
       const side = i === 0 ? 1 : -1;
+      /* Sound the berth before she is put in it.
+         `spawnNPC` casts a lead before it drops a hull on the sea; this
+         placed one at a fixed offset from her charge and hoped. A merchant
+         warping out of a harbour has land on at least one beam by
+         definition, so her escort was posted on it — a forty-minute soak
+         found an Admiralty brig sitting seventeen metres *above* sea level,
+         which is a warship up a hillside. Try the quarter she is meant to
+         guard first, then the other one, then astern; a hull placed in the
+         wrong water is a hull the routing then has to rescue. */
+      const need = HULLS[classId].draft * 1.9 + 3;
+      let ex = 0, ez = 0, found = false;
+      for (const [b, back] of [[70 * side, 50], [-70 * side, 50], [0, 90], [0, 150]]) {
+        ex = m.x + Math.sin(m.yaw + Math.PI / 2) * b - Math.sin(m.yaw) * back;
+        ez = m.z + Math.cos(m.yaw + Math.PI / 2) * b - Math.cos(m.yaw) * back;
+        if (depthAt(ex, ez) >= need) { found = true; break; }
+      }
+      // nowhere beside her floats: she sails alone rather than with a wreck
+      if (!found) continue;
       const e = new Ship({
         classId, faction, name, role: 'escort',
-        x: m.x + Math.sin(m.yaw + Math.PI / 2) * 70 * side - Math.sin(m.yaw) * 50,
-        z: m.z + Math.cos(m.yaw + Math.PI / 2) * 70 * side - Math.cos(m.yaw) * 50,
-        yaw: m.yaw,
+        x: ex, z: ez, yaw: m.yaw,
       });
       e.escortFor = m;
       e.escortSlot = side;

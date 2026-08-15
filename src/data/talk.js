@@ -137,16 +137,29 @@ export const REACTIONS = {
   },
 };
 
-/** The manners available to this person, in this place, at this standing. */
-export function mannersFor(who, S, place) {
-  const out = [];
-  for (const m of MANNERS) {
-    if (m.need && !S.atLeast(who.id, m.need)) continue;
-    if (m.at && place !== m.at) continue;
-    out.push(m);
-    if (out.length === 4) break;       // four is the most a card should ask of a thumb
-  }
-  return out;
+/**
+ * The manners available to this person, in this place, at this standing.
+ *
+ * Four is the most a card should ask of a thumb, and which four matters. The
+ * first version simply took the first four that qualified, in list order —
+ * so standing somebody a drink was offered to a stranger in a tavern and then
+ * **vanished for the rest of the game** the moment you became acquainted,
+ * because `press` unlocked above it and pushed it off the end. The one manner
+ * that belongs to a particular room was the one you lost by getting to know
+ * people.
+ *
+ * So the ones that are conditional — a place you are standing in, a standing
+ * you earned — are kept first, because they are what makes this conversation
+ * unlike the last one; the plain three fill whatever room is left. Output
+ * stays in list order so the card does not reshuffle under a thumb.
+ */
+export function mannersFor(who, S, place, cap = 4) {
+  const open = MANNERS.filter(m =>
+    (!m.need || S.atLeast(who.id, m.need)) && (!m.at || place === m.at));
+  const special = open.filter(m => m.need || m.at);
+  const plain = open.filter(m => !m.need && !m.at);
+  const keep = new Set([...special, ...plain].slice(0, cap));
+  return open.filter(m => keep.has(m));
 }
 
 /**

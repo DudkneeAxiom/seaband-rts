@@ -5,6 +5,57 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 75. An escort was posted seventeen metres up a hillside  (P1, soak)
+
+**Symptom.** A forty-minute unattended soak — nothing staged, the player
+hove to in open water — reported one hull ever aground: `Admiral Rehn
+(escort) −17.7m under a 4.6m keel`. Negative depth is not deep water; it is
+ground, seventeen metres up.
+
+**Root cause.** `spawnNPC` casts a lead before it puts a hull on the sea
+(`depthAt > 22`). `assignEscort` did not: it placed her at a fixed offset
+from her charge — 70m off the beam, 50m astern — and hoped. A merchant
+warping out of a harbour has land on at least one beam by definition, so her
+escort was posted on it. The same lesson this codebase has now learned at
+four levels: sound the station, sound the road to it, sound the slot — and
+now, sound the berth you *create* her in.
+
+**Change.** Try the quarter she is meant to guard, then the other beam, then
+astern at 90m and 150m; if nothing beside her floats, the merchant sails
+unescorted rather than with a wreck.
+
+**Verification.** shore.mjs stages the fault by construction — a merchant
+laid alongside each harbour on a heading whose guarded beam is on the beach
+— and asserts the staging was foul before asking whether the escorts float.
+With the fix reverted it finds three, including `Vigil −13.2m` at Fort
+Escarra, thirteen metres up the rock.
+
+The same soak was clean on everything else it watched: no NaN, no duplicate
+names, no stale bounties, nothing going nowhere, and a ship count breathing
+21–24 as spawning and culling balanced.
+
+---
+
+## 74. The drink vanished the moment you made a friend  (P2, self-inflicted)
+
+**Symptom.** Found by reading my own code back rather than in play.
+`mannersFor` capped the card at four by taking the first four that qualified
+in list order. `press` unlocks at *acquainted* and sits above `drink` in the
+list — so standing a tavern-keeper a drink was offered to a stranger and then
+disappeared for the rest of the game the moment you got to know them. The one
+manner that belongs to a particular room was the casualty of the cap.
+
+**Change.** The conditional manners — a place you are standing in, a standing
+you earned — are kept first, because they are what makes this conversation
+unlike the last one; the plain three fill whatever room is left. Output stays
+in list order so the card does not reshuffle under a thumb.
+
+**Verification.** social.mjs walks every notable through all five tiers and
+asserts no manner offered at a lower standing is missing at a higher one, and
+that every manner in the book is reachable somewhere.
+
+---
+
 ## 73. The new dialogue could be farmed at the quay  (P1, self-inflicted)
 
 **Symptom.** Found while writing the regression check for finding 70, not in

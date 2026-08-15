@@ -159,6 +159,52 @@ for (const id of ['ilovantu', 'marasay', 'escarra']) {
   await shot(page, `shore-${id}`);
 }
 
+/* ---------- an escort is put down in water she floats in ----------
+   A forty-minute soak found an Admiralty brig seventeen metres *above* sea
+   level: escorts were placed at a fixed offset from their charge with no
+   lead cast at all, and a merchant warping out of a harbour has land on one
+   beam by definition. Staged by construction — the merchant put alongside a
+   shore with her guarded quarter pointing straight at it — and the check
+   asserts the staging was foul before it asks whether the escort floats. */
+const escortBerth = await G(async () => {
+  const T = await import('/src/world/terrain.js');
+  const g = window.__game;
+  const out = { tried: 0, staged: 0, aground: [], skipped: 0 };
+  for (const port of g.PORTS) {
+    // find a heading whose beam-70m lands on the beach and whose ship floats
+    const b = g.harbourBerth(port);
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 12) {
+      const bx = b.x + Math.sin(a + Math.PI / 2) * 70, bz = b.z + Math.cos(a + Math.PI / 2) * 70;
+      if (T.depthAt(b.x, b.z) < 6) continue;             // she must float herself
+      if (T.depthAt(bx, bz) >= 6) continue;              // and that beam must be foul
+      out.staged++;
+      const m = g.spawnNPC('merchant');
+      if (!m) continue;
+      m.x = b.x; m.z = b.z; m.yaw = a;
+      m.manifest = { good: 'pepper', amount: 20, value: 2400, from: port.id, to: port.id };
+      const before = g.ships.length;
+      const es = g.assignEscort(m);
+      out.tried += es.length;
+      out.skipped += 2 - es.length;
+      for (const e of es) {
+        const d = T.depthAt(e.x, e.z);
+        if (d < e.draft) out.aground.push({ name: e.name, port: port.name, depth: +d.toFixed(1), draft: +e.draft.toFixed(1) });
+      }
+      // clear the staging away again
+      for (const e of es) g.removeShip(e);
+      g.removeShip(m);
+      void before;
+      break;
+    }
+  }
+  return out;
+});
+ok(`a foul berth was actually staged (${escortBerth.staged} ports with land on the beam)`,
+  escortBerth.staged >= 3);
+ok(`every escort is put down afloat (${escortBerth.tried} placed, ${escortBerth.skipped} left ashore rather than aground, `
+  + `${escortBerth.aground.length ? escortBerth.aground.map(a => `${a.name} ${a.depth}m/${a.draft}m at ${a.port}`).join('; ') : 'none aground'})`,
+escortBerth.aground.length === 0 && escortBerth.tried >= 3);
+
 /* ---------- the road to a formation slot is sounded like the slot ----------
    Staged by construction: the flag past the arm head and off to one side, so
    her consort's echelon slot is in deep water but the straight line to it
