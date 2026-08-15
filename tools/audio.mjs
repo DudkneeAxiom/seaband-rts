@@ -315,6 +315,37 @@ ok(`the sailing music does not repeat itself (${gen.distinct} distinct progressi
 ok(`and every note it invents is in the key (${gen.outOfKey} of ${gen.notes} out${gen.worst.length ? ': ' + gen.worst.join(',') : ''})`,
   gen.outOfKey === 0);
 
+/* And the adventure gets out of the way when a hunter closes. The sea layers
+   are warm and bright on purpose, which is a liability if they stay that way
+   into a fight — danger that sounds like a holiday is worse than no score at
+   all. The mixer already ramps the layers; this checks the ear can tell. */
+const duck = await G(async () => {
+  const A = window.__audio;
+  const keep = A.getMix();
+  A.setMix('amb', 0); A.setMix('sfx', 0); A.setMix('master', 1);
+  const read = async (st, secs) => {
+    const until = Date.now() + secs * 1000;
+    while (Date.now() < until) { A.update(1 / 30, st); await new Promise(r => setTimeout(r, 30)); }
+    const bands = new Array(8).fill(0);
+    let n = 0;
+    for (let i = 0; i < 80; i++) {
+      A.update(1 / 30, st);
+      const f = A.spectrum();
+      if (f) { for (let b = 0; b < 8; b++) bands[b] += f[b]; n++; }
+      await new Promise(r => setTimeout(r, 30));
+    }
+    return { state: A.music().state, bright: bands[6] / Math.max(1, n) };
+  };
+  const sea = await read({ mode: 'campaign', tension: 0 }, 9);
+  const danger = await read({ mode: 'campaign', tension: 2 }, 9);
+  for (const k in keep) A.setMix(k, keep[k]);
+  return { sea, danger };
+});
+ok(`the sparkle belongs to the adventure and leaves with it `
+  + `(${duck.sea.state} ${duck.sea.bright.toFixed(0)}dB -> ${duck.danger.state} ${duck.danger.bright.toFixed(0)}dB)`,
+duck.sea.state === 'sea' && duck.danger.state === 'tension_high'
+  && duck.danger.bright < duck.sea.bright - 12);
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;
