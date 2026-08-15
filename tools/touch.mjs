@@ -119,20 +119,48 @@ const tapShip = async (want = 'marked') => {
   const a = await aim();
   if (!a) return null;
   await page.touchscreen.tap(a.x, a.y);
-  await waitFor(page, marked => {
+  await waitFor(page, w => {
+    const g = window.__game;
     const card = document.getElementById('targetcard').classList.contains('hidden');
-    return marked ? !!window.__game.target && !card : !window.__game.target && card;
-  }, 4000, want === 'marked');
+    if (w === 'marked') return !!g.target && !card;
+    if (w === 'chase') return !!g.target && !!g.chasing;
+    return !g.target && card;
+  }, 4000, want);
   return a;
 };
+/* Lay a course first, so the mark-then-chase ladder can also prove what
+   happens to the waypoint at each rung. */
+const layWater = await seaPoint();
+if (layWater) await page.touchscreen.tap(layWater.x, layWater.y);
+await waitFor(page, () => !!window.__game.moveGoal, 3000);
+
 const scr = await tapShip();
-const targeted = await page.evaluate(() => window.__game.target ? window.__game.target.name : null);
-ok(`tapping a hull marks her as target (${targeted})`, targeted === scr.name);
+const marked1 = await page.evaluate(() => ({
+  name: window.__game.target ? window.__game.target.name : null,
+  chasing: !!window.__game.chasing,
+  goal: !!window.__game.moveGoal,
+}));
+ok(`tapping a hull marks her as target (${marked1.name})`, marked1.name === scr.name);
+ok('one tap only marks — a mistap must not commit the helm', !marked1.chasing);
+ok('and a laid waypoint survives a look', marked1.goal);
+
+/* ---- the second tap is the order ---- */
+await tapShip('chase');
+const chased = await page.evaluate(() => ({
+  chasing: !!window.__game.chasing && window.__game.chasing === window.__game.target,
+  goal: !!window.__game.moveGoal,
+}));
+ok('tapping her again runs her down', chased.chasing);
+ok('and the stale waypoint mark goes out — the chase is the destination now', !chased.goal);
+// the HUD repaints on its own tick — wait for the label, don't read the same frame
+const saidSo = await waitFor(page, () =>
+  /BREAK OFF/i.test(document.getElementById('tc-follow').textContent), 4000);
+ok(`the card's button says so (${saidSo ? '"BREAK OFF"' : 'never said it'})`, saidSo);
 
 /* ---- an accidental tap can be taken back ---- */
-// tapping the same hull again releases her
+// tapping the same hull a third time releases her
 await tapShip('clear');
-ok('tapping the marked ship again releases her', !(await page.evaluate(() => !!window.__game.target)));
+ok('tapping the chased ship again releases her', !(await page.evaluate(() => !!window.__game.target)));
 
 // and the card's dismiss button does it too
 await tapShip();

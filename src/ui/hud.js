@@ -23,6 +23,16 @@ export class HUD {
     this.buildCompassTicks();
     this.bindSpeed();
     onTap($('tc-close'), () => this.g.clearTarget(), 380);
+    /* The order on a button, not only a gesture. Tap-her-again works, but a
+       control the player can see is how they learn it exists — the BOARD
+       button taught that. The same button breaks the chase off, which is the
+       peaceful way out of a mistaken order. */
+    onTap($('tc-follow'), () => {
+      const g = this.g;
+      if (!g.target) return;
+      if (g.chasing) { g.chasing = null; toast('Standing on.', '', 1600); }
+      else g.startChase(g.target);
+    }, 380);
   }
 
   /** Engraved ticks on the card: long at the cardinals, short every 15°. */
@@ -449,6 +459,12 @@ export class HUD {
        frames on a desk and plainly visible in a screenshot. Whoever she is,
        fill it the moment she changes; the slow tick still owns the numbers
        that move while she is marked. */
+    /* The follow button says which order it gives right now. Campaign only:
+       in an action the card is fire control and the chase is not a thing. */
+    const fb = $('tc-follow');
+    fb.classList.toggle('hidden', g.mode !== 'campaign');
+    if (g.mode === 'campaign') fb.textContent = g.chasing === t ? 'BREAK OFF' : 'RUN HER DOWN';
+
     const changed = this.cardFor !== t;
     this.cardFor = t;
     if (!slow && !changed) return;

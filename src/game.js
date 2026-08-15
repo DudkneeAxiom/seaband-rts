@@ -1745,22 +1745,43 @@ export class Game {
   }
   selectTarget(s) {
     if (!s || s === this.player || this.fleet.includes(s)) { this.clearTarget(); return; }
-    // tapping the ship you already have marked lets her go again
-    if (s === this.target) { this.clearTarget(); return; }
+    if (s === this.target) {
+      /* Second tap on the marked ship. On the campaign that is the order to
+         run her down — one tap marks, two taps commit the helm, because a
+         single mistap used to send the ship off after a stranger with no
+         peaceful way to say "no, not that". A third tap, or a tap in an
+         action, lets her go again. */
+      if (this.mode === 'campaign' && !this.chasing) { this.startChase(s); return; }
+      this.clearTarget();
+      return;
+    }
     this.target = s;
-    /* And the helm goes after her. Marking a ship is a statement of intent —
-       there is nothing else you can do with a mark — so making the player
-       then separately steer at a moving ship is asking them to do the
-       chasing by hand. Tap her, run her down, and contact does the rest. */
+    if (this.mode === 'campaign' && !this.hintState.marked) {
+      this.hintState.marked = 1;
+      hint('Marked. Tap her again to run her down.', 3400);
+    }
+    sfxClick(560);
+    this.mark('targeted');
+  }
+
+  /** The helm goes after her. Split out of the mark so a tap is a look and
+      the second tap is the commitment — and so the harnesses can order the
+      chase the same way a thumb does. */
+  startChase(s) {
+    if (!s || !s.alive || s.captured) return;
     this.chasing = s;
     this._chaseAim = null;
     this._chaseT = 0;
+    /* The waypoint no longer describes the helm: the chase re-plots the
+       course every second or so, and a mark left standing on the water reads
+       as where she is going when it is only where she was once told to go. */
+    this.moveGoal = null;
     if (!this.hintState.chasing) {
       this.hintState.chasing = 1;
       hint('Running her down. Tap the water to take the helm back.', 3400);
     }
-    sfxClick(560);
-    this.mark('targeted');
+    sfxClick(660);
+    this.mark('chasing');
   }
 
   /**

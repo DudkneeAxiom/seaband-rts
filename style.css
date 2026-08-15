@@ -358,6 +358,7 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   display:grid; place-items:center; border-radius:12px; z-index:1;
 }
 .tc-close svg{width:15px; height:15px; fill:none; stroke:var(--parch-dim); stroke-width:2.4; stroke-linecap:round;}
+.tc-follow{width:100%; margin-top:8px; min-height:44px; font-size:12px; letter-spacing:.08em;}
 .tc-close:active svg{stroke:var(--brass);}
 .tc-close:active{background:rgba(255,255,255,.07);}
 .tc-bars{display:flex; flex-direction:column; gap:3px; margin:6px 0 4px;}
@@ -662,6 +663,54 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
 .statline{display:flex; flex-wrap:wrap; gap:5px 12px; margin-top:6px;}
 .statline span{font-size:11px; color:var(--parch-dim);}
 .statline b{color:var(--parch); font-variant-numeric:tabular-nums;}
+
+/* ---------- Wanted posters ----------
+   Paper on the board, not rows in a ledger. Ink on parchment against the
+   dark sheet, a face drawn from the hull's own seed, and the price at the
+   bottom where a poster keeps it. Alternate sheets hang a little crooked. */
+.posterwall{display:grid; grid-template-columns:repeat(auto-fill, minmax(235px, 1fr)); gap:14px; margin:10px 0 14px;}
+.poster{
+  position:relative; padding:14px 14px 12px; text-align:center;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(255,246,220,.16), transparent 60%),
+    linear-gradient(172deg, #d9c9a2, #cbb98d 58%, #bfa97c);
+  color:#2e2416; border-radius:3px;
+  border:1px solid #8a7550;
+  box-shadow:0 2px 10px rgba(0,0,0,.45), inset 0 0 22px rgba(90,66,30,.28);
+  transform:rotate(-.7deg);
+}
+.posterwall .poster:nth-child(even){transform:rotate(.8deg);}
+.poster::before{ /* the nail */
+  content:''; position:absolute; top:6px; left:50%; width:7px; height:7px;
+  transform:translateX(-50%); border-radius:50%;
+  background:radial-gradient(circle at 35% 35%, #6f6252, #241c10 70%);
+  box-shadow:0 1px 2px rgba(0,0,0,.5);
+}
+.po-head{
+  font-family:var(--font-disp); font-size:24px; letter-spacing:.34em;
+  margin-top:6px; padding-bottom:4px; border-bottom:2px solid rgba(46,36,22,.55);
+}
+.po-face{
+  width:72px; height:72px; margin:10px auto 6px; display:block;
+  border:2px solid rgba(46,36,22,.6); border-radius:2px;
+  background:#c9b78c; filter:sepia(.5) contrast(.92);
+}
+.po-name{font-family:var(--font-disp); font-size:17px; margin-top:2px;}
+.po-sub{font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#57462c; margin-top:2px;}
+.po-brief{font-size:12px; line-height:1.45; margin:8px 4px 0; color:#3b2f1e; font-style:italic;}
+.po-line{font-size:11px; margin-top:6px; color:#57462c;}
+.po-pay{
+  font-family:var(--font-disp); font-size:19px; margin-top:8px; padding-top:6px;
+  border-top:1px solid rgba(46,36,22,.35);
+}
+.po-pay span{font-family:var(--font-ui); font-size:10.5px; color:#57462c; display:block; margin-top:2px;}
+.po-take{width:100%; margin-top:9px; min-height:44px;}
+.po-tag{ /* stamped over the face, not the name — the name still has to read */
+  position:absolute; top:31%; left:50%; transform:translate(-50%,-50%) rotate(-14deg);
+  font-family:var(--font-disp); font-size:21px; letter-spacing:.3em; color:#7d2f22;
+  border:3px solid #7d2f22; border-radius:4px; padding:4px 14px; opacity:.85;
+}
+.poster.taken .po-face, .poster.taken .po-brief{opacity:.55;}
 
 /* ---------- Modal ---------- */
 #modal{position:absolute; inset:0; z-index:30; display:grid; place-items:center; background:rgba(4,12,18,.6); padding:20px;}
@@ -1009,8 +1058,12 @@ button{font-family:inherit; color:inherit; cursor:pointer; border:0; background:
   #targetcard{padding:7px 9px;}
   #tc-power{margin-top:5px; padding-top:5px;}
   .pw-nums{display:none;}
-  .pw-scale{height:8px; margin:4px 0 0;}
+  /* the verdict word stays; the scale bar is the first thing a 375px-tall
+     screen can spare, because the follow button below it cannot shrink past
+     a thumb (44px) and the column's budget is exact */
+  .pw-scale{display:none;}
   .tc-bars{margin:5px 0 3px;}
+  .tc-follow{margin-top:5px;}
   #objective{top:calc(72px + var(--st)); font-size:11.5px; max-width:min(40vw,220px);}
   /* fixed heights, not min-heights: on a 375px-tall screen the right-hand
      column has an exact budget and content must not push past it */

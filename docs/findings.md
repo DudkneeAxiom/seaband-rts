@@ -5,6 +5,59 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 64. The harbour page was six jobs in one scroll  (P2, player report)
+
+**Symptom.** "The display/navigation of the menu is a little overwhelming —
+all of the bounties and trade contracts on the same page." The harbour tab
+carried repairs, fleet repairs, stores, fleet powder, carrying contracts,
+bounty notices and deliveries, in one scroll.
+
+**Change.** The board has a tab of its own. HARBOUR keeps the ship's
+business — repairs, stores, powder, put to sea. WORK is the harbourmaster's
+board: carrying contracts, the wanted wall, your undertakings. And a bounty
+is a notice nailed to a board, so it looks like one now: parchment, a nail,
+WANTED in letterpress, a face drawn from the hull's own seed (the same
+captain on the same notice at every port that posts her), the price at the
+bottom, and an IN HAND stamp over the face once taken. The tab strip
+already scrolls, so a seventh tab costs nothing at any viewport — layout
+suite clean at all five after giving the short-landscape card budget back
+(the weight scale bar goes before the follow button shrinks, because a
+thumb target cannot).
+
+**Verification.** trade.mjs drives the board through the WORK tab now; the
+posters and TAKE IT DOWN were exercised by hand on desktop and phone, and
+the layout suite passes 0 problems.
+
+---
+
+## 63. One tap committed the helm, and the waypoint lied  (P2, player report)
+
+**Symptom.** Two reports in one: "we need double click to follow when not
+in combat — players have no peaceful way to disengage from a misclick", and
+"if players have a waypoint down and then click to follow, the waypoint
+stays on the world map even though it's no longer the true destination."
+
+**Root cause.** `selectTarget` marked *and* chased in one tap, so a mistap
+sent the ship after a stranger; and `moveGoal` (the waypoint mark) only
+clears on *arrival* — a chase never arrives at the waypoint, so the mark
+stood on the water describing a course the helm was no longer steering.
+
+**Change.** One tap marks — a look, nothing more; a laid waypoint survives
+it. The second tap (campaign only) is the order: `startChase` is split out
+of the mark, clears the stale waypoint mark, and the third tap releases
+her. In an action the card is fire control and taps toggle the mark as
+before. The order is also on the card as a button — RUN HER DOWN / BREAK
+OFF — because the BOARD button taught that a gesture the player must
+discover is not a control. Keyboard target-cycling now marks without
+launching chases, which it always should have.
+
+**Verification.** touch.mjs walks the whole ladder with real taps: mark
+(not chasing, waypoint intact), second tap (chasing, waypoint out, card
+says BREAK OFF), third tap (released). campaign.mjs green with its two
+chase stagings updated to order the chase explicitly.
+
+---
+
 ## 62. Three refuges "failed" because a guard got a shot in  (P3, full run)
 
 **Symptom.** One full-suite run: `she sheers off rather than follow you

@@ -322,9 +322,10 @@ if (!dockUp) {
 }
 await page.click('.act-btn.dock');
 await sleep(900);
-/* Ilo Vantu opens on the town now, not on a counter — so go to the quay, the
-   way a player does. The board is what is under test, not where it lives. */
-await goPortTab(page, 'HARBOUR');
+/* Ilo Vantu opens on the town now, not on a counter — so go to the board,
+   the way a player does. It has a tab of its own since the harbour page was
+   split; the board is what is under test, not where it lives. */
+await goPortTab(page, 'WORK');
 const uiOffer = await page.evaluate(() => {
   const rows = [...document.querySelectorAll('#sheet-content .row')];
   const hit = rows.filter(r => /Advance/.test(r.textContent));

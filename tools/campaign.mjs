@@ -127,6 +127,7 @@ const consortGuns = await G(() => {
   foe.x = con.x + 60; foe.z = con.z;
   foe.hostileToPlayer = true; foe.chaseHold = 0; foe.fleeing = false;
   g.selectTarget(foe);
+  g.startChase(foe);             // the second tap: mark, then run her down
   g.encounterCooling = 900;      // hold the campaign layer while we watch
   const before = g.projectiles.list.length + g.projectiles.pending.length;
   for (let i = 0; i < 240; i++) g.update(1 / 30);
@@ -609,7 +610,7 @@ const gap0 = await G(() => {
   const g = window.__game, p = g.player;
   const t = g.ships.find(s => s.faction === 'pirate' && s.alive && !g.fleet.includes(s)
     && Math.hypot(s.x - p.x, s.z - p.z) < 1400);
-  if (t) g.selectTarget(t);
+  if (t) { g.selectTarget(t); g.startChase(t); }   // mark, then the second tap
   return t ? Math.round(Math.hypot(t.x - p.x, t.z - p.z)) : -1;
 });
 const brought = await untilContact(90);

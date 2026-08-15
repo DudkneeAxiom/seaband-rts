@@ -94,6 +94,7 @@ export function openPort(port) {
      nobody yet. */
   tabs.push({ id: 'town', label: 'THE TOWN', icon: '⌂', render: n => townTab(n, port) });
   tabs.push({ id: 'harbour', label: 'HARBOUR', icon: '⚓', render: n => harbourTab(n, port) });
+  tabs.push({ id: 'work', label: 'WORK', icon: '✎', render: n => workTab(n, port) });
   if (svc.includes('market')) tabs.push({ id: 'market', label: 'MARKET', icon: '▣', render: n => marketTab(n, port) });
   if (svc.includes('crew')) tabs.push({ id: 'crew', label: 'CREW', icon: '☰', render: n => crewTab(n, port) });
   if (svc.includes('shipyard')) tabs.push({ id: 'yard', label: 'SHIPYARD', icon: '⚒', render: n => yardTab(n, port) });
@@ -631,38 +632,59 @@ function harbourTab(n, port) {
     n.appendChild(r);
   }
 
+  const sail = el('button', 'btn wide gold', 'PUT TO SEA');
+  onTap(sail, () => closeSheet(), 760);
+  n.appendChild(sail);
+}
+
+/* ---------------- the harbourmaster's board ----------------
+   Work moved out of the harbour page, which was carrying repairs, stores,
+   powder, contracts, bounties and deliveries in one scroll — six jobs on one
+   page is a page about nothing. The quay keeps the ship's business; this is
+   the board where the port's business is posted. */
+function workTab(n, port) {
+  placeStrip(n, port, 'harbour', 'The Harbourmaster’s Board');
   const contracts = G.contractsAt(port);
   const carrying = contracts.filter(q => q.kind !== 'bounty');
   const bounties = contracts.filter(q => q.kind === 'bounty');
-  n.appendChild(el('div', 'sec-title', 'HARBOURMASTER'));
+
+  n.appendChild(el('div', 'sec-title', 'CARRYING WORK'));
   if (!carrying.length) n.appendChild(el('div', 'note', 'No work on the board today. Try the tavern.'));
   for (const q of carrying) n.appendChild(questRow(q, port));
 
-  /* The other half of the board. A bounty names a ship already out there, so
-     the row says who and how heavy — enough to judge whether she is worth the
-     powder before you sail. */
+  /* A bounty is a notice nailed to the board, so it looks like one: paper,
+     ink, a face, and the price. The face is drawn from the hull's own seed —
+     the same captain on the same notice at every port that posts her. */
   if (bounties.length) {
-    n.appendChild(el('div', 'sec-title', 'NOTICES POSTED'));
+    n.appendChild(el('div', 'sec-title', 'WANTED'));
+    const wall = el('div', 'posterwall');
     for (const q of bounties) {
       const t = G.ships.find(x => x.id === q.targetId);
       const gone = !t || !t.alive || t.captured;
-      const r = el('div', 'row');
       const bearing = t && !gone ? G.bearingWords(t.x, t.z) : null;
-      r.appendChild(el('div', 'rmain',
-        `<div class="rtitle">${q.title}${q.active ? ' <span class="pill">TAKEN</span>' : ''}</div>
-         <div class="rsub">${q.brief}</div>
-         <div class="statline">
-           <span>pays <b>◆${q.reward}</b></span>
-           <span>prestige <b>${q.prestige}</b></span>
-           ${bearing ? `<span>last word <b>${bearing}</b></span>` : '<span>no word of her</span>'}
-         </div>`));
-      if (!q.active && !gone) {
-        const b = el('button', 'btn gold', 'TAKE IT');
+      const card = el('div', 'poster' + (q.active ? ' taken' : ''));
+      const face = document.createElement('canvas');
+      face.className = 'po-face';
+      drawPortrait(face, { seed: (t ? t.seed : 7) + 3 }, 72);
+      card.appendChild(el('div', 'po-head', 'WANTED'));
+      card.appendChild(face);
+      card.appendChild(el('div', 'po-name', q.targetName));
+      const hull = t ? `${t.cls.name} · ${t.gunsPort + t.gunsStb} guns` : 'whereabouts unknown';
+      card.appendChild(el('div', 'po-sub', hull));
+      card.appendChild(el('div', 'po-brief', q.brief));
+      card.appendChild(el('div', 'po-line',
+        bearing ? `last word: ${bearing}` : 'no word of her'));
+      card.appendChild(el('div', 'po-pay',
+        `◆${q.reward} <span>· prestige ${q.prestige} · struck pays a quarter more</span>`));
+      if (q.active) card.appendChild(el('div', 'po-tag', 'IN HAND'));
+      else if (!gone) {
+        const b = el('button', 'btn gold po-take', 'TAKE IT DOWN');
         onTap(b, () => { G.acceptQuest(q, port); refresh(); });
-        r.appendChild(b);
+        card.appendChild(b);
       }
-      n.appendChild(r);
+      wall.appendChild(card);
     }
+    n.appendChild(wall);
   }
 
   const activeQ = G.quests.filter(q => q.active);
@@ -679,10 +701,6 @@ function harbourTab(n, port) {
       n.appendChild(r);
     }
   }
-
-  const sail = el('button', 'btn wide gold', 'PUT TO SEA');
-  onTap(sail, () => closeSheet(), 760);
-  n.appendChild(sail);
 }
 
 function supplyRow(name, icon, sub, unit, apply, per) {
