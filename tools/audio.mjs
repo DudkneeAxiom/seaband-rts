@@ -249,6 +249,72 @@ ok(`a fader moves its bus and is written down (music ${faders.set.music}, stored
 ok(`and no fader can be poisoned (music ended ${faders.after.music}, ${faders.bad} bad samples)`,
   faders.after.music >= 0 && faders.after.music <= 1 && faders.bad === 0);
 
+/* ---------- the score has body, and never comes round again ----------
+   Reported: "the music is really weak". It was, and measurably: a sine
+   whistle over a drone, silent for minutes at a stretch, with nothing above
+   three kilohertz. Peak level alone cannot see any of that — a thin sound
+   and a full one meter the same — so these ask what the sound is made of and
+   whether the tune repeats. */
+const score = await G(async () => {
+  const A = window.__audio, g = window.__game;
+  const keep = A.getMix();
+  A.setMix('amb', 0); A.setMix('sfx', 0); A.setMix('master', 1);
+  g.inPort = null;
+  await new Promise(r => setTimeout(r, 1200));
+  const bands = new Array(8).fill(0);
+  /* Kept per sample as well as summed: the bright end of this score is carried
+     by a glockenspiel and a harp figure that do not sound in every bar, so a
+     mean over a short window measures whether the sampler was lucky. What the
+     question actually is — "is there daylight in this music" — is answered by
+     the score at its brightest, not by its average. */
+  const top = [];
+  let n = 0, quiet = 0, peakMax = 0, bad = 0, samples = 0;
+  for (let i = 0; i < 500; i++) {
+    const f = A.spectrum();
+    if (f) { for (let b = 0; b < 8; b++) bands[b] += f[b]; top.push(f[6]); n++; }
+    const st = A.stats();
+    if (st) { samples++; peakMax = Math.max(peakMax, st.peak); bad += st.bad; if (st.peak < 0.01) quiet++; }
+    await new Promise(r => setTimeout(r, 30));
+  }
+  for (const k in keep) A.setMix(k, keep[k]);
+  top.sort((a, b) => a - b);
+  return { bands: bands.map(v => v / Math.max(1, n)), quietFrac: quiet / Math.max(1, samples),
+    topBright: top.length ? top[Math.floor(top.length * 0.9)] : -140,
+    peakMax, bad, samples };
+});
+const band = i => +score.bands[i].toFixed(1);
+ok(`the score has a body under it (180-360Hz at ${band(2)}dB)`, score.bands[2] > -70);
+ok(`and daylight over it (2.8-5.6kHz reaches ${score.topBright.toFixed(1)}dB, mean ${band(6)}; `
+  + `it was -112 flat when this was a whistle and a drone)`,
+score.topBright > -95);
+ok(`the sea is not silent for long stretches (${(score.quietFrac * 100).toFixed(0)}% under 0.01)`,
+  score.quietFrac < 0.25);
+ok(`and it still leaves headroom (peak ${score.peakMax.toFixed(3)}, ${score.bad} non-finite)`,
+  score.peakMax < 0.95 && score.bad === 0);
+
+/* Loop-proof: the sailing music is generated, so what must be true is that it
+   keeps generating something different, and that everything it invents is in
+   the key it is playing in. Read off the module rather than the ear. */
+const gen = await G(async () => {
+  const M = await import('/src/core/music.js');
+  const seen = [], notes = [];
+  for (let i = 0; i < 60; i++) {
+    const ph = M.__phraseFor(i * 4);
+    seen.push(ph.prog.join('-'));
+    for (let b = 0; b < 4; b++) for (const [semi] of M.__melodyFor(i * 4 + b)) notes.push(((semi % 12) + 12) % 12);
+  }
+  const back = seen.filter((v, i) => i > 0 && v === seen[i - 1]).length;
+  const scale = new Set([0, 2, 4, 5, 7, 9, 10, 11]);
+  const outOfKey = notes.filter(pc => !scale.has(pc));
+  return { phrases: seen.length, distinct: new Set(seen).size, back,
+    notes: notes.length, outOfKey: outOfKey.length,
+    worst: [...new Set(outOfKey)].slice(0, 6) };
+});
+ok(`the sailing music does not repeat itself (${gen.distinct} distinct progressions over ${gen.phrases} phrases, ${gen.back} back-to-back)`,
+  gen.distinct >= 6 && gen.back === 0);
+ok(`and every note it invents is in the key (${gen.outOfKey} of ${gen.notes} out${gen.worst.length ? ': ' + gen.worst.join(',') : ''})`,
+  gen.outOfKey === 0);
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 8).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

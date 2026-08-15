@@ -35,7 +35,7 @@ function voice(seconds) {
    really a setting. Anything unreadable falls back to the defaults rather
    than muting the game. */
 const MIX_KEY = 'salt-and-tally-mix';
-const MIX_DEF = { master: 0.75, music: 0.52, amb: 0.40, sfx: 0.85 };
+const MIX_DEF = { master: 0.75, music: 0.60, amb: 0.36, sfx: 0.85 };
 const mix = { ...MIX_DEF };
 function loadMix() {
   try {
@@ -351,6 +351,31 @@ export function audioStats() {
     if (a > peak) peak = a;
   }
   return { peak, bad, voices, state: ctx.state, time: ctx.currentTime };
+}
+
+/**
+ * Where the energy sits, in eight octave-ish bands.
+ *
+ * Peak level says how loud; it says nothing about what. A tin whistle over a
+ * drone and a band with strings, harp and bass under it can meter the same
+ * and sound nothing alike — so the score's own checks need to see the shape
+ * of the sound, not just its size. dBFS per band, averaged by the caller.
+ */
+export function audioSpectrum() {
+  if (!started || !probe) return null;
+  const bins = new Float32Array(probe.frequencyBinCount);
+  probe.getFloatFrequencyData(bins);
+  const hz = ctx.sampleRate / 2 / bins.length;
+  const edges = [40, 90, 180, 360, 720, 1400, 2800, 5600, 12000];
+  const out = [];
+  for (let b = 0; b < edges.length - 1; b++) {
+    let sum = 0, n = 0;
+    const lo = Math.max(1, Math.floor(edges[b] / hz));
+    const hi = Math.min(bins.length - 1, Math.ceil(edges[b + 1] / hz));
+    for (let i = lo; i <= hi; i++) { const v = bins[i]; if (Number.isFinite(v)) { sum += v; n++; } }
+    out.push(n ? sum / n : -140);
+  }
+  return out;
 }
 
 /* ---------------- one-shots ---------------- */

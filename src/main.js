@@ -14,7 +14,7 @@ import { initEncounter, openEncounter, closeEncounter, isEncounterOpen, showBatt
 import { fleeChance, talkChance, buildEncounter, CONTACT_R } from './sim/encounter.js';
 import { bindKeys, applyHeld } from './core/keys.js';
 import {
-  initAudio, resumeAudio, updateAudio, audioStats, audioSolo, musicState, sfxMusicEvent,
+  initAudio, resumeAudio, updateAudio, audioStats, audioSpectrum, audioSolo, musicState, sfxMusicEvent,
   getMix, setMixLevel, mixDefaults,
   sfxCannon, sfxWood, sfxSplash, sfxClash, sfxClick, sfxBell, sfxHorn, sfxCoin,
 } from './core/audio.js';
@@ -212,6 +212,7 @@ function boot() {
      tests drive it directly and listen to what comes out. */
   window.__audio = {
     stats: audioStats,
+    spectrum: audioSpectrum,
     solo: audioSolo,
     music: musicState,
     musicEvent: sfxMusicEvent,

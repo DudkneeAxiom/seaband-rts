@@ -1,14 +1,29 @@
 /* ===========================================================
-   The score. One melody, many weathers.
+   The score. Open water, and one melody in many weathers.
 
-   Salt & Tally's music is a single eight-bar folk tune — "The
-   Long Water" — that the whole soundtrack is arrangements of.
-   Alone on open water it is a tin whistle over a drone. Near a
-   harbour the town's instruments pick it up in that power's
-   dialect. When a hunter closes it breaks into fragments over
-   a drum pulse, in a battle the drums own it and the whistle
-   fights through in pieces, and when the fight is won the tune
-   comes back whole for a few seconds before the sea takes over.
+   Two things live here. Out on the sea it is an adventure: a
+   rolling six-eight in bright D major with the flat seventh a
+   shanty leans on, warm strings under a flute, a harp running
+   through the middle and a glockenspiel catching the light on
+   the turn of each phrase. None of that is written down as a
+   tune, because a written tune is a loop and a loop is what
+   wears out on a long voyage — the chords come from a pool of
+   four-bar phrases and the flute improvises over them, so it
+   goes on inventing itself for as long as you sail.
+
+   The other is "The Long Water", a single eight-bar folk tune
+   that belongs to the harbours and to danger. Near a port the
+   town picks it up in its power's dialect. When a hunter closes
+   it breaks into fragments over a drum pulse, in a battle the
+   drums own it and the whistle fights through in pieces, and
+   when the fight is won the tune comes back whole for a few
+   seconds before the sea takes over again.
+
+   It was one tin whistle over a drone for a long time, and it
+   was reported — correctly — as weak: silent for minutes at a
+   stretch, nothing under it and nothing above three kilohertz.
+   The checks in tools/audio.mjs now measure both of those, so
+   the body and the daylight cannot quietly drain out again.
 
    Everything is synthesised live, like the rest of the audio:
    no files, no network, nothing to fail to load. The melody is
@@ -127,7 +142,118 @@ let stingerUntil = 0;
 let passage = 'rest';            // 'play' | 'rest'
 let passageUntil = 0;
 
-const LAYER_NAMES = ['whistle', 'fiddle', 'pluck', 'drone', 'drum', 'horn', 'bell'];
+/* ---------------- the open water ----------------
+
+   The sailing music is not the folk tune. The tune is what the
+   Shoals sing about themselves — it belongs to harbours and to
+   danger. Out on the water the game wanted something with air
+   in it: a rolling 6/8, bright D major with the flattened
+   seventh that makes a sea shanty sound like an adventure
+   rather than a lament, warm strings under a flute, and a harp
+   running arpeggios through the middle of it.
+
+   It is generated rather than written, because a fixed melody
+   is a loop and a loop is the thing that wears out. A phrase is
+   four bars of chords drawn from a pool, and the flute improvises
+   over those chords from a contour and a rhythm cell picked fresh
+   each phrase. The harmony is always going somewhere and the tune
+   is never the same twice, so there is no seam to hear. */
+
+/** Chords as semitones from D, in D major with a borrowed flat seventh. */
+const CH = {
+  I: [0, 4, 7, 12], ii: [2, 5, 9, 14], iii: [4, 7, 11, 16],
+  IV: [5, 9, 12, 17], V: [7, 11, 14, 19], vi: [9, 12, 16, 21],
+  bVII: [10, 14, 17, 22],
+};
+/** Four-bar phrases. Each can follow any other, so the road never ends. */
+const PROGRESSIONS = [
+  ['I', 'V', 'vi', 'IV'],
+  ['I', 'bVII', 'IV', 'I'],
+  ['vi', 'IV', 'I', 'V'],
+  ['IV', 'I', 'ii', 'V'],
+  ['I', 'IV', 'vi', 'V'],
+  ['bVII', 'IV', 'I', 'V'],
+  ['I', 'iii', 'IV', 'V'],
+  ['vi', 'V', 'IV', 'bVII'],
+];
+/** Where the flute goes across a phrase: rise, arch, fall, hover. */
+const CONTOURS = [[0, 2, 4, 2], [0, 3, 5, 7], [7, 5, 4, 0], [4, 4, 2, 0], [0, 4, 2, 5]];
+/** Rhythm cells in eighths, over a six-eighth bar. */
+const CELLS = [
+  [0, 1.5, 3, 4.5], [0, 1, 2, 3, 4, 5], [0, 1.5, 3], [0, 3, 4.5],
+  [0, 0.75, 1.5, 3, 4.5], [1.5, 3, 4.5], [0, 2, 4], [0, 1.5, 2.5, 3, 4.5],
+];
+const SEA_BEATS = 6;             // 6/8: the roll of a hull under way
+
+/* The phrase in progress. Regenerated every four bars, never repeating the
+   progression it just played, so nothing comes round again on a timer. */
+let phrase = null;
+function newPhrase(bar) {
+  const prev = phrase && phrase.prog;
+  let prog = PROGRESSIONS[(Math.random() * PROGRESSIONS.length) | 0];
+  for (let i = 0; i < 4 && prog === prev; i++) prog = PROGRESSIONS[(Math.random() * PROGRESSIONS.length) | 0];
+  phrase = {
+    prog,
+    contour: CONTOURS[(Math.random() * CONTOURS.length) | 0],
+    cells: [0, 1, 2, 3].map(() => CELLS[(Math.random() * CELLS.length) | 0]),
+    // one bar in five the flute takes a breath, and the strings carry it
+    breath: Math.random() < 0.22 ? (Math.random() * 4) | 0 : -1,
+    arp: Math.random() < 0.75,
+    at: bar,
+  };
+  return phrase;
+}
+function chordAt(bar) {
+  if (!phrase || bar - phrase.at >= 4) newPhrase(bar - (bar % 4));
+  return CH[phrase.prog[(bar - phrase.at + 4) % 4]] || CH.I;
+}
+
+/* D major, plus the flat seventh the sea chords borrow. Anything the melody
+   invents is pulled onto one of these before it is played. */
+const SCALE = [0, 2, 4, 5, 7, 9, 11];
+function inKey(semi, ch) {
+  const oct = Math.floor(semi / 12) * 12;
+  const pc = semi - oct;
+  // the chord's own notes are always in key, whatever the scale thinks
+  const allowed = new Set(SCALE);
+  for (const c of ch) allowed.add(((c % 12) + 12) % 12);
+  if (allowed.has(pc)) return semi;
+  let best = pc, bd = 99;
+  for (const a of allowed) {
+    const d = Math.min(Math.abs(a - pc), 12 - Math.abs(a - pc));
+    if (d < bd) { bd = d; best = a; }
+  }
+  return oct + best;
+}
+
+/** A flute note over a chord: chord tones, with a neighbour to lean on. */
+function melodyFor(bar, n) {
+  const ch = chordAt(bar);
+  const i = (bar - phrase.at + 4) % 4;
+  const aim = phrase.contour[i];
+  const notes = [];
+  const cell = phrase.cells[i];
+  for (let k = 0; k < cell.length; k++) {
+    const lean = k / Math.max(1, cell.length - 1);
+    // walk toward the contour target across the bar, landing on a chord tone
+    const want = aim + lean * 2;
+    let best = ch[0], bd = 99;
+    for (const c of ch) { const d = Math.abs(c - want); if (d < bd) { bd = d; best = c; } }
+    /* Passing notes on the weak parts of the bar, so it sings rather than
+       steps — and snapped into the key, which they were not. A chord tone
+       plus a whole step is the ninth above the root and G-sharp above the
+       third, and G-sharp is in no chord this music owns. Out-of-key notes on
+       an off-beat are exactly the "not pleasant" that generated melody is
+       usually guilty of. */
+    const pass = k > 0 && k < cell.length - 1 && Math.random() < 0.35;
+    notes.push([pass ? inKey(best + (Math.random() < 0.5 ? 2 : -1), ch) : best, cell[k]]);
+  }
+  void n;
+  return notes;
+}
+
+const LAYER_NAMES = ['whistle', 'fiddle', 'pluck', 'drone', 'drum', 'horn', 'bell',
+  'strings', 'harp', 'bass', 'shake'];
 
 export function initMusic(graph) {
   G = graph;
@@ -157,6 +283,17 @@ function whistle(t, semi, dur, vol, opts = {}) {
   const f = G.num(fOf(semi) * (opts.low ? 0.5 : 1) * (opts.high ? 2 : 1), 440, 80, 4000);
   const o = c.createOscillator(); o.type = 'sine';
   o.frequency.setValueAtTime(f, t);
+  /* A flute is not a sine. A real one carries its octave and a touch of the
+     twelfth above it, and without them the lead sat under everything else in
+     the arrangement with no presence of its own — the whole band above three
+     kilohertz measured thirty dB down. These two partials are most of what
+     makes it read as an instrument being blown rather than a tone. */
+  const p2 = c.createOscillator(); p2.type = 'sine';
+  p2.frequency.setValueAtTime(f * 2, t);
+  const p2g = c.createGain(); p2g.gain.setValueAtTime(0.16, t);
+  const p3 = c.createOscillator(); p3.type = 'triangle';
+  p3.frequency.setValueAtTime(f * 3, t);
+  const p3g = c.createGain(); p3g.gain.setValueAtTime(0.055, t);
   // a grace note: the finger lifting into the note from below
   if (opts.grace) {
     o.frequency.setValueAtTime(f * 0.891, t);
@@ -172,7 +309,9 @@ function whistle(t, semi, dur, vol, opts = {}) {
   g.gain.exponentialRampToValueAtTime(G.gainOf(vol, 0.4), t + 0.045);
   g.gain.setTargetAtTime(G.gainOf(vol * 0.8, 0.4), t + 0.1, dur * 0.4);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.08);
-  o.connect(g); g.connect(layers.whistle); g.connect(G.echoIn);
+  o.connect(g); p2.connect(p2g); p2g.connect(g); p3.connect(p3g); p3g.connect(g);
+  g.connect(layers.whistle); g.connect(G.echoIn);
+  p2.start(t); p2.stop(t + dur + 0.2); p3.start(t); p3.stop(t + dur + 0.2);
   // the breath under the tone
   const n = G.noiseSrc(false);
   const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * 2; bp.Q.value = 6;
@@ -183,7 +322,7 @@ function whistle(t, semi, dur, vol, opts = {}) {
   n.connect(bp); bp.connect(ng); ng.connect(layers.whistle);
   o.start(t); o.stop(t + dur + 0.2); v.start(t); v.stop(t + dur + 0.2);
   n.start(t); n.stop(t + dur + 0.05);
-  o.onended = () => { o.disconnect(); v.disconnect(); vg.disconnect(); g.disconnect(); };
+  o.onended = () => { o.disconnect(); v.disconnect(); vg.disconnect(); g.disconnect(); p2.disconnect(); p2g.disconnect(); p3.disconnect(); p3g.disconnect(); };
   n.onended = () => { n.disconnect(); bp.disconnect(); ng.disconnect(); };
 }
 
@@ -275,6 +414,95 @@ function horn(t, semi, dur, vol) {
   o.onended = () => { o.disconnect(); lp.disconnect(); g.disconnect(); };
 }
 
+/* ---------------- the adventure voices ----------------
+
+   What the old score was missing was body. A sine whistle over a
+   drone is a sketch of music; these are the parts that make it
+   sound like somewhere you are going. */
+
+/** Warm sustained strings — the floor everything else stands on. */
+function strings(t, semis, dur, vol) {
+  const c = G.ctx;
+  const g = c.createGain();
+  const a = Math.min(0.5, dur * 0.25);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(G.gainOf(vol, 0.5), t + a);
+  g.gain.setValueAtTime(G.gainOf(vol, 0.5), t + dur * 0.72);
+  g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(900, t);
+  lp.frequency.linearRampToValueAtTime(2100, t + a);      // the bow taking hold
+  lp.Q.value = 0.5;
+  for (const semi of semis) {
+    // two voices a hair apart per note: the shimmer of a section, not a synth
+    for (const det of [-0.5, 0.5]) {
+      const o = c.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(G.num(fOf(semi) * 0.5 * (1 + det * 0.0035), 220, 50, 2400), t);
+      o.connect(lp); o.start(t); o.stop(t + dur + 0.15);
+      o.onended = () => o.disconnect();
+    }
+  }
+  lp.connect(g); g.connect(layers.strings); g.connect(G.echoIn);
+}
+
+/** A harp: the sparkle running through the middle of the sea music. */
+function harp(t, semi, vol) {
+  const c = G.ctx;
+  const f = G.num(fOf(semi), 440, 60, 3600);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(G.gainOf(vol, 0.35), t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+  /* Open at the top. A triangle through a 3.8k lowpass is a warm thud; the
+     spectrum showed the whole band above 2.8k sitting thirty dB under the
+     rest of the score, which is a soundtrack with no daylight in it. Two
+     partials and room to breathe put the sparkle back. */
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7200; lp.Q.value = 0.4;
+  const o = c.createOscillator(); o.type = 'triangle';
+  o.frequency.setValueAtTime(f, t);
+  const o2 = c.createOscillator(); o2.type = 'sine';       // the string's second partial
+  o2.frequency.setValueAtTime(f * 2.01, t);
+  const g2 = c.createGain(); g2.gain.setValueAtTime(0.3, t);
+  const o3 = c.createOscillator(); o3.type = 'sine';       // and the shimmer above it
+  o3.frequency.setValueAtTime(f * 3.02, t);
+  const g3 = c.createGain(); g3.gain.setValueAtTime(0.12, t);
+  o3.connect(g3); g3.connect(lp);
+  o3.start(t); o3.stop(t + 1.6);
+  o.connect(lp); o2.connect(g2); g2.connect(lp);
+  lp.connect(g); g.connect(layers.harp); g.connect(G.echoIn);
+  o.start(t); o.stop(t + 1.6); o2.start(t); o2.stop(t + 1.6);
+  o.onended = () => { o.disconnect(); o2.disconnect(); g2.disconnect(); o3.disconnect(); g3.disconnect(); lp.disconnect(); g.disconnect(); };
+}
+
+/** Pizzicato bass on the root: what gives the roll its bottom. */
+function bass(t, semi, dur, vol) {
+  const c = G.ctx;
+  const o = c.createOscillator(); o.type = 'triangle';
+  o.frequency.setValueAtTime(G.num(fOf(semi) * 0.25, 73, 28, 400), t);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(G.gainOf(vol, 0.45), t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + Math.min(1.4, dur));
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 620; lp.Q.value = 0.6;
+  o.connect(lp); lp.connect(g); g.connect(layers.bass);
+  o.start(t); o.stop(t + dur + 0.1);
+  o.onended = () => { o.disconnect(); lp.disconnect(); g.disconnect(); };
+}
+
+/** A shaker on the off-beats: the thing that makes it move. */
+function shake(t, vol) {
+  const c = G.ctx;
+  const n = G.noiseSrc(false);
+  const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5200;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(G.gainOf(vol, 0.2), t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+  n.connect(hp); hp.connect(g); g.connect(layers.shake);
+  n.start(t); n.stop(t + 0.12);
+  n.onended = () => { n.disconnect(); hp.disconnect(); g.disconnect(); };
+}
+
 function bellTing(t, semi, vol) {
   const c = G.ctx;
   const o = c.createOscillator(); o.type = 'sine';
@@ -302,38 +530,86 @@ function motifNotesInBar(bar, mode) {
     .map(([s, st, d]) => [inMode(s, mode), st - b0, d]);
 }
 
+/**
+ * Open water: the adventure.
+ *
+ * Six eighths to the bar, a chord under each, strings holding the harmony,
+ * a harp rolling through it and a flute improvising on top. Nothing here is
+ * a fixed sequence — the chords come from a phrase pool and the tune is made
+ * from them — so it can play for an hour without arriving anywhere it has
+ * been. A "rest" passage thins the band to strings and a little harp rather
+ * than falling silent, which is what the old score did for minutes at a time
+ * and is most of why the music read as weak.
+ */
 function arrangeSea(t0, spb, bar) {
-  const d = dialect;
-  if (passage === 'rest') {
-    // the rest of a rest is genuine: at most a low drone breathing
-    if (bar % 4 === 0) drone(t0, 0, spb * 16, 0.05);
-    return;
-  }
-  if (bar % 8 === 0) drone(t0, 0, spb * 32, 0.09);
-  // the whistle carries the tune, and sometimes simply doesn't play a phrase
-  const phrase = (bar / 2 | 0) % 4;
-  const skip = (bar % 16 >= 12);       // last two bars of every other pass: sea only
-  if (!skip) {
-    for (const [s, st, len] of motifNotesInBar(bar, d.mode)) {
-      whistle(t0 + st * spb, s, len * spb * 0.92, 0.16 * d.whistle,
-        { grace: Math.random() < d.ornament, high: false });
+  const ch = chordAt(bar);
+  const barLen = spb * SEA_BEATS;
+  const thin = passage === 'rest';
+
+  // the floor: strings on the chord, always, so the sea is never empty
+  strings(t0, [ch[0], ch[1], ch[2]], barLen * 1.02, thin ? 0.075 : 0.115);
+  // and the bottom of the roll
+  bass(t0, ch[0], spb * 2.4, thin ? 0.07 : 0.13);
+  if (!thin) bass(t0 + spb * 3, ch[0] + (phrase.arp ? 7 : 0), spb * 2.4, 0.09);
+
+  // the harp: a rolled chord on the bar, running figures through the middle
+  if (phrase.arp || thin) {
+    const roll = [ch[0], ch[1], ch[2], ch[3]];
+    for (let i = 0; i < roll.length; i++) {
+      harp(t0 + i * 0.055, roll[i], (thin ? 0.055 : 0.075) * (1 - i * 0.08));
     }
   }
-  // sparse answers underneath
-  if (phrase % 2 === 1 && bar % 2 === 0) pluck(t0, inMode(0, d.mode) - 12, 0.09 * d.pluck);
-  if (bar % 8 === 4 && d.fiddle > 0.2) fiddle(t0, inMode(-5, d.mode), spb * 6, 0.05 * d.fiddle);
-  if (bar % 4 === 2 && Math.random() < 0.4) drum(t0 + spb * 3.5, 0.05 * d.drum);
+  if (!thin && phrase.arp) {
+    const fig = [ch[1], ch[2], ch[3], ch[2]];
+    for (let i = 0; i < 4; i++) harp(t0 + (1.5 + i * 0.75) * spb, fig[i] + 12, 0.045);
+  }
+
+  if (thin) return;
+
+  // the flute, improvising over the chord
+  const i = (bar - phrase.at + 4) % 4;
+  if (i !== phrase.breath) {
+    const notes = melodyFor(bar, 0);
+    for (let k = 0; k < notes.length; k++) {
+      const [semi, at] = notes[k];
+      const next = notes[k + 1] ? notes[k + 1][1] : SEA_BEATS;
+      whistle(t0 + at * spb, semi, (next - at) * spb * 0.88, 0.135 * dialect.whistle,
+        { grace: Math.random() < 0.3, high: false });
+    }
+  }
+
+  // the lilt: shaker on the back of each dotted beat, a soft drum on the bar
+  for (const b of [1, 2, 4, 5]) shake(t0 + b * spb, b % 3 === 2 ? 0.11 : 0.07);
+  drum(t0, 0.055);
+  if (bar % 2 === 1) drum(t0 + spb * 3, 0.038);
+  // a horn under the turn of every second phrase: the horizon opening
+  if (bar % 8 === 0) horn(t0, ch[0] + 12, barLen * 1.6, 0.045);
+  /* And a glockenspiel catching the light on the first bar of a phrase. It is
+     the highest thing in the arrangement and the only one above 3kHz with any
+     weight, which is what stops warm becoming muffled. */
+  if ((bar - phrase.at + 4) % 4 === 0) bellTing(t0, ch[2] + 12, 0.05);
+  if (phrase.arp && bar % 4 === 2) bellTing(t0 + spb * 3, ch[1] + 12, 0.035);
 }
 
 function arrangePort(t0, spb, bar) {
   const d = dialect;
+  /* A harbour still plays the tune — that is what the tune is for — but the
+     room has a floor under it now. Strings on the mode's own triad, quietly,
+     so a town is warm rather than thin, and the folk band plays over that. */
+  const tri = [inMode(0, d.mode), inMode(d.mode === 'aeolian' ? 3 : 4, d.mode), inMode(7, d.mode)];
   if (passage === 'rest') {
     // towns breathe too, but the room stays warm
-    if (bar % 2 === 0) drone(t0, 0, spb * 8, 0.05);
+    strings(t0, tri, spb * 4.1, 0.07);
+    if (bar % 2 === 0) drone(t0, 0, spb * 8, 0.045);
+    if (bar % 2 === 1) harp(t0 + spb * 2, inMode(7, d.mode), 0.05);
     if (bar % 4 === 1 && d.bell > 0.2) bellTing(t0 + spb, inMode(7, d.mode), 0.04);
     return;
   }
+  strings(t0, tri, spb * 4.1, 0.085);
   if (bar % 4 === 0) drone(t0, 0, spb * 16, 0.08);
+  // a harp behind the band, which is what turns a session into a place
+  for (const b of [0.5, 1.5, 2.5, 3.5]) harp(t0 + b * spb, inMode(b < 2 ? 7 : 12, d.mode), 0.04);
+  for (const b of [0.5, 1.5, 2.5, 3.5]) shake(t0 + b * spb, 0.06);
   for (const [s, st, len] of motifNotesInBar(bar, d.mode)) {
     whistle(t0 + st * spb, s, len * spb * 0.9, 0.14 * d.whistle,
       { grace: Math.random() < d.ornament, high: !!d.high });
@@ -442,13 +718,16 @@ function playDiscovery() {
    the same gains throughout, so a transition is a mix moving, not a
    track restarting. */
 const MIX = {
-  sea: { whistle: 1, fiddle: 0.7, pluck: 0.8, drone: 1, drum: 0.5, horn: 0.4, bell: 0.2, ramp: 6 },
-  approach: { whistle: 1, fiddle: 0.8, pluck: 0.9, drone: 0.9, drum: 0.6, horn: 0.6, bell: 0.7, ramp: 8 },
-  port: { whistle: 1, fiddle: 1, pluck: 1, drone: 0.8, drum: 0.8, horn: 0.8, bell: 1, ramp: 5 },
-  tension_low: { whistle: 0.8, fiddle: 0.3, pluck: 0.2, drone: 1, drum: 1, horn: 0.6, bell: 0, ramp: 4 },
-  tension_high: { whistle: 0.8, fiddle: 0.3, pluck: 0.1, drone: 1, drum: 1, horn: 0.9, bell: 0, ramp: 2.5 },
-  battle: { whistle: 0.9, fiddle: 0.8, pluck: 0.3, drone: 1, drum: 1, horn: 1, bell: 0, ramp: 1.6 },
-  boarding: { whistle: 0.9, fiddle: 0.9, pluck: 1, drone: 0.7, drum: 1, horn: 0.9, bell: 0, ramp: 1.2 },
+  sea: { whistle: 1, fiddle: 0.7, pluck: 0.8, drone: 1, drum: 0.5, horn: 0.4, bell: 0.2, strings: 1, harp: 1, bass: 1, shake: 0.9, ramp: 6 },
+  approach: { whistle: 1, fiddle: 0.8, pluck: 0.9, drone: 0.9, drum: 0.6, horn: 0.6, bell: 0.7, strings: 1, harp: 1, bass: 1, shake: 0.8, ramp: 8 },
+  port: { whistle: 1, fiddle: 1, pluck: 1, drone: 0.8, drum: 0.8, horn: 0.8, bell: 1, strings: 0.9, harp: 0.8, bass: 0.5, shake: 0.6, ramp: 5 },
+  /* Danger takes the adventure away with it. The strings hold on for a moment
+     under the tension states — a threat is more frightening when the warmth
+     is being pulled out from under you than when it was never there. */
+  tension_low: { whistle: 0.8, fiddle: 0.3, pluck: 0.2, drone: 1, drum: 1, horn: 0.6, bell: 0, strings: 0.35, harp: 0.15, bass: 0.5, shake: 0, ramp: 4 },
+  tension_high: { whistle: 0.8, fiddle: 0.3, pluck: 0.1, drone: 1, drum: 1, horn: 0.9, bell: 0, strings: 0.2, harp: 0, bass: 0.4, shake: 0, ramp: 2.5 },
+  battle: { whistle: 0.9, fiddle: 0.8, pluck: 0.3, drone: 1, drum: 1, horn: 1, bell: 0, strings: 0.25, harp: 0, bass: 0.5, shake: 0, ramp: 1.6 },
+  boarding: { whistle: 0.9, fiddle: 0.9, pluck: 1, drone: 0.7, drum: 1, horn: 0.9, bell: 0, strings: 0, harp: 0, bass: 0.4, shake: 0, ramp: 1.2 },
 };
 
 function applyMix(name) {
@@ -542,8 +821,15 @@ export function musicUpdate(dt, st) {
   // danger does not rest
   const alwaysOn = state === 'battle' || state === 'boarding' || state === 'tension_high';
 
-  // the scheduler: place the next bar when it draws near
-  const spb = 60 / G.num(dialect.bpm, 80, 40, 160);
+  /* The scheduler: place the next bar when it draws near.
+     Open water is in six-eight and beats faster on the eighth; the tune's own
+     states keep four-four, so the bar length is asked for rather than assumed
+     — `spb * 4` was written into three places when there was only one metre. */
+  const seaSide = state === 'sea' || state === 'approach';
+  const beats = seaSide ? SEA_BEATS : 4;
+  const spb = seaSide
+    ? 60 / G.num(dialect.bpm * 1.95, 165, 60, 260)      // eighths, at a walking roll
+    : 60 / G.num(dialect.bpm, 80, 40, 160);
   if (now > barStart - LOOKAHEAD) {
     const t0 = Math.max(barStart, now + 0.05);
     if (stinger === null) {
@@ -552,7 +838,7 @@ export function musicUpdate(dt, st) {
       scheduleBar(t0, spb, barIdx);
       passage = keep;
     }
-    barStart = t0 + spb * 4;
+    barStart = t0 + spb * beats;
     barIdx++;
   }
 }
@@ -594,6 +880,12 @@ export function musicEvent(name) {
     playDiscovery();
   }
 }
+
+/* For the QA suite: the generator, so the score's own properties — that it
+   keeps inventing something new and stays in its key — can be read rather
+   than listened for. */
+export function __phraseFor(bar) { newPhrase(bar); return phrase; }
+export function __melodyFor(bar) { return melodyFor(bar, 0); }
 
 /** For the QA suite: what the controller believes, and why. */
 export function musicState() {
