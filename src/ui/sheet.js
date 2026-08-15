@@ -1039,7 +1039,7 @@ function tavernTab(n, port) {
          <div class="rsub">${officerLabel(o)} · ${stars(o.skill)} ${o.canCaptain ? '<span class="pill g">CAN COMMAND</span>' : ''}</div>
          <div class="rsub trait-line">${o.namedTraits.map(t => `<span class="tr">${t}</span>`).join('')}</div>
          <div class="npc-mem">${o.bio}</div>
-         <div class="statline"><span>wants <b>${o.ambition}</b></span><span>wage <b>◆${o.wage}</b>/wk</span></div>`
+         <div class="statline"><span>wants <b>${o.ambition}</b></span><span>signs on for <b>◆${o.hire}</b></span></div>`
       : `<div class="rtitle">${o.name}</div>
          <div class="rsub">${officerLabel(o)} · <span class="pill">skill ${o.skill}</span> ${o.canCaptain ? '<span class="pill g">CAN COMMAND</span>' : ''}</div>
          <div class="rsub">${officerEffect(o)} — <em style="color:var(--parch)">${o.trait.name}</em>, ${o.trait.tip}</div>`));

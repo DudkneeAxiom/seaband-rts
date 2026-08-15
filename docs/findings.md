@@ -5,6 +5,25 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 61. A wage with no payroll behind it  (P3, playtest)
+
+**Symptom.** Every named officer's tavern card promised `wage ◆14/wk`. No
+code anywhere charges a wage, and the game has no calendar — "per week" is
+a unit the world does not measure.
+
+**Root cause.** The `wage` field was written into the officer factory with
+the rest of the sheet and displayed because it existed; the payroll it
+implied was never built. The origin-chips rule, drifted: a promise on the
+card with no mechanic underneath it.
+
+**Change.** The card now says what the mechanic does — `signs on for ◆480`,
+the same number as the hire button beside it — and the dead `wage` field is
+gone from the factory, with a comment marking where upkeep starts if it is
+ever built. The mechanic is unchanged: an officer costs what he costs to
+sign, once.
+
+---
+
 ## 60. The flaky duel check waited on a crawl  (P3, known flake)
 
 **Symptom.** `fighting her out ends the action` failed roughly one run in

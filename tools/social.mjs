@@ -120,7 +120,7 @@ const off = await G(() => {
   return {
     total: pool.length,
     named: named.map(o => ({ name: o.name, epithet: o.epithet, traits: o.namedTraits,
-      bio: !!o.bio, ambition: o.ambition, role: o.role, wage: o.wage })),
+      bio: !!o.bio, ambition: o.ambition, role: o.role, hire: o.hire })),
   };
 });
 ok(`the tavern has people in it, not stat cards (${off.named.map(o => `${o.name} “${o.epithet}”`).join(', ') || 'none'})`,

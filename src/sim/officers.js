@@ -27,7 +27,10 @@ export function makeOfficer(seed, roleId = null) {
     trait: rngPick(r, TRAITS),
     xp: rngInt(r, 0, 30),
     level: 1,
-    wage: 6 + skill * 4,
+    /* No wage field: an officer costs what he costs to sign, once. A weekly
+       wage was printed on the tavern card for a while with no payroll behind
+       it — a promise no mechanic kept, in a game with no calendar to keep it
+       by. If upkeep ever arrives it starts here, with the charge. */
     hire: Math.round((110 + skill * 95) * rngRange(r, 0.85, 1.2)),
     canCaptain: skill >= 2 || role === 'mate',
     ship: null,
@@ -135,7 +138,6 @@ export function makeNamedOfficer(def) {
   base.name = def.name;
   base.epithet = def.epithet || null;
   base.skill = def.skill;
-  base.wage = 6 + def.skill * 4;
   base.hire = Math.round(150 + def.skill * 110);
   base.canCaptain = def.skill >= 2 || def.role === 'mate';
   base.bio = def.bio;
