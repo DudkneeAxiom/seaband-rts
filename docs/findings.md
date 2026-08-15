@@ -5,6 +5,52 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 82. The stale-tap bug was in four more places  (P1, probe)
+
+**Symptom.** Found by looking for the shape rather than the symptom. The
+market's stale SELL row — a handler that closed over a quantity and ran
+`cargo -= 16` on a row that had already been redrawn — was fixed as a
+one-off. It was never a one-off: **every** purchase page in the sheet redraws
+itself after a purchase, and several of their buttons captured their guard at
+draw time.
+
+**Measured, through the real buttons:**
+
+| page | twelve presses did this |
+|---|---|
+| crew | **33 hands aboard a hull with 22 berths** |
+| yard | one refit **fitted six times** — `copper` is ×1.08 each, so ×1.59 |
+| yard | **◆6600 paid** for ◆1100 of goods |
+| tavern | one officer **signed on six times**, six times his bonuses |
+
+The crew one is the worst of them: crew drives gunnery, boarding weight and
+speed, so it is combat strength bought for coin the hull is not allowed to
+spend. `applyUpgrades` walks the upgrade list and applies every entry, which
+is why a duplicate refit stacks rather than being ignored.
+
+**Change.** Each handler asks the world at the tap instead of trusting what
+the row knew when it was drawn: the crew button re-reads the muster, and
+`buyUpgrade` and `hireOfficer` refuse a thing already fitted or already
+signed. The two repair buttons were re-priced at the tap too — they charged
+a bill captured at draw time, so a second press paid the old price for a ship
+with nothing left to mend, and the consort one had **no coin check in the
+handler at all** and could take the purse below nothing.
+
+**Verification.** trade.mjs presses each real button twelve times on a page
+staged one short of its limit, and asserts the node it is pressing has
+actually been replaced — a stale-tap check that is not pressing a stale node
+is testing nothing. All four fail with the guards removed, at the numbers in
+the table.
+
+*And a third lesson about where a section goes.* This one docks the ship,
+empties the muster and spends a million coin, and put in the middle of the
+file it took the bounty board, the stale-SELL check and the provoke check
+down with it. It lives at the end now, and it closes the reckoning card
+before it touches the screen — the section above it ends in a real action,
+and that panel swallows every click aimed behind it.
+
+---
+
 ## 81. The refuge check was still measuring a stopwatch  (P3, flake)
 
 **Symptom.** One run in three, a sheer-off check failed — `Marasay (+24m,

@@ -619,8 +619,14 @@ function harbourTab(n, port) {
   const b = el('button', 'btn' + (needsWork ? ' gold' : ' dim'), needsWork ? `◆ ${cost}` : 'READY');
   b.disabled = !needsWork || G.coin < cost;
   onTap(b, () => {
-    if (G.coin < cost) return toast('Not enough coin.', 'bad');
-    G.coin -= cost;
+    /* Price her at the tap. `cost` is what she needed when the row was drawn,
+       and the row is redrawn the moment she is refitted — so a second press
+       on the old button paid the old bill for a ship with nothing left to
+       mend. Nothing broke; it just quietly took the money. */
+    const due = repairCost(p);
+    if (due <= 0) return toast('She is already sound.', '', 1600);
+    if (G.coin < due) return toast('Not enough coin.', 'bad');
+    G.coin -= due;
     const marked = G.repair(p);
     sfxCoin();
     toast(marked ? 'Refitted — and she carries the marks of it.' : 'Refitted and watertight.', 'good');
@@ -639,7 +645,12 @@ function harbourTab(n, port) {
     const b2 = el('button', 'btn gold', `◆ ${c2}`);
     b2.disabled = G.coin < c2;
     onTap(b2, () => {
-      G.coin -= c2; G.repair(s);
+      // and the same for a consort, which had no coin check in here at all:
+      // a stale press could take the purse below nothing
+      const due = repairCost(s);
+      if (due <= 0) return toast(`${s.name} is already sound.`, '', 1600);
+      if (G.coin < due) return toast('Not enough coin.', 'bad');
+      G.coin -= due; G.repair(s);
       sfxCoin(); toast(`${s.name} refitted.`, 'good'); G.save(); refresh();
     });
     r2.appendChild(b2);
@@ -909,7 +920,17 @@ function crewTab(n, port) {
     const b = el('button', 'btn gold', `◆${cost}`);
     b.disabled = full || G.coin < cost;
     onTap(b, () => {
-      if (full) return toast(`No berths left aboard ${recruitTo.name}.`, 'bad');
+      /* Ask the ship, not the row. `full` is what the muster read when this
+         button was drawn, and every hire redraws the page — so a thumb
+         faster than the redraw lands on the old node with the old answer.
+         Measured: twelve presses on a cutter with one berth left put
+         thirty-three hands aboard a hull that holds twenty-two, which is
+         gunnery, boarding weight and speed bought for coin the hull should
+         not be able to spend. The same fault as the stale SELL row that
+         turned a hold into NaN; the same fix. */
+      if (recruitTo.crewTotal >= recruitTo.cls.crewMax) {
+        return toast(`No berths left aboard ${recruitTo.name}.`, 'bad');
+      }
       if (G.coin < cost) return toast('Not enough coin.', 'bad');
       G.coin -= cost; recruitTo.crew[rid]++;
       sfxCoin(); G.save(); refresh();

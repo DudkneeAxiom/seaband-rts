@@ -2594,6 +2594,8 @@ export class Game {
   hireOfficer(o, port) {
     if (this.coin < o.hire) { toast('Not enough coin.', 'bad'); return; }
     if (this.officers.length >= 6) { toast('You have officers enough.', 'bad'); return; }
+    // and a man signs on once, however many times the button is pressed
+    if (this.officers.includes(o)) return;
     this.coin -= o.hire;
     this.officers.push(o);
     this.player.officers.push(o);
@@ -2704,8 +2706,14 @@ export class Game {
 
   buyUpgrade(ship, up) {
     if (this.coin < up.cost) { toast('Not enough coin.', 'bad'); return; }
-    this.coin -= up.cost;
+    /* Fitted once. `applyUpgrades` walks the list and applies every entry, so
+       a second `copper` is another 8% and a second `ports` is another pair of
+       guns — past what the refit is allowed to give, for anybody whose thumb
+       outruns the redraw. The yard page hides an owned refit, but the button
+       that was already on screen when it was bought does not know that. */
     ship.upgrades = ship.upgrades || [];
+    if (ship.upgrades.includes(up.id)) return;
+    this.coin -= up.cost;
     ship.upgrades.push(up.id);
     applyUpgrades(ship);
     /* And she is rebuilt on the spot. A refit that only moved numbers made

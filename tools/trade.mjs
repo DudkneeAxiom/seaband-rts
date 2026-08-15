@@ -789,6 +789,90 @@ ok(`and a ruined ship still makes way (no rigging, 5% hull, starving: `
 ok(`while hunger never takes the last of the watch (${ruined.crewAfter} hands, minimum ${ruined.min})`,
   ruined.crewAfter >= ruined.min && ruined.alive);
 
+/* ---------- LAST: a thumb faster than the screen cannot overfill a hull ----------
+   At the end of the file, with the other sections that leave a mark: this
+   one docks the ship, empties and refills the muster, and spends a million
+   coin. Put in the middle it took the bounty board, the stale-SELL check and
+   the provoke check down with it — for the third time today, which is the
+   lesson rather than the bug.
+   The same shape as the stale SELL row that turned a hold into NaN, found
+   again in three more places. Every one of these pages redraws itself after
+   a purchase, and every one of these buttons captured its guard when it was
+   drawn — so a burst of presses lands on the old node with the old answer.
+   Measured on the crew page before the fix: twelve presses on a cutter with
+   one berth left put thirty-three hands aboard a hull that holds twenty-two,
+   which is gunnery, boarding weight and speed bought for coin the hull
+   should not be able to spend. Driven through the real buttons on the real
+   pages, and the stale node is asserted to be stale. */
+/* Put the screen away before using it. The section above ends in a real
+   action, and the reckoning card is a panel like any other — it sits over
+   the whole page and swallows every click aimed at anything behind it. */
+await G(() => {
+  const g = window.__game;
+  if (g.mode === 'battle' && g.battle) g.battle.finish('fled');
+  g.paused = false;
+});
+await sleep(300);
+await page.click('#enc-options .enc-opt').catch(() => { });
+await waitFor(page, () => document.getElementById('encounter').classList.contains('hidden'), 6000);
+await G(() => {
+  const g = window.__game, p = g.player;
+  const b = g.harbourBerth(g.PORTS[0]);
+  p.x = b.x; p.z = b.z; p.speed = 0; p.throttle = 0; p.dest = null;
+  p.boarding = null; p.lockTo = null; p.alive = true;
+  p.hull = p.hullMax; p.sails = p.sailMax;
+  g.coin = 1e6; g.paused = false; g.mode = 'campaign'; g.inPort = null;
+});
+await waitFor(page, () => !!window.__game.dockablePort, 8000);
+await page.click('.act-btn.dock').catch(() => { });
+await sleep(800);
+for (let i = 0; i < 5 && await dismissModal(page); i++);
+await goPortTab(page, 'CREW');
+await sleep(400);
+const berths = await G(() => {
+  const g = window.__game, p = g.player;
+  for (const k in p.crew) p.crew[k] = 0;
+  p.crew.sailor = p.cls.crewMax - 1;          // one berth left, page already drawn
+  const row = [...document.querySelectorAll('#sheet-content .row')]
+    .find(r => /Willing, green|Knows the ropes/i.test(r.textContent));
+  const btn = row && [...row.querySelectorAll('button')].find(x => /◆/.test(x.textContent));
+  if (!btn) return { note: 'no recruit button on the crew page' };
+  for (let i = 0; i < 12; i++) btn.click();
+  return { note: null, max: p.cls.crewMax, after: p.crewTotal,
+    detached: !document.body.contains(btn) };
+});
+ok(`the crew page was staged stale (${berths.note || `node replaced: ${berths.detached}`})`,
+  !berths.note && berths.detached);
+ok(`twelve presses cannot put more aboard than the hull holds `
+  + `(${berths.note || `${berths.after} of ${berths.max}`})`,
+!berths.note && berths.after <= berths.max);
+
+const twice = await G(() => {
+  const g = window.__game, p = g.player;
+  g.coin = 1e6;
+  const port = g.PORTS[0];
+  const up = g.upgradesFor(p, port).find(u => !u.owned);
+  if (!up) return { note: 'nothing left to fit' };
+  const before = { coin: g.coin, ups: (p.upgrades || []).length };
+  for (let i = 0; i < 6; i++) g.buyUpgrade(p, up);        // six presses of one button
+  const fitted = (p.upgrades || []).filter(x => x === up.id).length;
+  // and an officer signed six times over
+  const pool = g.tavernPool(port);
+  const o = pool && pool[0];
+  let signed = 0;
+  if (o) { for (let i = 0; i < 6; i++) g.hireOfficer(o, port); signed = g.officers.filter(x => x === o).length; }
+  return { note: null, id: up.id, fitted, signed,
+    paid: Math.round(before.coin - g.coin), cost: up.cost, hire: o ? o.hire : 0 };
+});
+ok(`a refit is fitted once however often it is pressed (${twice.note || `${twice.id} x${twice.fitted}`})`,
+  !twice.note && twice.fitted === 1);
+ok(`and paid for once (${twice.note || `◆${twice.paid} against ◆${twice.cost} + ◆${twice.hire} hire`})`,
+  !twice.note && twice.paid <= twice.cost + twice.hire);
+ok(`an officer signs on once (${twice.note || `${twice.signed} copy`})`,
+  !twice.note && twice.signed <= 1);
+await page.click('#sheet-close').catch(() => { });
+await sleep(300);
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;
