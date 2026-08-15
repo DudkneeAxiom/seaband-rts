@@ -5,6 +5,54 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 66. A consort ground along the apron chasing her slot  (P1, suite catch)
+
+**Symptom.** The Greywake errand check went red twice in five runs — a
+consort at 9%, then 44%, after following the flag out through the mouth.
+Instrumented, the event is plain: on the way out she sits in 3.2–3.9m of
+water with a 4.0m keel for nearly a minute, grinding, ~196m off the port.
+
+**Root cause.** The follow order sounds the *slot* (and falls back dead
+astern, then heaves to) — but not the **road to it**. As the flag clears
+the mouth and turns, a perfectly deep slot swings round the arm head, and
+`steerStation` drives the straight line to it along the breakwater's apron
+with only `avoidLand` deflecting, which walks her down the wall instead of
+off it. The escorts learned this exact lesson (sound the run, not just the
+station); the formation slots never did.
+
+**Change.** The line from the consort to her slot is sounded with
+`clearWater` at her own keel; when it is foul she falls in on the flag's
+stern — the one road always proved — and takes the slot back up in open
+water. The chosen point is recorded on the brain (`stationAim`) so a check
+can read the decision.
+
+**Verification.** New shore check stages the fault by construction — flag
+past the arm head and off to one side, slot deep, road foul, staging
+asserted — and reads the decision, not the aftermath. Fails with the fix
+reverted (aimed at slot: true). The errand soak runs 5× green with the fix.
+
+---
+
+## 65. The helm suite left the guns live and the raider took a station  (P3, suite catch)
+
+**Symptom.** `Space fires the battery that bears in action` failed twice
+running: `intoBattle` returned null — the staged raider closed to 105m and
+stopped; contact never came; the battle never opened.
+
+**Root cause.** The suite forces `ctx.combatLive = true` to photograph the
+ammo strip and never put it back — a state real play cannot reach on the
+campaign layer, and under it the raider AI takes up a gunnery station
+instead of closing to contact. It hid for months because Tab used to start
+a chase, and the player's own motion produced the contact; one tap only
+marks now, so the standoff became permanent. A pre-existing leak, exposed
+rather than caused.
+
+**Change.** The suite restores the flag before the battle staging. A/B
+probed: flag true, she parks at 105m for a minute; flag false, the
+encounter forms in six seconds.
+
+---
+
 ## 64. The harbour page was six jobs in one scroll  (P2, player report)
 
 **Symptom.** "The display/navigation of the menu is a little overwhelming —

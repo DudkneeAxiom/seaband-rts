@@ -159,6 +159,63 @@ for (const id of ['ilovantu', 'marasay', 'escarra']) {
   await shot(page, `shore-${id}`);
 }
 
+/* ---------- the road to a formation slot is sounded like the slot ----------
+   Staged by construction: the flag past the arm head and off to one side, so
+   her consort's echelon slot is in deep water but the straight line to it
+   runs across the breakwater's apron. The check reads the *decision* — the
+   point the brain recorded steering for — not the aftermath, and it first
+   proves the fault is present (slot deep, road foul), because a check whose
+   staging silently failed is decoration. */
+const slotRoad = await G(async () => {
+  const R = await import('/src/core/route.js');
+  const T = await import('/src/world/terrain.js');
+  const g = window.__game, p = g.player;
+  const port = g.PORTS.find(x => x.id === 'greywake');
+  const t = window.__shore.greywake;
+  const ax = Math.atan2(port.x - t.x, port.z - t.z);
+  const con = g.ships.find(s => !s.isPlayer && s.alive && !g.fleet.includes(s) && s.faction !== 'pirate')
+    || g.spawnNPC('merchant');
+  con.faction = 'player'; con.role = 'consort'; con.hostileToPlayer = false;
+  con.fleeing = false; con.chaseHold = 0; con.boarding = null; con.lockTo = null;
+  con.brain = { state: 'idle', t: 0, cooldown: 0 };
+  con.formSlot = 1; con.hull = con.hullMax;
+  if (!g.fleet.includes(con)) g.fleet.push(con);
+  g.setFleetOrder('follow', true);
+  // consort in the channel; flag out past the arm head and swung to one side
+  con.x = t.x + Math.sin(ax) * 70; con.z = t.z + Math.cos(ax) * 70;
+  con.speed = 0; con.dest = null;
+  let staged = null;
+  for (let side = -1; side <= 1 && !staged; side += 2) {
+    for (let off = 90; off <= 170 && !staged; off += 20) {
+      p.x = t.x + Math.sin(ax) * 260 + Math.cos(ax) * off * side;
+      p.z = t.z + Math.cos(ax) * 260 - Math.sin(ax) * off * side;
+      p.yaw = ax; p.speed = 4; p.dest = null;
+      const back = 46 + 26, sideOff = 34 + 8;
+      const fx = p.x - Math.sin(p.yaw) * back + Math.cos(p.yaw) * sideOff;
+      const fz = p.z - Math.cos(p.yaw) * back - Math.sin(p.yaw) * sideOff;
+      const need = con.draft * 1.9 + 3;
+      const slotDeep = T.depthAt(fx, fz) >= need;
+      const roadFoul = !R.clearWater(con.x, con.z, fx, fz, need);
+      if (slotDeep && roadFoul) staged = { fx, fz, need };
+    }
+  }
+  if (!staged) return { note: 'could not stage a deep slot behind a foul road' };
+  g.update(1 / 60);
+  const aim = con.brain.stationAim;
+  const out = {
+    note: null,
+    aimedAtSlot: aim ? Math.hypot(aim.x - staged.fx, aim.z - staged.fz) < 30 : null,
+    aimedAtFlag: aim ? Math.hypot(aim.x - p.x, aim.z - p.z) < 30 : null,
+  };
+  const i = g.fleet.indexOf(con);
+  if (i >= 0) g.fleet.splice(i, 1);
+  con.faction = 'trader'; con.role = 'merchant'; con.brain = { state: 'idle', t: 0, cooldown: 0 };
+  return out;
+});
+ok(`a slot behind a foul road is given up for the flag's own track `
+  + `(${slotRoad.note || `aimed at flag: ${slotRoad.aimedAtFlag}, at slot: ${slotRoad.aimedAtSlot}`})`,
+!slotRoad.note && slotRoad.aimedAtFlag === true && slotRoad.aimedAtSlot === false);
+
 /* ---------- the fleet survives its captain's errand ashore ----------
    The report that forced this: a player sailed into Greywake to trade and
    every consort in company wrecked herself on the breakwater arms while the

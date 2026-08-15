@@ -222,6 +222,14 @@ const ammoUi = await G(() => ({
 ok(`1 loads round shot, and the strip shows it (${ammoUi.strip} buttons, lit: ${ammoUi.lit.join() || 'none'})`,
   ammoUi.ammo === 'round' && ammoUi.lit.length === 1 && ammoUi.lit[0] === 'round');
 
+/* Put the flag back. combatLive was forced true to photograph the strip and
+   stayed true — a state real play cannot reach on the campaign layer, and
+   under it a staged raider takes up a gunnery station 105m off and never
+   makes contact, so the battle below never opened. It hid for months because
+   Tab used to start a chase and the player's own motion produced the
+   contact; one tap only marks now, and the standoff became permanent. */
+await G(() => { const g = window.__game; g.ctx.combatLive = false; g.update(0.05); });
+
 /* Guns are live inside a battle instance and nowhere else, so the keyboard
    test has to be in one: sail into contact, take the encounter, clear for
    action, and then try the key. */

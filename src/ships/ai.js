@@ -1044,6 +1044,15 @@ function consortAI(ship, dt, world, ctx) {
       return;
     }
   }
+  /* And the road to the slot, sounded like the slot — the same lesson the
+     escorts learned, one rank along. As the flag clears the mouth and turns,
+     a deep slot swings round the arm head, and the straight line to it runs
+     along the breakwater's apron: 3.5m of water under a 4m keel for a whole
+     minute, measured on the Greywake errand. When the line is foul, the one
+     road always proved is the flag's own — fall in on her stern and take the
+     slot back up in open water. */
+  if (!clearWater(ship.x, ship.z, fx, fz, need)) { fx = flag.x; fz = flag.z; }
+  if (ship.brain) ship.brain.stationAim = { x: fx, z: fz };
   const d = dist(ship.x, ship.z, fx, fz);
   steerStation(ship, fx, fz, dt);
   // press on harder the further astern she is, so a slower hull can still keep station
