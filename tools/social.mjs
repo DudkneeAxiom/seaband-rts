@@ -4,7 +4,7 @@
    Everything here goes through the real game — the real port screen, the
    real save, the real world tick. A social system that only works when a
    test calls its methods directly is a data structure, not a game. */
-import { launch, sleep, newVoyage, waitFor } from './qa.mjs';
+import { launch, sleep, newVoyage, waitFor, shot } from './qa.mjs';
 
 const { browser, page, errors } = await launch('desktop');
 const log = [];
@@ -344,6 +344,31 @@ ok(`every standing opens something new (${Object.entries(rungs).map(([k, v]) => 
   rungs.acquainted > rungs.neutral && rungs.friendly > rungs.acquainted
   && rungs.trusted > rungs.friendly);
 
+
+/* The PEOPLE page shows who you have met. Cheap existence check: the page
+   renders from the same social state the sections above have been building,
+   and it was the one screen nothing ever looked at. */
+await G(() => { const b = document.getElementById('sheet-close'); if (b) b.click(); });
+await sleep(300);
+await page.click('#btn-menu');
+await sleep(500);
+const people = await G(async () => {
+  const N = await import('/src/data/notables.js');
+  const g = window.__game, S = g.social;
+  const tab = [...document.querySelectorAll('#sheet-tabs .tab')].find(x => /PEOPLE/.test(x.textContent));
+  if (!tab) return { note: 'no PEOPLE tab' };
+  tab.click();
+  await new Promise(r => setTimeout(r, 250));
+  const met = N.NOTABLES.filter(w => S.hasMet(w.id));
+  const rows = [...document.querySelectorAll('#sheet-content .row.notable')];
+  const first = met.length ? met.slice().sort((a, b) => S.of(b.id) - S.of(a.id))[0] : null;
+  return { note: null, met: met.length, rows: rows.length,
+    firstShown: first ? rows.some(r => r.textContent.includes(first.name)) : false,
+    tierWord: first ? rows.map(r => r.textContent).join(' ').includes(g.social.tier(first.id).name) : false };
+});
+ok(`the PEOPLE page shows who you have met (${people.note || `${people.met} met, ${people.rows} rows`})`,
+  !people.note && people.met >= 1 && people.rows === people.met && people.firstShown && people.tierWord);
+await shot(page, 'social-people');
 
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');
