@@ -555,7 +555,12 @@ const raid = await G(() => {
   }
   g.standing[m.faction] = 30;               // a power that had come to trust you
   g.encounterCooling = 0; g.paused = false;
+  /* Mark, then the order. One tap only marks now — this staging leaned on
+     the mark launching the chase, and when that stopped, contact became a
+     matter of which way she happened to sail: green standalone, red in the
+     full run. The deed under test starts with a captain who means it. */
   g.selectTarget(m);
+  g.startChase(m);
   return { name: m.name, faction: m.faction, standing: g.standing[m.faction], infamy: Math.round(g.infamy) };
 });
 if (raid) {
