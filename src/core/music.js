@@ -595,6 +595,37 @@ function motifNotesInBar(bar, mode) {
     .map(([s, st, d]) => [inMode(s, mode), st - b0, d]);
 }
 
+/* A harmony for the tune, one chord per bar of it.
+ *
+ * A harbour used to hold a single triad for as long as you stood in it —
+ * one chord, for minutes — which is the most literal kind of flat there is.
+ * These are written out per mode rather than derived by pushing a dorian
+ * chord through `inMode`, because that maps pitch classes one at a time and
+ * cheerfully turns III into a diminished triad in the lift: a chord is not a
+ * set of independent notes. Each row is harmonised against the motif's own
+ * bar — bar 1 sits on 7 for two beats, so aeolian takes v there rather than
+ * the iv its darkened sixth would otherwise put a semitone underneath it. */
+const PORT_CH = {
+  //        i          IV           III         i          i          VII          III         v
+  dorian: [[0, 3, 7], [5, 9, 12], [3, 7, 10], [0, 3, 7],
+           [0, 3, 7], [10, 14, 17], [3, 7, 10], [7, 10, 14]],
+  //         i          v            III        i          i          VII          III         v
+  aeolian: [[0, 3, 7], [7, 10, 14], [3, 7, 10], [0, 3, 7],
+            [0, 3, 7], [10, 14, 17], [3, 7, 10], [7, 10, 14]],
+  /* The lift raises the tune's flat seventh to a leading note, so the bVII
+     that harmonises bars 2 and 5 everywhere else is the one chord it must
+     never play — the tune's own B natural against the chord's B flat. It
+     takes V there instead, and IV where the others rest on the tonic,
+     because bar 3 holds a fourth for two beats and the lift's major third
+     is a semitone under it. */
+  //      I          IV           V            IV          vi           V            IV          V
+  lift: [[0, 4, 7], [5, 9, 12], [7, 11, 14], [5, 9, 12],
+         [9, 12, 16], [7, 11, 14], [5, 9, 12], [7, 11, 14]],
+};
+function portChord(bar, mode) {
+  return (PORT_CH[mode] || PORT_CH.dorian)[bar % 8];
+}
+
 /**
  * Open water: the adventure.
  *
@@ -675,19 +706,28 @@ function arrangePort(t0, spb, bar) {
   /* A harbour still plays the tune — that is what the tune is for — but the
      room has a floor under it now. Strings on the mode's own triad, quietly,
      so a town is warm rather than thin, and the folk band plays over that. */
-  const tri = [inMode(0, d.mode), inMode(d.mode === 'aeolian' ? 3 : 4, d.mode), inMode(7, d.mode)];
+  const tri = portChord(bar, d.mode);
+  /* The tonic drone only holds where the harmony is at home. It used to run
+     under all eight bars, which is what turned a moving chord into mud: a
+     pedal 0 under the VII is a second sounding against the chord's own root
+     for four beats, every eighth bar, for as long as the player stood there. */
+  const home = tri[0] % 12 === 0;
   if (passage === 'rest') {
     // towns breathe too, but the room stays warm
     strings(t0, tri, spb * 4.1, 0.07);
-    if (bar % 2 === 0) drone(t0, 0, spb * 8, 0.045);
-    if (bar % 2 === 1) harp(t0 + spb * 2, inMode(7, d.mode), 0.05);
-    if (bar % 4 === 1 && d.bell > 0.2) bellTing(t0 + spb, inMode(7, d.mode), 0.04);
+    bass(t0, tri[0] - 12, spb * 3.4, 0.06);
+    if (home && bar % 2 === 0) drone(t0, 0, spb * 8, 0.045);
+    if (bar % 2 === 1) harp(t0 + spb * 2, tri[2], 0.05);
+    if (bar % 4 === 1 && d.bell > 0.2) bellTing(t0 + spb, tri[2], 0.04);
     return;
   }
   strings(t0, tri, spb * 4.1, 0.085);
-  if (bar % 4 === 0) drone(t0, 0, spb * 16, 0.08);
+  // a bottom to the room, on the chord rather than under everything
+  bass(t0, tri[0] - 12, spb * 2.2, 0.085);
+  bass(t0 + spb * 2.5, tri[1] - 12, spb * 1.6, 0.055);
+  if (home && bar % 4 === 0) drone(t0, 0, spb * 8, 0.07);
   // a harp behind the band, which is what turns a session into a place
-  for (const b of [0.5, 1.5, 2.5, 3.5]) harp(t0 + b * spb, inMode(b < 2 ? 7 : 12, d.mode), 0.04);
+  for (let b = 0; b < 4; b++) harp(t0 + (b + 0.5) * spb, tri[(b + 1) % 3] + (b < 2 ? 0 : 12), 0.04);
   for (const b of [0.5, 1.5, 2.5, 3.5]) shake(t0 + b * spb, 0.06);
   for (const [s, st, len] of motifNotesInBar(bar, d.mode)) {
     whistle(t0 + st * spb, s, len * spb * 0.9, 0.14 * d.whistle,
@@ -695,13 +735,13 @@ function arrangePort(t0, spb, bar) {
     // the fiddle shadows the tune a sixth below, the way session players do
     if (d.fiddle > 0.4 && len >= 1) fiddle(t0 + st * spb, s - 9, len * spb, 0.05 * d.fiddle);
   }
-  // an accompaniment with actual time in it
+  // an accompaniment with actual time in it, walking the chord under the tune
   for (let b = 0; b < 4; b++) {
-    if (d.pluck > 0.3) pluck(t0 + b * spb, inMode(b % 2 ? 7 : 0, d.mode) - 12, 0.07 * d.pluck);
+    if (d.pluck > 0.3) pluck(t0 + b * spb, tri[b % 2 ? 2 : 0] - 12, 0.07 * d.pluck);
     if (d.drum > 0.3 && (b === 0 || b === 2)) drum(t0 + b * spb, 0.06 * d.drum);
   }
-  if (d.horn > 0.4 && bar % 8 === 6) horn(t0, inMode(-5, d.mode), spb * 4, 0.06 * d.horn);
-  if (d.bell > 0.3 && bar % 8 === 0) bellTing(t0, inMode(12, d.mode), 0.05 * d.bell);
+  if (d.horn > 0.4 && bar % 8 === 6) horn(t0, tri[0] - 12, spb * 4, 0.06 * d.horn);
+  if (d.bell > 0.3 && bar % 8 === 0) bellTing(t0, tri[2] + 12, 0.05 * d.bell);
 }
 
 function arrangeTension(t0, spb, bar, high) {
@@ -983,6 +1023,7 @@ export function __phraseFor(bar) { newPhrase(bar); return phrase; }
    which is a check that fails for taste rather than for regression. */
 export function __lastBar() { return { ...lastBarVoices }; }
 export function __melodyFor(bar) { return melodyFor(bar, 0); }
+export function __portChord(bar, mode) { return portChord(bar, mode); }
 
 /** For the QA suite: what the controller believes, and why. */
 export function musicState() {

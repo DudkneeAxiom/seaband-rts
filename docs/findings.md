@@ -5,6 +5,45 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 86. A harbour held one chord, and it was the wrong one  (P2, player report)
+
+**Symptom.** "The audio sounds flat and doesn't blend well at all." The sea got
+a harmony engine in finding 84; a harbour did not. Standing in a port — which is
+where the player stands still for minutes at a time, reading — the strings held
+a single triad, for as long as you were there.
+
+**Reproduction.** `arrangePort` built `tri` once from the mode's degrees 0, 3-or-4
+and 7 and played it on every bar. Eight bars of tune, one chord under all of them.
+
+**Root cause, and the part I did not expect.** The static chord was not merely
+static, it was *wrong* against the tune it was accompanying. The new check
+reports four semitone clashes on notes the motif holds for a dotted beat or
+longer, all four of them shipped: dorian's bar 3 sits on the fourth for two
+beats against the chord's major third; aeolian's last bar holds the second for
+three beats against the chord's minor third; the lift clashes at bars 2 and 3.
+Dorian took `inMode(4)` for its third — a major tonic under a minor tune — which
+is where two of the four come from.
+
+**Change.** `PORT_CH`, an eight-chord harmonisation of the motif written out per
+mode, and `portChord(bar, mode)`. Written out rather than derived by pushing one
+dorian row through `inMode`: that maps pitch classes independently and turns III
+into a diminished triad in the lift, because a chord is not a set of independent
+notes. The lift gets its own shape entirely — it raises the tune's flat seventh
+to a leading note, so the bVII that harmonises bars 2 and 5 elsewhere is the one
+chord it must never play. Strings, harp, pluck, horn, bell and a new bass all
+read the bar's chord; the tonic drone now sounds only on bars whose chord is at
+home, because a pedal 0 under the VII was a second sounding against that chord's
+own root for four beats, every eighth bar, for as long as the player stood there.
+That is most of what "doesn't blend" was.
+
+**Verification.** Three checks in `tools/audio.mjs`: the harmony moves (5/8, 4/8,
+4/8 distinct), every chord is a triad, and none sits a semitone under a note the
+tune holds. Reverted to the static triad the first and third fail, naming all
+four clashes. The triad-shape check passes when reverted — it guards the table's
+wellformedness, not the regression — and it is the one that would have caught the
+`inMode`-derived version I wrote first. The clash check caught four faults in my
+own first table before it caught the shipped one. Audio suite 28/28.
+
 ## 85. The Greywake consort grounding, diagnosed and not fixed  (P2, open)
 
 **Where it stands.** Finding 66 reduced this but did not end it. Measured over

@@ -348,6 +348,56 @@ ok(`the sailing music does not repeat itself (${gen.distinct} distinct progressi
 ok(`and every note it invents is in the key (${gen.outOfKey} of ${gen.notes} out${gen.worst.length ? ': ' + gen.worst.join(',') : ''})`,
   gen.outOfKey === 0);
 
+/* A harbour is where the player stands still and reads, so it is the music
+   heard for longest at a stretch — and it used to hold one triad the whole
+   time. Two things must be true of the harmony that replaced it: it has to
+   move, and it has to be a harmony for *this* tune rather than a chord
+   sequence played near it. The clash test is the one that matters: the motif
+   is fixed, so a chord tone a semitone under a note the tune sits on for a
+   whole beat is a wrong chord, not a passing colour. */
+const port = await G(async () => {
+  const M = await import('/src/core/music.js');
+  const MOTIF = [
+    [0, 0, 1.5], [3, 1.5, 0.5], [5, 2, 1], [7, 3, 1], [7, 4, 2], [5, 6, 1], [7, 7, 1],
+    [10, 8, 1.5], [7, 9.5, 0.5], [5, 10, 1], [3, 11, 1], [5, 12, 2], [0, 14, 2],
+    [0, 16, 1], [3, 17, 1], [7, 18, 1], [12, 19, 1], [10, 20, 2], [7, 22, 1], [10, 23, 1],
+    [12, 24, 1.5], [10, 25.5, 0.5], [7, 26, 1], [5, 27, 1], [2, 28, 3],
+  ];
+  const pc = n => ((n % 12) + 12) % 12;
+  const out = {};
+  for (const mode of ['dorian', 'aeolian', 'lift']) {
+    const chords = [];
+    for (let b = 0; b < 8; b++) chords.push(M.__portChord(b, mode));
+    const shapes = chords.map(c => [c[1] - c[0], c[2] - c[1]].join('/'));
+    const badShape = shapes.filter(s => s !== '3/4' && s !== '4/3' && s !== '3/3');
+    const clash = [];
+    for (const [semi, at, dur] of MOTIF) {
+      /* A beat-long note on its way somewhere may lean on anything — that is
+         what a passing tone is. The question is only about notes the tune
+         settles on, so ask about the ones it holds for a dotted beat or more. */
+      if (dur < 1.5) continue;
+      const c = chords[Math.floor(at / 4) % 8];
+      const tone = mode === 'aeolian' ? (pc(semi) === 9 ? 8 : pc(semi))
+        : mode === 'lift' ? (pc(semi) === 3 ? 4 : pc(semi) === 10 ? 11 : pc(semi)) : pc(semi);
+      for (const n of c) {
+        const d = Math.abs(pc(n) - tone);
+        if (d === 1 || d === 11) clash.push(`${mode} bar${Math.floor(at / 4)} ${tone}v${pc(n)}`);
+      }
+    }
+    out[mode] = { distinct: new Set(chords.map(c => c.join(','))).size, badShape, clash };
+  }
+  return out;
+});
+const moved = Object.values(port).every(p => p.distinct >= 4);
+const shaped = Object.values(port).every(p => p.badShape.length === 0);
+const clean = Object.values(port).every(p => p.clash.length === 0);
+ok(`a harbour's harmony moves under the tune `
+  + `(${Object.entries(port).map(([m, p]) => `${m} ${p.distinct}/8`).join(', ')})`, moved);
+ok(`and every chord in it is a triad`
+  + `${shaped ? '' : ': ' + Object.values(port).flatMap(p => p.badShape).join(', ')}`, shaped);
+ok(`and none of them sits a semitone under a note the tune holds`
+  + `${clean ? '' : ': ' + Object.values(port).flatMap(p => p.clash).slice(0, 4).join(', ')}`, clean);
+
 /* And the adventure gets out of the way when a hunter closes. The sea layers
    are warm and bright on purpose, which is a liability if they stay that way
    into a fight — danger that sounds like a holiday is worse than no score at
