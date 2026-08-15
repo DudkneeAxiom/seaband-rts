@@ -5,6 +5,31 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 62. Three refuges "failed" because a guard got a shot in  (P3, full run)
+
+**Symptom.** One full-suite run: `she sheers off rather than follow you
+under the guns of` Greywake, Tideglass and Fort Escarra all failed at once
+— the last three ports of five — with the raider in state `hunt`, metres
+inside the ring. Standalone, the same five checks pass every time.
+
+**Root cause.** The staging, not the rule. `sheerOffFromPort` stands down
+for a ship with `aggro`, deliberately: somebody already shooting at her is
+a fight, not a chase. The check reused one pirate across all five ports and
+cleared nothing; when a harbour guard's broadside happened to hit her at
+port three, `aggro` (thirty seconds' worth) rode along to ports four and
+five, and "she followed you in" was exactly what the rule promises for a
+ship that has been fired on. The old residue lesson, plus a new corner: the
+world can *re-dirty* the staging mid-window, so clearing preconditions once
+is not enough.
+
+**Change.** Each port lays her off cold — aggro, lastAttacker, chaseHold,
+sheer state and path cleared — and if she is shot at during the window the
+cold scenario did not happen: that port is restaged, up to three tries. The
+assertion now also requires the window to have stayed cold, so a hot pass
+can never read as a verdict on the rule.
+
+---
+
 ## 61. A wage with no payroll behind it  (P3, playtest)
 
 **Symptom.** Every named officer's tavern card promised `wage ◆14/wk`. No

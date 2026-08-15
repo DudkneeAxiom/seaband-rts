@@ -225,28 +225,46 @@ const refuge = await G(() => {
     return { x: port.x + Math.sin(best.a) * 150, z: port.z + Math.cos(best.a) * 150, water: Math.round(best.score) };
   };
   for (const port of g.PORTS) {
-    p.x = port.x; p.z = port.z; p.speed = 0; p.dest = null;
-    const pir = g.ships.find(s => s.faction === 'pirate' && s.alive) || g.spawnNPC('pirate');
     const lay = layOff(port);
-    pir.x = lay.x; pir.z = lay.z; pir.hostileToPlayer = true;
-    pir.target = p; pir.alive = true;
-    g.update(0.1);
-    const chased = !!g.dockablePort;
-    // and the raider should want no part of the shore batteries
-    const before = { x: pir.x, z: pir.z };
-    for (let i = 0; i < 260; i++) g.update(1 / 30);      // long enough to gather way
-    const d0 = Math.hypot(before.x - port.x, before.z - port.z);
-    const d1 = Math.hypot(pir.x - port.x, pir.z - port.z);
-    pir.x = 9e4; pir.z = 9e4; pir.hostileToPlayer = false; pir.target = null;
-    out.push({ port: port.name, chased, water: lay.water,
-      sheeredOff: d1 > d0 + 10, moved: Math.round(d1 - d0), state: pir.brain.state });
+    /* The rule under test is about *cold* pursuit — `sheerOffFromPort`
+       stands down for a ship with aggro, deliberately: somebody already
+       shooting at her is a fight, not a chase. So the staging has to be
+       cold each time, and stay cold. One pirate reused across five ports
+       carried aggro from a harbour guard's lucky broadside at port three
+       into ports four and five, and all three read as "she followed you
+       in" — state `hunt`, which is exactly what the rule promises when
+       she has been fired on. Reset what the rule reads, and if a guard
+       hits her mid-window the cold scenario did not happen: lay her off
+       and run that port again. */
+    let row = null;
+    for (let tries = 0; tries < 3 && !row; tries++) {
+      p.x = port.x; p.z = port.z; p.speed = 0; p.dest = null;
+      const pir = g.ships.find(s => s.faction === 'pirate' && s.alive) || g.spawnNPC('pirate');
+      pir.x = lay.x; pir.z = lay.z; pir.hostileToPlayer = true;
+      pir.target = p; pir.alive = true;
+      pir.aggro = 0; pir.lastAttacker = null;
+      pir.chaseHold = 0; pir.fleeing = false;
+      if (pir.brain) { pir.brain.sheerT = 0; pir.brain.sheerFrom = null; pir.brain.path = null; pir.brain.pathGoal = null; }
+      g.update(0.1);
+      const chased = !!g.dockablePort;
+      const before = { x: pir.x, z: pir.z };
+      for (let i = 0; i < 260; i++) g.update(1 / 30);      // long enough to gather way
+      if (pir.aggro > 0 && tries < 2) continue;            // she was shot at: not this rule
+      const d0 = Math.hypot(before.x - port.x, before.z - port.z);
+      const d1 = Math.hypot(pir.x - port.x, pir.z - port.z);
+      row = { port: port.name, chased, water: lay.water, cold: !(pir.aggro > 0),
+        sheeredOff: d1 > d0 + 10, moved: Math.round(d1 - d0), state: pir.brain.state };
+      pir.x = 9e4; pir.z = 9e4; pir.hostileToPlayer = false; pir.target = null;
+      pir.aggro = 0; pir.lastAttacker = null;
+    }
+    out.push(row);
   }
   return out;
 });
 for (const r of refuge) {
   ok(`you can put into ${r.port} with a raider on your tail`, r.chased);
-  ok(`and she sheers off rather than follow you under the guns of ${r.port} (${r.moved >= 0 ? '+' : ''}${r.moved}m, ${r.state}, ${r.water}m under her)`,
-    r.sheeredOff);
+  ok(`and she sheers off rather than follow you under the guns of ${r.port} (${r.moved >= 0 ? '+' : ''}${r.moved}m, ${r.state}${r.cold ? '' : ', SHOT AT'}, ${r.water}m under her)`,
+    r.sheeredOff && r.cold);
 }
 
 /* ---------- and a hostile alongside the quay still blocks it ---------- */
