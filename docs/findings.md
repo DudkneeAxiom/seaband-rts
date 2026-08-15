@@ -5,6 +5,30 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 73. The new dialogue could be farmed at the quay  (P1, self-inflicted)
+
+**Symptom.** Found while writing the regression check for finding 70, not in
+play — which is the only reason it never shipped.
+
+**Root cause.** The manner's standing bonus was gated by a `Set` in the sheet
+module, cleared whenever a port screen opened. That is a *visit* only if you
+had to sail to get there, and `closeSheet` calls `leavePort` — so dock,
+speak, close, dock again paid +3 per notable per cycle with the ship tied up
+the whole time. The sixty-six-press grind this system was written to replace,
+rebuilt by accident in the replacement.
+
+**Change.** The gate lives in `Social` now — `spokeAt` / `canSpeakAgain`,
+keyed on world time, saved with the relationship. Four minutes of the world's
+clock, which only runs while the game does: a crossing between harbours costs
+minutes, a dock-and-undock costs seconds.
+
+**Verification.** social.mjs stages the abuse directly — the same exchange
+twice with no sailing between — and asserts it pays once, refuses at +3s,
+allows at +300s, and is still refused after a save and reload. A gate held
+only in the UI is a gate you can reload past.
+
+---
+
 ## 72. Every bounty was posted twice  (P1, player report, twice)
 
 **Symptom.** "Bounties are showing duplicates of the same ship, and have the

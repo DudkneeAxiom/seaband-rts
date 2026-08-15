@@ -20,10 +20,6 @@ let qtyMult = 1;
 /* Which deck new hands join. Reset when a port opens, so it can never point
    at a ship you sold or a prize in another harbour. */
 let recruitTo = null;
-/* Who you have already found a way of speaking to since you tied up here.
-   Cleared with the port, so the manner is something you choose on arriving
-   somewhere rather than a button to lean on at the counter. */
-const spokeThisVisit = new Set();
 
 export function initSheet(game) {
   G = game;
@@ -81,7 +77,6 @@ function refresh() { renderTab(true); }
 export function openPort(port) {
   current = { port };
   recruitTo = null;   // this harbour's fleet, not the last one's
-  spokeThisVisit.clear();
   const svc = port.services;
   const tabs = [];
   /* The town before the transactions.
@@ -460,18 +455,21 @@ function openNotable(who, port) {
      traits decide whether it lands, so the same button is a different button
      depending on who is standing in front of you.
 
-     It pays once per visit, not once per press. A manner you can lean on at
-     the counter is the sixty-six-press grind again with better prose; a
-     manner that pays when you have been away and come back is a thing you do
-     when you arrive somewhere. */
+     It pays once, and then not again for four minutes of world time. A
+     manner you can lean on at the counter is the sixty-six-press grind again
+     with better prose — and a per-visit Set was exactly that, because closing
+     the port screen calls `leavePort`, so dock, speak, close and dock again
+     farmed it without the ship ever moving. A crossing between harbours is
+     minutes; a dock-and-undock is seconds. `Social` holds the clock so it
+     survives a save. */
   const place = who.at;
   for (const m of mannersFor(who, S, place)) {
-    if (spokeThisVisit.has(who.id)) break;
+    if (!S.canSpeakAgain(who.id, G.time)) break;
     if (m.coin && G.coin < m.coin) continue;
     acts.push({
       label: m.label, sub: m.tip,
       fn: () => {
-        spokeThisVisit.add(who.id);
+        S.noteSpoke(who.id, G.time);
         if (m.coin) G.coin -= m.coin;
         const re = reactionTo(who, m.id);
         /* Warm is worth having, cool actually costs — a choice with no wrong

@@ -409,6 +409,45 @@ ok(`every authored reaction names a trait somebody in the game has (${manners.or
 ok(`and every trait on somebody you can speak to is seen by some manner `
   + `(${manners.unseen.join(', ') || 'all covered'})`, manners.unseen.length === 0);
 
+/* ---- and it cannot be farmed at the quay ----
+   The first version of this held the manner in a Set cleared when a port
+   screen opened. Closing the sheet calls `leavePort`, so dock, speak, close,
+   dock again paid every cycle with the ship tied up the whole time — the
+   sixty-six-press grind, rebuilt by accident. Staged as a player would abuse
+   it: the same exchange twice with no sailing in between. */
+const farm = await G(() => {
+  const g = window.__game, S = g.social;
+  const who = 'kesk';
+  S.rel[who] = 0; S.met[who] = true; S.spoke = {};
+  const before = S.of(who);
+  const t0 = g.time;
+  const first = S.canSpeakAgain(who, g.time);
+  S.noteSpoke(who, g.time); S.bump(who, 3, 'helped');
+  const afterFirst = S.of(who);
+  // close the screen and dock again — seconds, not a voyage
+  const secondAtOnce = S.canSpeakAgain(who, g.time + 3);
+  // and after a real crossing
+  const secondAfterSailing = S.canSpeakAgain(who, g.time + 300);
+  return { before, afterFirst, first, secondAtOnce, secondAfterSailing, t0 };
+});
+ok(`a manner pays the first time (${farm.before} -> ${farm.afterFirst})`,
+  farm.first === true && farm.afterFirst > farm.before);
+ok('and docking again on the spot does not pay it twice', farm.secondAtOnce === false);
+ok('but sailing somewhere and coming back does', farm.secondAfterSailing === true);
+/* And it survives a save, because a grind gate held only in the UI is a
+   grind gate you can reload past. */
+const farmSaved = await G(() => {
+  const g = window.__game;
+  g.social.rel.kesk = 20; g.social.met.kesk = true;
+  g.social.noteSpoke('kesk', g.time);
+  g.mode = 'campaign';
+  g.save();
+  if (!g.load()) return { note: 'save would not load' };
+  return { note: null, blocked: !g.social.canSpeakAgain('kesk', g.time) };
+});
+ok(`and a reload does not reopen it (${farmSaved.note || `blocked ${farmSaved.blocked}`})`,
+  !farmSaved.note && farmSaved.blocked === true);
+
 /* The PEOPLE page shows who you have met. Cheap existence check: the page
    renders from the same social state the sections above have been building,
    and it was the one screen nothing ever looked at. */

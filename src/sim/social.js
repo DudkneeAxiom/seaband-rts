@@ -55,6 +55,7 @@ export class Social {
     this.known = {};      // id -> { ambition:true, ... } what you have learned
     this.met = {};        // id -> true once you have actually spoken
     this.flags = {};      // one-off world facts: rivalries resolved, boons taken
+    this.spoke = {};      // id -> world time you last chose a manner with them
   }
 
   /* ---------------- relationship ---------------- */
@@ -128,13 +129,29 @@ export class Social {
   flag(k, v = true) { this.flags[k] = v; }
   hasFlag(k) { return !!this.flags[k]; }
 
+  /* ---------------- when you last found a way of speaking to them ----------------
+     The manner of a conversation pays, and it must not pay on a loop. It was
+     first held in a Set cleared when a port screen opened — which is a
+     harbour *visit* only if you had to sail to get there, and closing the
+     sheet calls `leavePort`, so dock, speak, close, dock again farmed it at
+     the quay without the ship ever moving. That is the sixty-six-press grind
+     wearing better prose.
+
+     Kept here instead: saved with the relationship it belongs to, and
+     measured in the world's own clock, which only advances while the game is
+     running. A crossing between harbours is minutes; a dock-and-undock is
+     seconds. */
+  spokeAt(id) { return this.spoke[id] == null ? -1e9 : this.spoke[id]; }
+  canSpeakAgain(id, now, gap = 240) { return now - this.spokeAt(id) >= gap; }
+  noteSpoke(id, now) { this.spoke[id] = now; }
+
   /* ---------------- save ----------------
      Only what happened. Rounded, because a relationship is a feeling and
      nobody needs it stored to fourteen decimal places. */
   serialize() {
     const rel = {};
     for (const k in this.rel) if (Math.abs(this.rel[k]) >= 0.5) rel[k] = Math.round(this.rel[k]);
-    return { v: 1, rel, mem: this.mem, known: this.known, met: this.met, flags: this.flags };
+    return { v: 1, rel, mem: this.mem, known: this.known, met: this.met, flags: this.flags, spoke: this.spoke };
   }
   static load(d) {
     const s = new Social();
@@ -144,6 +161,7 @@ export class Social {
     s.known = (d.known && typeof d.known === 'object') ? { ...d.known } : {};
     s.met = (d.met && typeof d.met === 'object') ? { ...d.met } : {};
     s.flags = (d.flags && typeof d.flags === 'object') ? { ...d.flags } : {};
+    s.spoke = (d.spoke && typeof d.spoke === 'object') ? { ...d.spoke } : {};
     // a character deleted from the cast should not haunt the save
     for (const k in s.rel) if (!NOTABLE_BY_ID[k]) delete s.rel[k];
     return s;

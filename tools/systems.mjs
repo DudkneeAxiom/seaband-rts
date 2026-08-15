@@ -728,6 +728,54 @@ ok(`and swings the duel broadside-on across the frame (${cam.sq} rad off square,
   camStaged && cam.sq !== null && cam.sq < 0.35);
 await leaveBattle(page);
 
+/* ---- your quarry is yours to take ----
+   Reported: "other warships kill your target ship before you could engage
+   it". Staged by construction — a bounty accepted against a live hull, then
+   an Admiralty patrol pounding her with the player nowhere near. She must
+   end the beating alive and running, not on the bottom; and the moment the
+   contract is off, the same guns must be able to finish her, or this is an
+   invulnerability bug rather than a rule. */
+const quarry = await G(() => {
+  const g = window.__game, p = g.player;
+  const port = g.PORTS[0];
+  let mark = g.ships.find(s => s.faction === 'pirate' && s.alive && !s.captured && !g.fleet.includes(s))
+    || g.spawnNPC('pirate');
+  if (!mark) return { note: 'no raider to post against' };
+  // a real notice against a real hull, accepted the way a player accepts one
+  const q = { id: `bounty:test:${mark.id}`, kind: 'bounty', board: 'harbour', portId: port.id,
+    targetId: mark.id, targetName: mark.name, title: `Bounty: ${mark.name}`, brief: 'test',
+    reward: 100, prestige: 5, active: false, done: false, progress: 0 };
+  g.quests.push(q);
+  g.acceptQuest(q, port);
+  // the player is a long way off; somebody else's warship does the shooting
+  p.x = 6e4; p.z = 6e4; p.dest = null; p.speed = 0;
+  const gun = g.ships.find(s => s.faction === 'admiralty' && s.alive) || g.spawnNPC('patrol');
+  mark.hull = mark.hullMax; mark.alive = true; mark.captured = false;
+  g.update(1 / 30);                                  // markQuarry runs on the tick
+  const flagged = !!mark.isQuarry;
+  for (let i = 0; i < 40 && mark.alive; i++) mark.damage(40, 'round', gun);
+  const survived = { alive: mark.alive, hull: Math.round(mark.hullFrac * 100), fleeing: !!mark.fleeing };
+  // and the player's own guns are not refused
+  mark.hull = mark.hullMax;
+  for (let i = 0; i < 40 && mark.alive; i++) mark.damage(40, 'round', p);
+  const toMe = { alive: mark.alive };
+  // contract off, flag released on the next tick, and she is mortal again
+  q.active = false; q.done = true;
+  mark.alive = true; mark.hull = mark.hullMax; mark.sinking = 0;
+  g.update(1 / 30);
+  const released = !mark.isQuarry;
+  for (let i = 0; i < 40 && mark.alive; i++) mark.damage(40, 'round', gun);
+  return { note: null, flagged, survived, toMe, released, thenSank: !mark.alive };
+});
+ok(`a hull you are hunting is not sunk by somebody else's guns `
+  + `(${quarry.note || `flagged ${quarry.flagged}, after 40 broadsides: alive ${quarry.survived.alive} `
+  + `at ${quarry.survived.hull}%, fleeing ${quarry.survived.fleeing}`})`,
+!quarry.note && quarry.flagged && quarry.survived.alive && quarry.survived.fleeing
+  && quarry.survived.hull <= 15);
+ok('but your own guns finish her', !quarry.note && quarry.toMe.alive === false);
+ok(`and she is mortal again once the notice is down (released ${quarry.released}, sank ${quarry.thenSank})`,
+  !quarry.note && quarry.released && quarry.thenSank);
+
 /* ---- a prize is sent to the yard you can reach ----
    Three ports have a yard and the pointer named whichever came first in
    PORTS, so a captain who took a prize off Tideglass was aimed the width of
