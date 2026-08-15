@@ -5,6 +5,27 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 60. The flaky duel check waited on a crawl  (P3, known flake)
+
+**Symptom.** `fighting her out ends the action` failed roughly one run in
+four, reported and left standing for a while.
+
+**Root cause.** The check's driver, not the rule. When the beaten enemy
+turned to run, the driver stopped pressing and waited for the routed rule's
+320m — correct behaviour, but unbounded: a ship whose canvas the fight shot
+away crawls, and crawling 320m can take longer than the suite's 240-second
+window has.
+
+**Change.** The driver runs her down and keeps hitting — sinking her is the
+captain's other road to the same rule, and the guns bound it. Three
+consecutive runs green (`none left` each time). An endgame probe on the same
+day confirmed the neighbouring mechanisms honestly: the nemesis spawns for
+her chapter, contact makes the encounter, a real kill sets `nemesisDown`,
+and a repulsed boarder is repulsed — the probe that reported "boarding never
+resolves" was re-boarding every tick with the survivors, which no thumb can.
+
+---
+
 ## 59. The camera treated a broadside like a survey  (P2, player report)
 
 **Symptom.** "The camera angle should be more cinematic during combat, and a

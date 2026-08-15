@@ -365,13 +365,20 @@ for (let i = 0; i < 200 && !ended; i++) {
     if (!g.battle) return true;
     const t = g.battle.enemies[0];
     if (t) {
-      /* Beaten and running: let her go. Chasing a routed ship keeps her inside
-         the range that says the action is still on, so the fight never ends —
-         which is correct behaviour, and is why this stops pressing. */
-      if (t.fleeing) { g.player.throttle = 0; g.player.dest = null; return false; }
-      g.player.setHeading(Math.atan2(t.x - g.player.x, t.z - g.player.z) + Math.PI / 2);
-      g.player.ammo = 'round';
-      if (g.fireSide && g.player.reload[g.fireSide] <= 0) g.playerFire();
+      /* Run her down and keep hitting — the bounded road to the action
+         ending. The first driver here stopped pressing when she fled and
+         waited for the routed rule's 320m, which is correct behaviour but
+         unbounded: a ship whose canvas the fight shot away crawls, and
+         crawling 320m can take longer than this suite has. Roughly one run
+         in four did exactly that. Sinking her is the captain's other road
+         to the same rule, and the guns bound it. */
+      const p = g.player;
+      const d = Math.hypot(t.x - p.x, t.z - p.z);
+      const b = Math.atan2(t.x - p.x, t.z - p.z);
+      p.throttle = 1;
+      p.setHeading(d > 230 ? b : b + Math.PI / 2);
+      p.ammo = 'round';
+      if (g.fireSide && p.reload[g.fireSide] <= 0) g.playerFire();
     }
     return false;
   });
