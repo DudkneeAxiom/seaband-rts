@@ -148,12 +148,18 @@ if (await page.evaluate(() => !document.getElementById('encounter').classList.co
 }
 await page.evaluate(() => { window.__game.paused = false; });
 
-/* fleet + menu */
+/* back at sea, then the menu */
 await sleep(600);
-await S('16-fleet');
+await S('16-after-action');
 await page.click('#btn-menu');
 await sleep(700);
 await S('17-log');
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll('#sheet-tabs .tab')].find(x => /PEOPLE/.test(x.textContent));
+  if (b) b.click();
+});
+await sleep(500);
+await S('17b-people');
 await page.evaluate(() => {
   const b = [...document.querySelectorAll('#sheet-tabs .tab')].find(x => /HELM/.test(x.textContent));
   if (b) b.click();
