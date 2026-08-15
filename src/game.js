@@ -2830,6 +2830,16 @@ export class Game {
     const balance = Math.max(0, q.reward - (q.advance || 0));
     const got = this.gainCoin(balance);
     const pres = this.gainPrestige(q.prestige);
+    /* And the person whose cargo it was thinks better of you for it. This paid
+       coin and prestige and moved nobody, so an honest carrier could work a
+       coast for hours and still be a stranger at every quay on it — which is
+       most of what "the progression with the people needs work" meant. */
+    if (q.owner) {
+      this.social.bumpWithTies(q.owner, 8, 'paid');
+      this.social.remember(q.owner, `carried_${q.good || q.id}`,
+        `You carried ${q.title} and it arrived as promised.`, this.time);
+    }
+    if (q.portId) this.social.bumpPort(q.portId, 2, 'paid');
     // the board where it was written turns over, so the work is never the same twice
     if (q.fromPort) this.contractEpoch[q.fromPort] = (this.contractEpoch[q.fromPort] || 0) + 1;
     this.pruneContracts();
@@ -3074,8 +3084,21 @@ function makeCargoQuest(id, market) {
   const fee = Math.round(unit * amount * 1.55 + leg * 0.06 * amount / 10 + 90);
   // enough up front to buy the cargo and a few barrels with it
   const advance = Math.round(unit * amount * 1.05 + 40);
+  /* Somebody wrote this contract, and it is worth knowing who.
+     Carrying work had no owner at all, so a captain who traded honestly for a
+     whole career never moved a single relationship — the only road to knowing
+     anybody ran through bounty-hunting.
+     Spread across the people who would plausibly have written it, by the
+     contract's own id, rather than always the first match: handing every
+     contract on a quay to the one factor makes a cast of five into a cast of
+     one, and leaves the rest of them strangers for ever. */
+  const clerks = notablesAt(from).filter(n => n.at === 'market' || n.at === 'harbour');
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  const owner = clerks.length ? clerks[h % clerks.length] : null;
   return {
     id, kind: 'cargo', board: 'harbour', portId: from,
+    owner: owner ? owner.id : null,
     title: `${GOODS[good].name} for ${toPort.name}`,
     brief: `Load ${amount} ${GOODS[good].name} here and carry it to the harbourmaster at ${toPort.name}.`,
     good, amount, fromPort: from, toPort: toPort.id,

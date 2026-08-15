@@ -5,6 +5,77 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 55. Sixty-six presses of one button was the whole relationship  (P1, reported)
+
+**Symptom.** Reported: "one thing i would say still needs work is the dialogue
+and progression with npcs at the towns/ports."
+
+**Measured, before touching anything.** The cast is well written — bios, hidden
+ambitions, three tiers of dialogue, rivalries. What you could *do* with them:
+
+```
+Stranger    [Ask about the port]
+Acquainted  [Ask about the port] [Ask about the others]
+Friendly    [Ask about the port] [Ask about the others]      <- nothing new at all
+Trusted     [Ask about the port] [Ask about the others] [Personal matters] [the boon]
+
+one press of the only option a stranger has:  +0.8
+first meeting to Acquainted:                  12 presses
+first meeting to Trusted:                     66 presses
+```
+
+Sixty-six presses of the same button, reading the same sentence each time, to
+reach the rung where the writing actually is. That is a progress bar with a
+face on it.
+
+**Three faults underneath it.**
+
+1. **A topic paid every time it was asked.** So the only "conversation" the
+   game had was a treadmill, and the fastest way to a friendship was to stop
+   playing and tap.
+2. **The middle of the ladder was empty.** `Friendly` — a whole tier — opened
+   nothing whatever over `acquainted`.
+3. **The main loop of the game moved nobody.** `makeCargoQuest` had no `owner`
+   field at all and `completeQuest` paid coin and prestige and touched no
+   relationship, so a captain could carry freight up and down the Shoals for a
+   whole career and still be a stranger on every quay. The only road to knowing
+   anybody ran through bounty-hunting. Meanwhile bounties *did* name an owner —
+   `makeBounty` picks the local who would actually care and writes the brief in
+   their voice — and the player took that work off a notice board without ever
+   speaking to them.
+
+**Change.** A topic pays the first time it is raised and afterwards is
+something you already know (the option stays, so you can re-read it). Carrying
+work names the person who wrote it, spread across the quay's clerks by the
+contract's own id rather than always the first match — handing every contract
+to the one factor makes a cast of five into a cast of one. Delivering it moves
+that person and leaves a memory in their mouth. They ask you for their own work
+themselves at `friendly`, in their own words, instead of it appearing on a
+board. `Friendly` now opens "Ask what is wrong" — a friend tells you what is
+wrong; it still takes a trusted one to say what they are *for*. And the card
+says what the next rung opens, read off the same gates the options use, so the
+promise cannot drift from the mechanic.
+
+**Verification.**
+
+```
+Stranger    [Ask about Ilo Vantu]
+Acquainted  + [Ask about the others]
+Friendly    + [Is there work?] [Ask what is wrong]
+Trusted     + [Personal matters] [THE HARBOURMASTER'S BOOK]
+
+one delivered contract:  kesk 0 -> 19.5, Acquainted,
+                         "You carried Timber for Fort Escarra and it arrived as promised."
+contracts at Ilo Vantu:  written by two different hands, not one
+```
+
+Four checks in `social`; the two that matter fail with the owner taken back off
+carrying work.
+
+**One thing I nearly shipped.** The next-rung line first read "she will talk
+about the other people here" — for Doro Kesk, and for everyone else. Pronouns
+are not in `notables.js` and a name does not tell you them, so it is "they".
+
 ## 54. A thumb faster than the screen turned the captain's purse to NaN  (P1, playtest)
 
 **Symptom.** A played career reported `coin: NaN`, and the compass started

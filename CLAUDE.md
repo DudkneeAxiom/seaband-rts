@@ -243,6 +243,12 @@ that is written down, and everything that asks "can I fire", "can I dock",
   bulk `for (…) g.update()` inside `page.evaluate` cannot click the button that
   clears it. Both "findings" they produced were fiction. Check `g.time` moved,
   check she is floating, check nothing is paused — before believing anything.
+- **A relationship is earned by playing, not by pressing.** Getting to know a
+  notable meant sixty-six presses of "Ask about the port" at +1 each, and the
+  main loop of the game — carrying cargo — moved nobody's opinion at all,
+  because carrying work had no owner. A topic pays once; the standing moves
+  because you *did* something for somebody who wanted it. If a tier opens
+  nothing (`Friendly` opened nothing for a year), it is not a tier.
 - **A handler must read the world at the tap, not at the draw.** Every trade
   re-renders its row, and a tap already on its way lands on the old node — so a
   SELL that closed over "you have sixteen" ran `cargo -= 16` on an entry that

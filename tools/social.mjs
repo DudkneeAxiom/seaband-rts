@@ -257,6 +257,94 @@ ok(`and each of them answers in their own voice (${voices.length} asked, `
   + `${new Set(voices).size} different answers)`,
 voices.length >= 3 && new Set(voices).size === voices.length);
 
+/* ---------- getting to know somebody is a career, not a button ----------
+
+   Reported: "the dialogue and progression with npcs at the towns/ports needs
+   work." Measured before any of this: the only option a stranger had was "Ask
+   about the port" at +1 a press, so the road from a first meeting to `trusted`
+   — where the personal talk and the port's boon live — was **sixty-six presses
+   of the same button**, reading the same sentence each time. `Friendly` opened
+   nothing whatever over `acquainted`, and carrying cargo, which is the main
+   loop of the whole game, moved nobody's opinion at all. */
+
+/* A topic is a topic. Asked twice, it pays once. */
+const topic = await G(() => {
+  const g = window.__game, S = g.social;
+  const id = 'kesk';
+  S.rel[id] = 0; S.met[id] = true;
+  if (S.known[id]) delete S.known[id].town;
+  const before = S.of(id);
+  if (S.learn(id, 'town')) S.bump(id, 2, 'helped');   // the real code path
+  const once = S.of(id);
+  if (S.learn(id, 'town')) S.bump(id, 2, 'helped');
+  if (S.learn(id, 'town')) S.bump(id, 2, 'helped');
+  return { before, once, thrice: S.of(id) };
+});
+ok(`asking the same question again does not pay again `
+  + `(${topic.before} -> ${topic.once} -> still ${topic.thrice} after two more)`,
+  topic.once > topic.before && topic.thrice === topic.once);
+
+/* Carrying cargo — the thing most captains spend their lives doing — makes
+   somebody at that quay think better of them, and they remember it. */
+const carried = await G(() => {
+  const g = window.__game, S = g.social;
+  const port = g.PORTS.find(p => p.id === 'ilovantu');
+  const q = g.contractsAt(port).find(x => x.kind === 'cargo');
+  if (!q || !q.owner) return { staged: false, owner: q ? q.owner : 'no cargo work' };
+  for (const k in S.rel) delete S.rel[k];
+  S.mem = {};
+  g.acceptQuest(q, port);
+  g.player.cargo[q.good] = (g.player.cargo[q.good] || 0) + q.amount;
+  q.loaded = q.amount;
+  const before = S.of(q.owner);
+  g.completeQuest(q);
+  return { staged: true, owner: q.owner, before, after: S.of(q.owner),
+    tier: S.tier(q.owner).name, memories: S.memories(q.owner).map(m => m.text) };
+});
+ok(`delivering a cargo makes a friend of whoever wrote the contract `
+  + `(${carried.staged ? `${carried.owner} ${carried.before} -> ${Math.round(carried.after)}, `
+    + `${carried.tier}, remembers ${carried.memories.length}` : 'no owned cargo work: ' + carried.owner})`,
+  carried.staged && carried.after > carried.before + 4 && carried.memories.length === 1);
+
+/* And the work at a quay is not all one person's, or a cast of five is a cast
+   of one and the other four stay strangers for ever. */
+const spread = await G(() => {
+  const g = window.__game;
+  const out = {};
+  for (const port of g.PORTS) {
+    const owners = g.contractsAt(port).filter(q => q.kind === 'cargo').map(q => q.owner);
+    if (owners.length >= 2) out[port.id] = [...new Set(owners)].length;
+  }
+  return out;
+});
+const ports = Object.keys(spread);
+ok(`carrying work at a quay is written by more than one hand `
+  + `(${ports.map(p => `${p}:${spread[p]}`).join(', ') || 'no port had two contracts'})`,
+  ports.length > 0 && ports.some(p => spread[p] > 1));
+
+/* Every rung of the ladder opens something. `Friendly` used to open nothing. */
+const rungs = await G(async () => {
+  const N = await import('/src/data/notables.js');
+  const g = window.__game, S = g.social;
+  const port = g.PORTS.find(p => p.id === 'ilovantu');
+  const who = N.notablesAt(port.id)[0];
+  const seen = {};
+  for (const [name, v] of [['neutral', 0], ['acquainted', 14], ['friendly', 32], ['trusted', 60]]) {
+    S.rel[who.id] = v; S.met[who.id] = true;
+    // count the gates the conversation itself uses, in the same order
+    let n = 1;                                   // the town is always askable
+    if (S.atLeast(who.id, 'acquainted')) n++;
+    if (S.atLeast(who.id, 'friendly')) n++;      // what is wrong
+    if (S.atLeast(who.id, 'trusted')) n++;       // and what they are after
+    seen[name] = n;
+  }
+  return seen;
+});
+ok(`every standing opens something new (${Object.entries(rungs).map(([k, v]) => `${k}:${v}`).join(' ')})`,
+  rungs.acquainted > rungs.neutral && rungs.friendly > rungs.acquainted
+  && rungs.trusted > rungs.friendly);
+
+
 console.log(log.join('\n'));
 console.log(errors.length ? '\nERRORS:\n' + [...new Set(errors)].slice(0, 6).join('\n') : '\nno console errors');
 const fails = log.filter(l => l.startsWith('FAIL')).length;

@@ -374,10 +374,52 @@ function notableRow(who, port) {
   return r;
 }
 
+/**
+ * What standing with this person is still worth earning.
+ *
+ * Read off the same gates the conversation uses, in the same order, so the
+ * promise and the mechanic cannot drift apart — the rule this codebase applies
+ * to the origin chips and the key list. Says nothing once there is nothing
+ * left to open: a finished relationship should not nag.
+ */
+function nextRungFor(who, S) {
+  const rungs = [
+    /* "they", not "he" or "she": the cast's pronouns are not written down in
+       `notables.js`, and guessing them off a name is how you misgender half a
+       harbour. */
+    ['acquainted', 'Acquainted', 'they will talk about the other people here'],
+    ['friendly', 'Friendly', 'they will put work your way, and say what is wrong'],
+    ['trusted', 'Trusted', 'they will tell you what they are really after'],
+  ];
+  for (const [tier, name, what] of rungs) {
+    if (!S.atLeast(who.id, tier)) return `<b>${name}</b> — ${what}.`;
+  }
+  return null;
+}
+
 /* ---------------- a conversation ----------------
    Restrained: a face, a name, what they think of you, one thing they say, and
    a few things worth asking. Not every simulation variable — what they want is
-   theirs until you earn it. */
+   theirs until you earn it.
+
+   Two things this got wrong for a long time, both reported as "the dialogue
+   and progression with the people needs work", and both measurable.
+
+   A topic paid every time it was asked. The only option available to a
+   stranger was "Ask about the port" at +1 a press, so the road from a first
+   meeting to `trusted` — where the personal talk and the port's boon live —
+   was **sixty-six presses of the same button**, reading the same sentence
+   sixty-six times. Twelve to be `acquainted`. That is not a relationship, it
+   is a progress bar with a face on it. A topic pays the first time it is
+   raised and after that it is a thing you already know; the standing moves
+   because you *did* something.
+
+   And there was nothing to do. `Friendly` opened nothing at all over
+   `acquainted` — the middle of the ladder was empty — and the work these
+   people actually want doing sat on the harbourmaster's board with their name
+   in the small print, where you took it from a notice instead of from them.
+   They ask you themselves now, in their own voice, and that is the deed that
+   moves the standing. */
 function openNotable(who, port) {
   const S = G.social;
   const first = S.meet(who.id);
@@ -396,6 +438,10 @@ function openNotable(who, port) {
     </div>`);
   body.push(`<p class="npc-say">“${g.line}”</p>`);
   if (g.memory) body.push(`<p class="npc-mem">${g.memory}</p>`);
+  /* Where you stand with them and what the next rung opens, read off the same
+     gates the options below use, so the promise cannot drift from the code. */
+  const nextStep = nextRungFor(who, S);
+  if (nextStep) body.push(`<p class="npc-next">${nextStep}</p>`);
 
   const acts = [];
   // what they know about the town — always available, and how rumours travel
@@ -405,10 +451,11 @@ function openNotable(who, port) {
      what the town at large is worried about is on the town screen where it
      belongs. */
   acts.push({
-    label: `Ask about ${port.name}`,
+    label: S.knows(who.id, 'town') ? `${port.name}, again` : `Ask about ${port.name}`,
     fn: () => {
-      S.bump(who.id, 1, 'helped');
-      S.learn(who.id, 'town');
+      // asked once is asked: the first telling is worth something, the
+      // sixtieth is the player pressing a button at a wall
+      if (S.learn(who.id, 'town')) S.bump(who.id, 2, 'helped');
       modal({
         title: who.name, dismissable: true,
         text: `<p class="npc-say">“${who.onTown || PORT_IDENTITY[port.id].problem}”</p>`,
@@ -419,10 +466,10 @@ function openNotable(who, port) {
   // who they cannot stand — earned, not given
   if (S.atLeast(who.id, 'acquainted')) {
     acts.push({
-      label: 'Ask about the others',
+      label: S.knows(who.id, 'ties') ? 'The others, again' : 'Ask about the others',
       fn: () => {
         const ties = tiesFor(who.id);
-        for (const ti of ties) S.learn(who.id, 'ties');
+        if (S.learn(who.id, 'ties')) S.bump(who.id, 2, 'helped');
         const txt = ties.length
           ? ties.map(ti => `<p class="npc-mem">${ti.line}</p>`).join('')
           : '<p class="npc-mem">“I keep to my own business.”</p>';
@@ -433,17 +480,52 @@ function openNotable(who, port) {
       },
     });
   }
-  // and what they actually want — only from someone they trust
-  if (S.atLeast(who.id, 'trusted') && who.hidden) {
+  /* Work, from the person whose problem it is.
+     Their name was already in the small print of the harbourmaster's notice —
+     `makeBounty` picks the local who would actually care and writes the brief
+     in their voice — and the player took it off a board without ever speaking
+     to them. Asked for face to face it is the same objective and a different
+     game, and it is what fills the empty middle of the ladder: `friendly` used
+     to open nothing whatever over `acquainted`. */
+  const theirs = G.contractsAt(port).filter(q => q.owner === who.id && !q.active && !q.done);
+  if (S.atLeast(who.id, 'friendly') && theirs.length) {
+    const q = theirs[0];
     acts.push({
-      label: 'Personal matters',
+      label: 'Is there work?', cls: 'gold',
+      fn: () => {
+        modal({
+          title: who.name, dismissable: true,
+          text: `<p class="npc-say">“${q.brief}”</p>`
+            + `<p class="npc-mem">Pays ◆${q.reward} · prestige ${q.prestige}</p>`,
+          actions: [
+            { label: 'I WILL DO IT', cls: 'gold', fn: () => {
+              G.acceptQuest(q, port);
+              S.bump(who.id, 4, 'helped');
+              S.remember(who.id, `asked_${q.id}`, 'You took this on when they asked you to their face.', G.time);
+              refresh();
+            } },
+            { label: 'NOT TODAY', fn: () => openNotable(who, port) },
+          ],
+        });
+      },
+    });
+  }
+  /* What they actually want. This sat behind `trusted` — sixty-six presses
+     away — so almost nobody ever heard it. A friend tells you what is wrong;
+     it takes a trusted one to tell you what they are *for*. */
+  if (S.atLeast(who.id, 'friendly') && who.hidden) {
+    const deep = S.atLeast(who.id, 'trusted');
+    acts.push({
+      label: deep ? 'Personal matters' : 'Ask what is wrong',
       cls: 'gold',
       fn: () => {
-        S.learn(who.id, 'ambition'); S.learn(who.id, 'problem');
+        if (S.learn(who.id, 'problem')) S.bump(who.id, 2, 'helped');
+        if (deep) S.learn(who.id, 'ambition');
         modal({
           title: who.name, dismissable: true,
           text: `<p class="npc-say">“${who.hidden.problem}”</p>`
-            + `<p class="npc-mem">What they want: ${who.hidden.ambition}</p>`,
+            + (deep ? `<p class="npc-mem">What they want: ${who.hidden.ambition}</p>`
+              : '<p class="npc-mem">There is more they are not saying.</p>'),
           actions: [{ label: 'BACK', fn: () => openNotable(who, port) }],
         });
       },
