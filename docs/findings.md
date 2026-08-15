@@ -5,6 +5,45 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 85. The Greywake consort grounding, diagnosed and not fixed  (P2, open)
+
+**Where it stands.** Finding 66 reduced this but did not end it. Measured over
+twelve staged errands: **2 of 12** still ground a consort. Every touch is on
+the way *out* of the harbour, and the picture is consistent — she is holding
+station eleven metres off her mark at quarter throttle, 200m from the port,
+in between half a metre and four metres of water under a four-metre keel.
+
+**What that means.** The slot is sounded, and the road to it is sounded, and
+both of those rules are about where she is *going*. Neither helps a hull that
+has already arrived somewhere thin and has nothing left to do: station-keeping
+speed is 0.25 throttle, and she sits there and grinds.
+
+**Three attempts, all worse, all reverted.** A rule that steered for the
+deepest water in sight whenever the keel was short:
+
+| trigger | throttle | result |
+|---|---|---|
+| baseline (no rule) | — | 2 of 12 |
+| `draft*1.9+3` (10.6m) | 1.0 | **4 of 12** |
+| `draft+1.5` (5.5m) | 0.55 | **6 of 12** |
+
+The first threshold is the station-*choosing* margin, so inside a harbour she
+was permanently in escape mode, driving for open water at full throttle and
+grinding on the way — it doubled the thing it was written to stop. Tightening
+the trigger and easing the throttle made it worse again, which says the fault
+is not the trigger but the escape itself: a sixteen-point search for the
+deepest water within 100m, at a harbour mouth, will happily point a hull back
+along the wall it is standing on.
+
+**What the next attempt should probably do instead**: not search, but reuse
+what already works — `findRoute` to the flag's own position, which is proved
+water by definition, rather than a local greedy sweep. That is the lesson this
+codebase has already written down twice (a greedy rule cannot work a hull out
+of a harbour; the route grid was written for exactly this), and I did not
+apply it here.
+
+---
+
 ## 84. The music was weak, and it was measurably weak  (P1, player report)
 
 **Symptom.** "The music audio is really weak. I'd like more of an adventure

@@ -115,6 +115,11 @@ function portDialect(faction, id) {
   };
 }
 
+/* Which instruments the last scheduled bar used. Written by the voices
+   themselves so it cannot drift from what was really played. */
+const lastBarVoices = {};
+function sounded(name) { lastBarVoices[name] = (lastBarVoices[name] || 0) + 1; }
+
 /* ---------------- the graph ---------------- */
 let G = null;                    // handles lent by audio.js at init
 let layers = null;               // named gains the arrangers play into
@@ -279,6 +284,7 @@ const F0 = 293.66;               // D4: the whistle lives an octave above the ol
 const fOf = semi => F0 * Math.pow(2, semi / 12);
 
 function whistle(t, semi, dur, vol, opts = {}) {
+  sounded('flute');
   const c = G.ctx;
   const f = G.num(fOf(semi) * (opts.low ? 0.5 : 1) * (opts.high ? 2 : 1), 440, 80, 4000);
   const o = c.createOscillator(); o.type = 'sine';
@@ -290,10 +296,10 @@ function whistle(t, semi, dur, vol, opts = {}) {
      makes it read as an instrument being blown rather than a tone. */
   const p2 = c.createOscillator(); p2.type = 'sine';
   p2.frequency.setValueAtTime(f * 2, t);
-  const p2g = c.createGain(); p2g.gain.setValueAtTime(0.16, t);
+  const p2g = c.createGain(); p2g.gain.setValueAtTime(0.07, t);
   const p3 = c.createOscillator(); p3.type = 'triangle';
   p3.frequency.setValueAtTime(f * 3, t);
-  const p3g = c.createGain(); p3g.gain.setValueAtTime(0.055, t);
+  const p3g = c.createGain(); p3g.gain.setValueAtTime(0.015, t);
   // a grace note: the finger lifting into the note from below
   if (opts.grace) {
     o.frequency.setValueAtTime(f * 0.891, t);
@@ -327,6 +333,7 @@ function whistle(t, semi, dur, vol, opts = {}) {
 }
 
 function fiddle(t, semi, dur, vol) {
+  sounded('fiddle');
   const c = G.ctx;
   const f = G.num(fOf(semi) * 0.5, 220, 60, 2000);
   const g = c.createGain();
@@ -346,6 +353,7 @@ function fiddle(t, semi, dur, vol) {
 }
 
 function pluck(t, semi, vol) {
+  sounded('pluck');
   const c = G.ctx;
   const o = c.createOscillator(); o.type = 'triangle';
   o.frequency.setValueAtTime(G.num(fOf(semi) * 0.5, 147, 40, 1600), t);
@@ -360,6 +368,7 @@ function pluck(t, semi, vol) {
 }
 
 function drone(t, semi, dur, vol) {
+  sounded('drone');
   const c = G.ctx;
   const g = c.createGain();
   g.gain.setValueAtTime(0.0001, t);
@@ -376,6 +385,7 @@ function drone(t, semi, dur, vol) {
 }
 
 function drum(t, vol, deep = false) {
+  sounded('drum');
   const c = G.ctx;
   const n = G.noiseSrc(false);
   const lp = c.createBiquadFilter(); lp.type = 'lowpass';
@@ -400,6 +410,7 @@ function drum(t, vol, deep = false) {
 }
 
 function horn(t, semi, dur, vol) {
+  sounded('horn');
   const c = G.ctx;
   const o = c.createOscillator(); o.type = 'sawtooth';
   o.frequency.setValueAtTime(G.num(fOf(semi) * 0.25, 73, 30, 500), t);
@@ -422,31 +433,46 @@ function horn(t, semi, dur, vol) {
 
 /** Warm sustained strings — the floor everything else stands on. */
 function strings(t, semis, dur, vol) {
+  sounded('strings');
   const c = G.ctx;
   const g = c.createGain();
-  const a = Math.min(0.5, dur * 0.25);
+  const a = Math.min(0.7, dur * 0.35);   // strings swell, they do not start
   g.gain.setValueAtTime(0.0001, t);
   g.gain.linearRampToValueAtTime(G.gainOf(vol, 0.5), t + a);
   g.gain.setValueAtTime(G.gainOf(vol, 0.5), t + dur * 0.72);
   g.gain.linearRampToValueAtTime(0.0001, t + dur);
   const lp = c.createBiquadFilter(); lp.type = 'lowpass';
-  lp.frequency.setValueAtTime(900, t);
-  lp.frequency.linearRampToValueAtTime(2100, t + a);      // the bow taking hold
-  lp.Q.value = 0.5;
+  /* Triangles with one saw under them, not a bank of saws.
+     Reported: "the synths are too much". Six sawtooth voices through a
+     2.1kHz filter is the sound of a synthesiser pad and nothing else — a
+     sawtooth carries every harmonic, and six of them detuned is a wall of
+     them. A triangle has only the odd ones and they fall away fast, which
+     is much closer to rosin on a string; a single quiet saw underneath
+     keeps the bite that stops it sounding like a flute choir. The filter
+     comes down with it, because the buzz lives above a kilohertz. */
+  lp.frequency.setValueAtTime(620, t);
+  lp.frequency.linearRampToValueAtTime(1250, t + a);      // the bow taking hold
+  lp.Q.value = 0.4;
   for (const semi of semis) {
-    // two voices a hair apart per note: the shimmer of a section, not a synth
     for (const det of [-0.5, 0.5]) {
-      const o = c.createOscillator(); o.type = 'sawtooth';
+      const o = c.createOscillator(); o.type = 'triangle';
       o.frequency.setValueAtTime(G.num(fOf(semi) * 0.5 * (1 + det * 0.0035), 220, 50, 2400), t);
       o.connect(lp); o.start(t); o.stop(t + dur + 0.15);
       o.onended = () => o.disconnect();
     }
+    const sw = c.createOscillator(); sw.type = 'sawtooth';
+    sw.frequency.setValueAtTime(G.num(fOf(semi) * 0.5, 220, 50, 2400), t);
+    const swg = c.createGain(); swg.gain.setValueAtTime(0.18, t);
+    sw.connect(swg); swg.connect(lp);
+    sw.start(t); sw.stop(t + dur + 0.15);
+    sw.onended = () => { sw.disconnect(); swg.disconnect(); };
   }
   lp.connect(g); g.connect(layers.strings); g.connect(G.echoIn);
 }
 
 /** A harp: the sparkle running through the middle of the sea music. */
 function harp(t, semi, vol) {
+  sounded('harp');
   const c = G.ctx;
   const f = G.num(fOf(semi), 440, 60, 3600);
   const g = c.createGain();
@@ -457,7 +483,7 @@ function harp(t, semi, vol) {
      spectrum showed the whole band above 2.8k sitting thirty dB under the
      rest of the score, which is a soundtrack with no daylight in it. Two
      partials and room to breathe put the sparkle back. */
-  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7200; lp.Q.value = 0.4;
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6000; lp.Q.value = 0.4;
   const o = c.createOscillator(); o.type = 'triangle';
   o.frequency.setValueAtTime(f, t);
   const o2 = c.createOscillator(); o2.type = 'sine';       // the string's second partial
@@ -465,7 +491,7 @@ function harp(t, semi, vol) {
   const g2 = c.createGain(); g2.gain.setValueAtTime(0.3, t);
   const o3 = c.createOscillator(); o3.type = 'sine';       // and the shimmer above it
   o3.frequency.setValueAtTime(f * 3.02, t);
-  const g3 = c.createGain(); g3.gain.setValueAtTime(0.12, t);
+  const g3 = c.createGain(); g3.gain.setValueAtTime(0.065, t);
   o3.connect(g3); g3.connect(lp);
   o3.start(t); o3.stop(t + 1.6);
   o.connect(lp); o2.connect(g2); g2.connect(lp);
@@ -476,6 +502,7 @@ function harp(t, semi, vol) {
 
 /** Pizzicato bass on the root: what gives the roll its bottom. */
 function bass(t, semi, dur, vol) {
+  sounded('bass');
   const c = G.ctx;
   const o = c.createOscillator(); o.type = 'triangle';
   o.frequency.setValueAtTime(G.num(fOf(semi) * 0.25, 73, 28, 400), t);
@@ -491,6 +518,7 @@ function bass(t, semi, dur, vol) {
 
 /** A shaker on the off-beats: the thing that makes it move. */
 function shake(t, vol) {
+  sounded('shake');
   const c = G.ctx;
   const n = G.noiseSrc(false);
   const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5200;
@@ -504,16 +532,32 @@ function shake(t, vol) {
 }
 
 function bellTing(t, semi, vol) {
+  sounded('bell');
   const c = G.ctx;
+  const f = G.num(fOf(semi) * 2, 1174, 200, 5000);
   const o = c.createOscillator(); o.type = 'sine';
-  o.frequency.setValueAtTime(G.num(fOf(semi) * 2, 1174, 200, 5000), t);
+  o.frequency.setValueAtTime(f, t);
   const g = c.createGain();
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(G.gainOf(vol, 0.12), t + 0.008);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
   o.connect(g); g.connect(layers.bell);
-  o.start(t); o.stop(t + 1.7);
+  /* A struck bar is not a sine. Its second mode sits near 2.7 times the
+     fundamental and is not a harmonic of it, which is exactly why a
+     glockenspiel rings rather than hums — and it is also the only thing in
+     this score with any energy above three kilohertz now that the strings
+     have been softened out of that range. It decays faster than the
+     fundamental, the way a real bar does. */
+  const p2 = c.createOscillator(); p2.type = 'sine';
+  p2.frequency.setValueAtTime(G.num(f * 2.76, 3240, 300, 11000), t);
+  const g2 = c.createGain();
+  g2.gain.setValueAtTime(0.0001, t);
+  g2.gain.exponentialRampToValueAtTime(G.gainOf(vol * 0.5, 0.08), t + 0.005);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  p2.connect(g2); g2.connect(layers.bell);
+  o.start(t); o.stop(t + 1.7); p2.start(t); p2.stop(t + 0.6);
   o.onended = () => { o.disconnect(); g.disconnect(); };
+  p2.onended = () => { p2.disconnect(); g2.disconnect(); };
 }
 
 /* ---------------- arrangements ----------------
@@ -547,21 +591,21 @@ function arrangeSea(t0, spb, bar) {
   const thin = passage === 'rest';
 
   // the floor: strings on the chord, always, so the sea is never empty
-  strings(t0, [ch[0], ch[1], ch[2]], barLen * 1.02, thin ? 0.075 : 0.115);
+  strings(t0, [ch[0], ch[1], ch[2]], barLen * 1.02, thin ? 0.055 : 0.085);
   // and the bottom of the roll
-  bass(t0, ch[0], spb * 2.4, thin ? 0.07 : 0.13);
-  if (!thin) bass(t0 + spb * 3, ch[0] + (phrase.arp ? 7 : 0), spb * 2.4, 0.09);
+  bass(t0, ch[0], spb * 2.4, thin ? 0.055 : 0.095);
+  if (!thin) bass(t0 + spb * 3, ch[0] + (phrase.arp ? 7 : 0), spb * 2.4, 0.065);
 
   // the harp: a rolled chord on the bar, running figures through the middle
   if (phrase.arp || thin) {
     const roll = [ch[0], ch[1], ch[2], ch[3]];
     for (let i = 0; i < roll.length; i++) {
-      harp(t0 + i * 0.055, roll[i], (thin ? 0.055 : 0.075) * (1 - i * 0.08));
+      harp(t0 + i * 0.055, roll[i], (thin ? 0.04 : 0.055) * (1 - i * 0.08));
     }
   }
   if (!thin && phrase.arp) {
     const fig = [ch[1], ch[2], ch[3], ch[2]];
-    for (let i = 0; i < 4; i++) harp(t0 + (1.5 + i * 0.75) * spb, fig[i] + 12, 0.045);
+    for (let i = 0; i < 4; i++) harp(t0 + (1.5 + i * 0.75) * spb, fig[i] + 12, 0.032);
   }
 
   if (thin) return;
@@ -579,16 +623,24 @@ function arrangeSea(t0, spb, bar) {
   }
 
   // the lilt: shaker on the back of each dotted beat, a soft drum on the bar
-  for (const b of [1, 2, 4, 5]) shake(t0 + b * spb, b % 3 === 2 ? 0.11 : 0.07);
-  drum(t0, 0.055);
-  if (bar % 2 === 1) drum(t0 + spb * 3, 0.038);
+  for (const b of [1, 2, 4, 5]) shake(t0 + b * spb, b % 3 === 2 ? 0.045 : 0.028);
+  drum(t0, 0.038);
   // a horn under the turn of every second phrase: the horizon opening
   if (bar % 8 === 0) horn(t0, ch[0] + 12, barLen * 1.6, 0.045);
   /* And a glockenspiel catching the light on the first bar of a phrase. It is
      the highest thing in the arrangement and the only one above 3kHz with any
      weight, which is what stops warm becoming muffled. */
-  if ((bar - phrase.at + 4) % 4 === 0) bellTing(t0, ch[2] + 12, 0.05);
-  if (phrase.arp && bar % 4 === 2) bellTing(t0 + spb * 3, ch[1] + 12, 0.035);
+  /* The glockenspiel is where the air comes from now. Softening the strings
+     to stop them sounding like a synthesiser took the top off the whole
+     score with them — a triangle has no harmonics up there to give — so the
+     daylight has to come from something struck rather than from something
+     bowed. One on the turn of the phrase, one across the middle of it, and
+     a light one on the bar between; it is the least synthetic voice here and
+     the only one that can hold that end of the spectrum. */
+  const inPhrase = (bar - phrase.at + 4) % 4;
+  if (inPhrase === 0) bellTing(t0, ch[2] + 12, 0.075);
+  if (inPhrase === 2) bellTing(t0 + spb * 3, ch[1] + 12, 0.055);
+  if (phrase.arp && inPhrase % 2 === 1) bellTing(t0 + spb * 1.5, ch[3] + 12, 0.04);
 }
 
 function arrangePort(t0, spb, bar) {
@@ -718,8 +770,13 @@ function playDiscovery() {
    the same gains throughout, so a transition is a mix moving, not a
    track restarting. */
 const MIX = {
-  sea: { whistle: 1, fiddle: 0.7, pluck: 0.8, drone: 1, drum: 0.5, horn: 0.4, bell: 0.2, strings: 1, harp: 1, bass: 1, shake: 0.9, ramp: 6 },
-  approach: { whistle: 1, fiddle: 0.8, pluck: 0.9, drone: 0.9, drum: 0.6, horn: 0.6, bell: 0.7, strings: 1, harp: 1, bass: 1, shake: 0.8, ramp: 8 },
+  /* `bell` was 0.2 here, from when the glockenspiel was a rare ornament that
+     belonged to harbours. It carries the whole top of the sea arrangement
+     now — everything else was softened out of that range on purpose — and at
+     a fifth of its level the score had no air in it whatever the instrument
+     did. That is what "the levels seem off" was. */
+  sea: { whistle: 1, fiddle: 0.7, pluck: 0.8, drone: 1, drum: 0.5, horn: 0.4, bell: 0.85, strings: 1, harp: 1, bass: 0.9, shake: 0.8, ramp: 6 },
+  approach: { whistle: 1, fiddle: 0.8, pluck: 0.9, drone: 0.9, drum: 0.6, horn: 0.6, bell: 0.85, strings: 1, harp: 1, bass: 0.9, shake: 0.7, ramp: 8 },
   port: { whistle: 1, fiddle: 1, pluck: 1, drone: 0.8, drum: 0.8, horn: 0.8, bell: 1, strings: 0.9, harp: 0.8, bass: 0.5, shake: 0.6, ramp: 5 },
   /* Danger takes the adventure away with it. The strings hold on for a moment
      under the tension states — a threat is more frightening when the warmth
@@ -844,6 +901,7 @@ export function musicUpdate(dt, st) {
 }
 
 function scheduleBar(t0, spb, bar) {
+  for (const k in lastBarVoices) delete lastBarVoices[k];
   switch (state) {
     case 'battle': arrangeBattle(t0, spb, bar, detail.phase || 'b'); break;
     case 'boarding': arrangeBoarding(t0, spb, bar); break;
@@ -885,6 +943,12 @@ export function musicEvent(name) {
    keeps inventing something new and stays in its key — can be read rather
    than listened for. */
 export function __phraseFor(bar) { newPhrase(bar); return phrase; }
+/* What the last scheduled bar actually put on the clock. "Is this a band or
+   is it a whistle and a drone" is a question about how many voices are
+   sounding, and that is worth asking directly — measuring it through the
+   spectrum instead means the answer moves whenever the timbres are retuned,
+   which is a check that fails for taste rather than for regression. */
+export function __lastBar() { return { ...lastBarVoices }; }
 export function __melodyFor(bar) { return melodyFor(bar, 0); }
 
 /** For the QA suite: what the controller believes, and why. */

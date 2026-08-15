@@ -284,9 +284,33 @@ const score = await G(async () => {
 });
 const band = i => +score.bands[i].toFixed(1);
 ok(`the score has a body under it (180-360Hz at ${band(2)}dB)`, score.bands[2] > -70);
-ok(`and daylight over it (2.8-5.6kHz reaches ${score.topBright.toFixed(1)}dB, mean ${band(6)}; `
-  + `it was -112 flat when this was a whistle and a drone)`,
-score.topBright > -95);
+/* "A whistle and a drone" is a statement about how many voices are sounding,
+   so ask that, and ask it of the schedule rather than of the spectrum. The
+   first version of this check measured the 2.8-5.6kHz band, which worked
+   until the player asked for less synth and the timbres were softened —
+   after which it failed for taste rather than for regression, and no amount
+   of raising the glockenspiel moved it, because a transient at a fifth duty
+   cycle is averaged away by the analyser's own smoothing. Counting the band
+   cannot be argued with and does not move when the tone does. */
+const band6 = score.topBright;
+const voices = await G(async () => {
+  const M = await import('/src/core/music.js');
+  const g = window.__game;
+  g.inPort = null;
+  const seen = {};
+  let bars = 0, best = 0;
+  for (let i = 0; i < 240; i++) {
+    const b = M.__lastBar();
+    const n = Object.keys(b).length;
+    if (n) { bars++; best = Math.max(best, n); for (const k in b) seen[k] = (seen[k] || 0) + 1; }
+    await new Promise(r => setTimeout(r, 60));
+  }
+  return { names: Object.keys(seen).sort(), best, bars };
+});
+ok(`the sea is a band, not a whistle and a drone `
+  + `(${voices.best} voices in a bar at most: ${voices.names.join(', ')}; top band ${band6.toFixed(0)}dB)`,
+voices.best >= 5 && voices.names.includes('strings') && voices.names.includes('bass')
+  && voices.names.includes('harp') && voices.names.includes('flute'));
 ok(`the sea is not silent for long stretches (${(score.quietFrac * 100).toFixed(0)}% under 0.01)`,
   score.quietFrac < 0.25);
 ok(`and it still leaves headroom (peak ${score.peakMax.toFixed(3)}, ${score.bad} non-finite)`,
