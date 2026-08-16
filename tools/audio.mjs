@@ -398,6 +398,42 @@ ok(`and every chord in it is a triad`
 ok(`and none of them sits a semitone under a note the tune holds`
   + `${clean ? '' : ': ' + Object.values(port).flatMap(p => p.clash).slice(0, 4).join(', ')}`, clean);
 
+/* Every weather has a floor under it, not just the fair one.
+   The sea and the harbours were rebuilt into a band and the four states a
+   player is actually frightened in were left behind: counted, eight voices at
+   sea, ten in a harbour and *three* while a hunter closes. The most dramatic
+   thing in the game was a drone, a drum and a broken whistle. The danger
+   states are meant to be sparser than the open water — that is what makes
+   them tense — so this asks for a floor, not for parity, and it asks that the
+   floor is actually there rather than that the total looks healthy. */
+const weather = await G(async () => {
+  const M = await import('/src/core/music.js');
+  const out = {};
+  for (const st of ['sea', 'port', 'tension_low', 'tension_high', 'battle', 'boarding']) {
+    const seen = {};
+    let best = 0;
+    for (let bar = 0; bar < 16; bar++) {
+      const b = M.__scheduleFor(st, bar);
+      best = Math.max(best, Object.keys(b).length);
+      for (const k in b) seen[k] = 1;
+    }
+    out[st] = { best, names: Object.keys(seen).sort() };
+  }
+  return out;
+});
+const FLOOR = { tension_low: 4, tension_high: 5, battle: 7, boarding: 5 };
+const thin = Object.entries(FLOOR).filter(([k, n]) => weather[k].best < n);
+ok(`danger has a floor under it too `
+  + `(${Object.entries(weather).map(([k, v]) => `${k} ${v.best}`).join(', ')})`,
+  thin.length === 0);
+/* And that the floor is the low end specifically — a state can reach the count
+   on drums and whistles alone and still be the thin thing that was reported. */
+const noBottom = ['tension_low', 'tension_high', 'battle', 'boarding']
+  .filter(k => !weather[k].names.includes('bass'));
+ok(`and it is a bottom end, not a headcount`
+  + `${noBottom.length ? ': no bass in ' + noBottom.join(', ') : ''}`,
+  noBottom.length === 0);
+
 /* And the adventure gets out of the way when a hunter closes. The sea layers
    are warm and bright on purpose, which is a liability if they stay that way
    into a fight — danger that sounds like a holiday is worse than no score at

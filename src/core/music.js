@@ -453,7 +453,13 @@ function horn(t, semi, dur, vol) {
    sound like somewhere you are going. */
 
 /** Warm sustained strings — the floor everything else stands on. */
-function strings(t, semis, dur, vol) {
+/* `dark` is for the danger states. The same instrument, played without the
+   air: the bow bite lives above a kilohertz, and a pad meant to be dread
+   rather than warmth has no business up there. Measured — the sea's own
+   strings under a hunter put the 2.8-5.6kHz band only 7dB below open water,
+   where it had been forty, and the check that the sparkle leaves with the
+   adventure caught it. The saw comes out and the filter stays down. */
+function strings(t, semis, dur, vol, dark = false) {
   sounded('strings');
   const c = G.ctx;
   const g = c.createGain();
@@ -471,8 +477,8 @@ function strings(t, semis, dur, vol) {
      is much closer to rosin on a string; a single quiet saw underneath
      keeps the bite that stops it sounding like a flute choir. The filter
      comes down with it, because the buzz lives above a kilohertz. */
-  lp.frequency.setValueAtTime(620, t);
-  lp.frequency.linearRampToValueAtTime(1250, t + a);      // the bow taking hold
+  lp.frequency.setValueAtTime(dark ? 300 : 620, t);
+  lp.frequency.linearRampToValueAtTime(dark ? 480 : 1250, t + a);   // the bow taking hold
   lp.Q.value = 0.4;
   for (const semi of semis) {
     for (const det of [-0.5, 0.5]) {
@@ -481,6 +487,7 @@ function strings(t, semis, dur, vol) {
       o.connect(lp); o.start(t); o.stop(t + dur + 0.15);
       o.onended = () => o.disconnect();
     }
+    if (dark) continue;
     const sw = c.createOscillator(); sw.type = 'sawtooth';
     sw.frequency.setValueAtTime(G.num(fOf(semi) * 0.5, 220, 50, 2400), t);
     const swg = c.createGain(); swg.gain.setValueAtTime(0.18, t);
@@ -744,10 +751,30 @@ function arrangePort(t0, spb, bar) {
   if (d.bell > 0.3 && bar % 8 === 0) bellTing(t0, tri[2] + 12, 0.05 * d.bell);
 }
 
+/* Danger, with something under it.
+ *
+ * The sea and the harbours were rebuilt into a band — strings, bass, harp,
+ * shaker — and the four states a player actually gets frightened in were left
+ * exactly as they were. Counted: eight voices at sea, ten in a harbour, and
+ * *three* while a hunter closes. The most dramatic thing in the game was a
+ * drone, a drum and a broken whistle, which is the same "flat and weak" the
+ * score was rebuilt to answer, still true everywhere it mattered most.
+ *
+ * What goes under them is a floor, not the adventure. Low strings on the dark
+ * triad and a bass on its root add weight and no brightness — a held minor
+ * chord under a fragmenting tune is more dread, not less. Everything that
+ * gives these states their character — the drum pulse, the whistle in pieces,
+ * the horn — is untouched.
+ */
+const DARK = [0, 3, 7];
 function arrangeTension(t0, spb, bar, high) {
   // the tune goes to pieces: two or three notes of the opening, then silence
   const mode = 'aeolian';
   drone(t0, -2, spb * 4.2, high ? 0.12 : 0.09);
+  // the floor: quiet, low, and unmoving — the room holding its breath
+  strings(t0, DARK.map(s => s - 12), spb * 4.3, high ? 0.055 : 0.04, true);
+  bass(t0, -12, spb * 3.2, high ? 0.075 : 0.055);
+  if (high) bass(t0 + spb * 2.5, -12 + 7, spb * 1.4, 0.045);
   const pulse = high ? [0, 1.5, 2, 3.5] : [0, 2];
   for (const b of pulse) drum(t0 + b * spb, high ? 0.1 : 0.07, true);
   if (bar % 4 === (high ? 1 : 2)) {
@@ -767,6 +794,14 @@ function arrangeBattle(t0, spb, bar, phase) {
     : phase === 'a' ? [0, 2, 3] : [0, 1, 1.5, 2, 3, 3.5];
   for (const b of beats) drum(t0 + b * spb, 0.09 * den, b % 2 === 0);
   drone(t0, phase === 'c' ? -4 : -2, spb * 4.2, 0.1);
+  /* The same floor as tension, with more of it: an action is the loudest thing
+     the game does and it was five voices against the sea's eight. Strings hold
+     the dark triad down where they add weight rather than daylight, the bass
+     works the bar, and a shaker keeps the middle moving between drum hits. */
+  strings(t0, DARK.map(x => x - 12), spb * 4.3, 0.075 * (0.7 + den * 0.4), true);
+  bass(t0, -12, spb * 2.1, 0.095);
+  bass(t0 + spb * 2, phase === 'c' ? -12 + 3 : -12 + 7, spb * 1.8, 0.07);
+  for (const b of [1, 3]) shake(t0 + b * spb, 0.05 * den);
   // low brass on the bar line, denser as it worsens
   if (bar % 2 === 0) horn(t0, inMode(phase === 'c' ? -4 : 0, mode), spb * (phase === 'a' ? 2 : 3), 0.08 * den);
   // the fiddle saws an ostinato through the middle phases
@@ -793,6 +828,11 @@ function arrangeBoarding(t0, spb, bar) {
   // the fight is no longer around you — drums close, strings struck, no sea room
   for (const b of [0, 0.75, 1.5, 2, 2.75, 3.5]) drum(t0 + b * spb, 0.1, b % 1.5 === 0);
   for (let b = 0; b < 4; b++) pluck(t0 + b * spb, inMode(b % 2 ? 3 : 0, 'aeolian') - 12, 0.08);
+  /* Close quarters: no strings — this is meant to be dry and near — but a bass
+     under the drums so the deck has a floor, and a shaker between them. */
+  bass(t0, -12, spb * 1.9, 0.085);
+  bass(t0 + spb * 2, -12 + 3, spb * 1.6, 0.06);
+  for (const b of [0.5, 1.5, 2.5, 3.5]) shake(t0 + b * spb, 0.045);
   if (bar % 2 === 1) fiddle(t0, inMode(-2, 'aeolian'), spb * 2, 0.06);
   if (bar % 4 === 3) horn(t0, inMode(0, 'aeolian'), spb * 2.5, 0.07);
   if (bar % 8 === 6) {
@@ -1024,6 +1064,24 @@ export function __phraseFor(bar) { newPhrase(bar); return phrase; }
 export function __lastBar() { return { ...lastBarVoices }; }
 export function __melodyFor(bar) { return melodyFor(bar, 0); }
 export function __portChord(bar, mode) { return portChord(bar, mode); }
+/** For the QA suite: what one state's arrangement puts on the clock for one
+ *  bar, without steering the whole game into that state and waiting out the
+ *  debounce and the dwell. Laid an hour into the future so the probe cannot be
+ *  heard over whatever is really playing, and the controller's own state is
+ *  put back whatever happens. */
+export function __scheduleFor(which, bar) {
+  if (!running || !G || !G.ctx) return {};
+  const wasState = state, wasPassage = passage, wasPhrase = phrase;
+  state = which; passage = 'play';
+  /* The sea arrangement reads the current four-bar phrase, and an arbitrary
+     bar has none — so establish one for it, and hand the live one back after,
+     or a probe would quietly reshuffle what the player is listening to. */
+  newPhrase(bar - ((bar % 4) + 4) % 4);
+  try { scheduleBar(G.ctx.currentTime + 3600, 0.5, bar); } finally {
+    state = wasState; passage = wasPassage; phrase = wasPhrase;
+  }
+  return { ...lastBarVoices };
+}
 
 /** For the QA suite: what the controller believes, and why. */
 export function musicState() {

@@ -5,6 +5,43 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 95. The band stopped at the harbour mouth  (P2, from a promise I had not kept)
+
+**Why look.** After rebuilding the sea's score and then the harbours', I told the
+user that battle and tension "still use the older arrangements". That was a
+guess about how much thinner they were, and it sat unexamined for a while.
+
+**Measured.** `__scheduleFor(state, bar)` — a new QA hook that runs one state's
+arrangement for one bar an hour into the future, so the probe cannot be heard,
+and hands the controller's own state and phrase back afterwards. Counting the
+voices each bar puts on the clock:
+
+    sea 8   approach 8   port 10
+    tension_low 3   tension_high 4   battle 5   boarding 4
+
+None of the four danger states used strings, bass, harp or shaker at all. The
+most dramatic thing in the game — an action — was a drone, a drum, a fiddle and
+a whistle in pieces. That is the same "flat and weak" the whole score was rebuilt
+to answer, still entirely true everywhere it mattered most.
+
+**Change.** A floor under each: low strings on the dark triad and a bass on its
+root, a shaker through a battle, none of it touching what gives those states
+their character. Now 5 / 6 / 8 / 6 — deliberately still sparser than the open
+water, because sparse is what makes them tense. Parity was never the goal.
+
+**And the check caught the obvious mistake immediately.** The first version used
+the sea's own warm string voice, and "the sparkle belongs to the adventure and
+leaves with it" failed: the 2.8–5.6kHz band under a hunter went from forty
+decibels below open water to seven. A dread pad has no business being bright.
+`strings()` takes a `dark` flag now — no saw, and the filter stays at 300–480Hz
+instead of 620–1250 — and the gap is back to twenty-two decibels.
+
+**Verification.** Two checks: that each danger state clears a floor, and that
+the floor is a *bottom end* rather than a headcount, since a state can reach a
+voice count on drums and whistles alone and still be the thin thing that was
+reported. Reverted, they read 3/4/5/4 and "no bass in tension_low,
+tension_high, battle, boarding". Audio 30/30.
+
 ## 94. The sea was more ribbon than water in a fleet action  (P2, from a claim I had not checked)
 
 **Why look.** I told the user that "battle atmosphere with several ships" needed
