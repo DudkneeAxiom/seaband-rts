@@ -243,15 +243,33 @@ export class HUD {
        fleet bar the moment you take a consort, and the chip then sat on it.
        Ask the elements where they actually are and step over whichever one
        this lands on. */
-    let ty2 = ty;
-    for (const id of ['leftstack', 'actions']) {
+    /* Clear of the furniture — all of it at once.
+     *
+     * The hint, the notice stack and the target card joined this list because
+     * the camera came in closer for the battle pass: a shorter view means the
+     * objective is off-screen far more often, so a chevron that used to be
+     * rare now lives at the top of the frame, which is exactly where those
+     * three are. Stepping over them one at a time does not work, because the
+     * step that clears the target card puts the chip on the hint and the pass
+     * is already past it — measured, it swapped one overlap for two. So:
+     * collect the boxes, propose the places a chip could sit relative to each,
+     * and take the first proposal that is clear of every one of them. */
+    const boxes = [];
+    for (const id of ['leftstack', 'actions', 'hint', 'notices', 'targetcard', 'topbar']) {
       const box = $(id);
       if (!box || box.classList.contains('hidden')) continue;
       const r = box.getBoundingClientRect();
-      if (!r.width || !r.height) continue;
-      const hitsX = tx < r.right + 6 && tx + pw > r.left - 6;
-      const hitsY = ty2 < r.bottom + 6 && ty2 + ph > r.top - 6;
-      if (hitsX && hitsY) ty2 = Math.max(8, r.top - ph - 8);
+      if (r.width && r.height && tx < r.right + 6 && tx + pw > r.left - 6) boxes.push(r);
+    }
+    const free = y => !boxes.some(r => y < r.bottom + 6 && y + ph > r.top - 6);
+    let ty2 = ty;
+    if (!free(ty2)) {
+      const tries = [ty];
+      for (const r of boxes) { tries.push(r.bottom + 8, r.top - ph - 8); }
+      // nearest to where it wanted to be, and still on the glass
+      tries.sort((a, b) => Math.abs(a - ty) - Math.abs(b - ty));
+      const fit = tries.find(y => y >= 8 && y <= H - ph - 8 && free(y));
+      ty2 = fit === undefined ? clamp(ty, 8, Math.max(8, H - ph - 8)) : fit;
     }
     ptr.style.transform = `translate(${tx.toFixed(0)}px,${ty2.toFixed(0)}px)`;
     ptr.querySelector('.op-arrow').style.transform = `rotate(${ang.toFixed(0)}deg)`;

@@ -93,7 +93,16 @@ export class WakeField {
       const d = last ? Math.hypot(sh.x - last.x, sh.z - last.z) : 999;
       if (d > 90) pts.length = 0;    // teleport / respawn — drop the old trail
       if (moving && d > 3.2) {
-        pts.push({ x: sh.x, z: sh.z, w: sh.cls.beam * 0.45, a: clamp01(sh.speed / (sh.cls.speed * 0.75)) });
+        /* A hull dragging her quarter round throws more water than one running
+           straight, so the ribbon widens with the rate of turn. It is the same
+           curve the wake already traces — this just makes the turn read in the
+           water's width as well as in its shape. */
+        const swing = clamp01(Math.abs(sh.turnRateSmoothed || 0) * 2.6);
+        pts.push({
+          x: sh.x, z: sh.z,
+          w: sh.cls.beam * (0.45 + swing * 0.35),
+          a: clamp01(sh.speed / (sh.cls.speed * 0.75)) * (0.86 + swing * 0.14),
+        });
         if (pts.length > SEG) pts.shift();
       } else if (!moving && pts.length && this.t % 0.2 < dt) {
         pts.shift();
@@ -129,14 +138,26 @@ export class WakeField {
          curve shows the whole trail, which is most of what makes a moving ship
          look like it is moving. */
       const a0 = p0.a * Math.pow(f0, 0.55), a1 = p1.a * Math.pow(f1, 0.55);
-      const y0 = waveHeight(p0.x, p0.z) + 0.22, y1 = waveHeight(p1.x, p1.z) + 0.22;
+      /* Every corner sits on the swell under it, not on the swell under the
+         middle of the ribbon. The height used to be sampled once per trail
+         point and applied across the whole width — and the ribbon is up to
+         nine or ten metres across on a wide hull, so its edges hung above the
+         water on one side of a wave and sank under it on the other. At the old
+         alpha that was invisible; brightened, it turned the wake into a row of
+         flat white plates lying on the sea at angles to it. */
+      const ax0 = p0.x + nx * w0, az0 = p0.z + nz * w0;
+      const bx0 = p0.x - nx * w0, bz0 = p0.z - nz * w0;
+      const ax1 = p1.x + nx * w1, az1 = p1.z + nz * w1;
+      const bx1 = p1.x - nx * w1, bz1 = p1.z - nz * w1;
+      const ya0 = waveHeight(ax0, az0) + 0.2, yb0 = waveHeight(bx0, bz0) + 0.2;
+      const ya1 = waveHeight(ax1, az1) + 0.2, yb1 = waveHeight(bx1, bz1) + 0.2;
       const quad = [
-        [p0.x + nx * w0, y0, p0.z + nz * w0, a0, 0, t0],
-        [p0.x - nx * w0, y0, p0.z - nz * w0, a0, 1, t0],
-        [p1.x - nx * w1, y1, p1.z - nz * w1, a1, 1, t1],
-        [p0.x + nx * w0, y0, p0.z + nz * w0, a0, 0, t0],
-        [p1.x - nx * w1, y1, p1.z - nz * w1, a1, 1, t1],
-        [p1.x + nx * w1, y1, p1.z + nz * w1, a1, 0, t1],
+        [ax0, ya0, az0, a0, 0, t0],
+        [bx0, yb0, bz0, a0, 1, t0],
+        [bx1, yb1, bz1, a1, 1, t1],
+        [ax0, ya0, az0, a0, 0, t0],
+        [bx1, yb1, bz1, a1, 1, t1],
+        [ax1, ya1, az1, a1, 0, t1],
       ];
       for (const q of quad) {
         const o = base + v;

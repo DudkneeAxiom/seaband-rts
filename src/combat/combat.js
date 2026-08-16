@@ -134,8 +134,23 @@ export class Projectiles {
     } else if (p.ammo === 'grape') {
       this.fx.grape(p.x, hy, p.z, p.vx * 0.05, p.vz * 0.05);
     } else {
-      this.fx.woodHit(p.x, hy, p.z, 1.2);
+      /* Scale the splinters to the damage. Every round shot threw the same
+         handful of wood whatever it did, so a graze and a hit that took a gun
+         off its carriage looked identical — and what a player reads first is
+         the picture, not the number that floats up afterwards. */
+      const bite = Math.max(0, Math.min(1.6, (res.hull || 0) / Math.max(1, s.hullMax * 0.08)));
+      this.fx.woodHit(p.x, hy, p.z, 0.8 + bite * 0.9);
       this.fx.fireHit(p.x, hy, p.z);
+      if (bite > 0.9) {
+        // a heavier one takes a piece of her with it
+        for (let k = 0; k < 5; k++) {
+          const a = Math.random() * Math.PI * 2, sp = 7 + Math.random() * 14;
+          this.fx.debris.spawn(p.x, hy + 1, p.z, Math.cos(a) * sp, 5 + Math.random() * 10, Math.sin(a) * sp,
+            { size0: 3.4, size1: 1.6, life: 1.2 + Math.random() * 0.5, drag: 0.45, gravity: -24, color: [0.5, 0.36, 0.23] });
+        }
+        this.fx.smoke.spawn(p.x, hy + 1.5, p.z, 0, 2.5, 0,
+          { size0: 6, size1: 26, life: 1.3, drag: 1.2, gravity: 1.2, wind: 0.8, color: [0.42, 0.39, 0.36] });
+      }
     }
     if (ctx.onHit) ctx.onHit(p, s, res);
   }

@@ -390,24 +390,43 @@ function env(node, gain, a, d, dest = sfxBus) {
   return g;
 }
 
-export function sfxCannon(dist = 0) {
+/**
+ * One gun.
+ *
+ * `k` scales it: a whole broadside as a single event is 1, an individual gun
+ * inside a rolling one is smaller. The guns fire seventy-five milliseconds
+ * apart, so calling this per gun gives the overlapping run of reports a
+ * broadside actually is, rather than one bang standing in for six.
+ *
+ * Distance changes the colour and not only the level, which is the difference
+ * between a gun on your own deck and a fight happening across the water: the
+ * crack goes out of it first and what carries is the thump. Sea air does that
+ * and a volume knob does not.
+ */
+export function sfxCannon(dist = 0, k = 1) {
   if (!started) return;
   // a broadside two thousand units away is somebody else's war
-  const vol = 0.85 * atten(dist, 120, 900);
-  if (vol <= 0.012 || !voice(0.6)) return;
+  const vol = 0.85 * atten(dist, 120, 900) * k;
+  if (vol <= 0.012 || !voice(0.6 * k)) return;
+  /* Through the guard like everything else. `Math.min(1, NaN)` is NaN, so a
+     bad distance written straight into a filter frequency is the exact failure
+     `num` exists to stop — and it does not spoil one report, it poisons every
+     filter downstream for the life of the page. */
+  const far = num(dist, 0, 0, 1e6) / 700;        // 0 alongside … 1 across the bay
+  const f2 = num(far, 0, 0, 1);
   const n = src(false);
   const f = ctx.createBiquadFilter(); f.type = 'lowpass';
-  f.frequency.setValueAtTime(2400, ctx.currentTime);
-  f.frequency.exponentialRampToValueAtTime(180, ctx.currentTime + 0.42);
+  f.frequency.setValueAtTime(2400 - f2 * 1750, ctx.currentTime);
+  f.frequency.exponentialRampToValueAtTime(180, ctx.currentTime + 0.42 + f2 * 0.25);
   n.connect(f);
-  env(f, vol * 0.75, 0.004, 0.5);
-  n.start(); n.stop(ctx.currentTime + 0.6);
+  env(f, vol * (0.75 - f2 * 0.3), 0.004 + f2 * 0.02, 0.5 + f2 * 0.35);
+  n.start(); n.stop(ctx.currentTime + 0.9);
 
   const o = ctx.createOscillator(); o.type = 'sine';
-  o.frequency.setValueAtTime(140, ctx.currentTime);
+  o.frequency.setValueAtTime(140 - f2 * 24, ctx.currentTime);
   o.frequency.exponentialRampToValueAtTime(38, ctx.currentTime + 0.30);
-  env(o, vol * 0.9, 0.006, 0.34);
-  o.start(); o.stop(ctx.currentTime + 0.42);
+  env(o, vol * 0.9, 0.006, 0.34 + f2 * 0.2);
+  o.start(); o.stop(ctx.currentTime + 0.62);
 }
 export function sfxSplash(dist = 0) {
   if (!started) return;
@@ -420,17 +439,35 @@ export function sfxSplash(dist = 0) {
   n.connect(f); env(f, vol, 0.01, 0.34);
   n.start(); n.stop(ctx.currentTime + 0.4);
 }
-export function sfxWood(dist = 0) {
+/**
+ * A ball into a hull. `heavy` runs 0 for a graze to 1 for one that hurts.
+ *
+ * Every hit used to make exactly the same noise, so the ear could not tell a
+ * shot that scratched her paint from one that took a gun off its carriage —
+ * and the ear is where that belongs, because the number over the hull is a
+ * thing you have to look away from the fight to read. A heavy hit is lower,
+ * longer and carries a crack of splitting timber over it.
+ */
+export function sfxWood(dist = 0, heavy = 0) {
   if (!started) return;
-  const vol = 0.55 * atten(dist, 90, 700);
-  if (vol <= 0.01 || !voice(0.3)) return;
+  const h = num(heavy, 0, 0, 1);
+  const vol = (0.55 + h * 0.3) * atten(dist, 90, 700);
+  if (vol <= 0.01 || !voice(0.3 + h * 0.2)) return;
   const o = ctx.createOscillator(); o.type = 'triangle';
-  o.frequency.setValueAtTime(220, ctx.currentTime);
-  o.frequency.exponentialRampToValueAtTime(70, ctx.currentTime + 0.16);
-  env(o, vol, 0.003, 0.18); o.start(); o.stop(ctx.currentTime + 0.24);
+  o.frequency.setValueAtTime(220 - h * 70, ctx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(70 - h * 26, ctx.currentTime + 0.16 + h * 0.1);
+  env(o, vol, 0.003, 0.18 + h * 0.16); o.start(); o.stop(ctx.currentTime + 0.44);
   const n = src(false); const f = ctx.createBiquadFilter();
   f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 1.2;
-  n.connect(f); env(f, vol * 0.6, 0.002, 0.14); n.start(); n.stop(ctx.currentTime + 0.2);
+  n.connect(f); env(f, vol * 0.6, 0.002, 0.14 + h * 0.1); n.start(); n.stop(ctx.currentTime + 0.3);
+  // timber giving way: only on the ones that took something with them
+  if (h > 0.45) {
+    const c = src(false); const cf = ctx.createBiquadFilter();
+    cf.type = 'bandpass'; cf.frequency.setValueAtTime(2600, ctx.currentTime);
+    cf.frequency.exponentialRampToValueAtTime(520, ctx.currentTime + 0.22); cf.Q.value = 0.8;
+    c.connect(cf); env(cf, vol * 0.42 * h, 0.001, 0.26);
+    c.start(); c.stop(ctx.currentTime + 0.34);
+  }
 }
 /**
  * Steel on steel — and the sound this project got most wrong.

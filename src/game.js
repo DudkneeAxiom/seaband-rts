@@ -164,7 +164,14 @@ export class Game {
       onHit: (p, s, res) => this.onHit(p, s, res),
       onSplash: (x, z) => this.onSplash(x, z),
       onBroadside: (sh, side, n) => this.onBroadside(sh, side, n),
-      onGunFired: () => { },
+      /* Every gun reports. They already fire seventy-five milliseconds apart,
+         so this is what turns one bang into the rolling BOOM-BOOM-BOOM a
+         broadside is — quietly per gun, because six of them overlapping is
+         the sound, and six at full weight is the mix in ruins. */
+      onGunFired: (sh) => {
+        const p = this.player;
+        sfxCannon(p ? dist(sh.x, sh.z, p.x, p.z) : 0, 0.42);
+      },
       startBoarding: (a, b) => this.startBoarding(a, b),
       /* A merchant who has delivered sells her hold and takes on the next
          shipment, so the road is a standing trade rather than one leg per
@@ -2011,7 +2018,11 @@ export class Game {
      ========================================================= */
   onBroadside(ship, side, n) {
     const d = this.player ? dist(ship.x, ship.z, this.player.x, this.player.z) : 0;
-    sfxCannon(d);
+    /* The body under the run of reports — the guns themselves are voiced one
+       at a time from `onGunFired`, and this is the weight of the whole thing
+       going off together. Smaller than it was, because it is no longer
+       standing in for the volley on its own. */
+    sfxCannon(d, 0.5);
     if (ship.isPlayer) {
       this.stats.broadsides++;
       this.rig.addShake(0.35 + n * 0.02);
@@ -2027,9 +2038,15 @@ export class Game {
   onHit(proj, s, res) {
     const p = this.player;
     const d = p ? dist(s.x, s.z, p.x, p.z) : 0;
-    sfxWood(d);
+    /* How much that one hurt, as a fraction of what she can take. A ball that
+       dismounts a gun or cuts down men is heavy whatever the hull number says.
+       This is the difference between a miss, a hit and a hit that matters
+       arriving as three different sounds rather than one. */
+    const bite = clamp01((res.hull || 0) / Math.max(1, s.hullMax * 0.09))
+      + (res.guns ? 0.5 : 0) + clamp01((res.crew || 0) / 4) * 0.35;
+    sfxWood(d, clamp01(bite));
     if (s.isPlayer) {
-      this.rig.addShake(0.30);
+      this.rig.addShake(0.18 + clamp01(bite) * 0.3);
       if (res.crew > 0) this.stats.crewLost += res.crew;
       if (res.guns) toast('A gun is dismounted!', 'bad', 1800);
     }

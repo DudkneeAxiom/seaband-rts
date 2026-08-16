@@ -88,8 +88,16 @@ export class SeaCamera {
       fz = lerp(fz, (target.z + interest.z) / 2, 0.5);
     }
     this.aim.set(fx, 0, fz);
-    this.focus.x = damp(this.focus.x, fx, 2.6, dt);
-    this.focus.z = damp(this.focus.z, fz, 2.6, dt);
+    /* Follow the pair more closely in an action. The frame is now only just
+       wide enough to hold both hulls, so a focus point lagging behind two
+       ships manoeuvring around each other is enough to push one of them over
+       the edge — measured, the enemy landed at 1.02 of the frame width on
+       some runs and 0.07 on others, which is the same fight framed two
+       different ways. Off the campaign layer the softer follow is the nicer
+       one and nothing is riding on it. */
+    const glue = lerp(2.6, 4.2, this.heat);
+    this.focus.x = damp(this.focus.x, fx, glue, dt);
+    this.focus.z = damp(this.focus.z, fz, glue, dt);
 
     /* Only as far off as it takes to hold the pair. `sep * 0.95 + 70` put a
        duel at 130m separation on a 190m lens, and at 190m the player's own
@@ -101,7 +109,7 @@ export class SeaCamera {
     let want = this.targetDistance;
     if (interest) {
       const sep = Math.hypot(interest.x - target.x, interest.z - target.z);
-      want = clamp(Math.max(this.targetDistance * 0.5, sep * 0.86 + 26), this.minD, this.maxD);
+      want = clamp(Math.max(this.targetDistance * 0.5, sep * 0.92 + 30), this.minD, this.maxD);
     }
     want *= 1 + wideness * 0.12;
     this.distance = damp(this.distance, want, 1.8, dt);

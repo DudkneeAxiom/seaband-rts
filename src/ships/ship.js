@@ -444,7 +444,11 @@ export class Ship {
     const wh = waveHeight(this.x, this.z);
     m.position.y = wh * 0.9;
     waveTilt(this.x, this.z, _tilt);
-    const lean = clamp(-(this.turnRateSmoothed || 0) * this.speed * 0.055, -0.32, 0.32);
+    /* Lay her over into the turn. This was gentle enough to be invisible from
+       a chart-height camera, which is where the camera used to be; from the
+       new one it is one of the few things that says a ship has weight and is
+       leaning on it. Still bounded — she heels, she does not capsize. */
+    const lean = clamp(-(this.turnRateSmoothed || 0) * this.speed * 0.078, -0.40, 0.40);
     m.rotation.order = 'YXZ';
     m.rotation.y = this.yaw;
     m.rotation.x = damp(m.rotation.x, _tilt.z * Math.cos(this.yaw) + _tilt.x * Math.sin(this.yaw), 8, dt);

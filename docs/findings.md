@@ -5,6 +5,62 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 88. The battle was framed like a chart  (P1, player request)
+
+**Symptom.** Asked to make an action *feel* like the reference footage — camera,
+water, cannon spectacle, impact — without redesigning any of the game around it.
+
+**Reproduction.** `tools/battlelook.mjs`: drives the real spine into a real
+battle through `intoBattle`, shoots a burst across a broadside, and prints the
+numbers that frame it. The first run said what the pictures said. The player's
+own ship spanned **7.5% of frame height**; the reference sits at 16–20%.
+
+**Root causes, four of them, all measurable.**
+
+*The lens.* The battle camera opened to `sep * 0.95 + 70` to hold both hulls —
+190m for a duel at 130m. But the frame is centred *between* the two ships, so
+each is only half the separation from the middle of it, and a little over
+three-quarters of the separation is enough. Two earlier attempts biased the view
+toward the player instead and both went backwards: the enemy left the frame in
+three shots out of four and the distance had to go back up to fetch her. The
+centred frame is the cheapest one there is.
+
+*The wake.* Faded as `f * f` where f is 0 at the oldest point, so it was down to
+a tenth within a hull-length astern — the wide, interesting part of the ribbon
+was written every frame and never seen. Brightening it exposed a second fault
+immediately: the height was sampled once per trail point and applied across a
+ribbon up to ten metres wide, so its edges floated above the swell on one side
+of a wave and sank under it on the other, and the wake became a row of flat
+white plates lying on the sea at angles to it. Sample every corner.
+
+*The guns.* They already fired in sequence, 75ms apart, each with its own
+muzzle — and none of it could be seen. Each report grew a near-white cloud 46m
+across and held it three seconds, so six overlapping was one opaque sphere wider
+than the ship that swallowed the enemy at close range. The ball was a dark dot
+at 0.16 grey against deep blue water: invisible, so a broadside was a noise and
+then a number. The trail that fixes it is laid every few metres of *flight*, not
+once a frame, or it is a line at sixty frames and a row of dots at eight.
+
+*The reports.* `onGunFired` was wired to `() => {}`. Six sequential guns made
+exactly one bang.
+
+**What it cost elsewhere.** A closer camera puts the objective off-screen far
+more often, so the edge chevron went from rare to constant and landed on the
+hint stack. Stepping over furniture one box at a time swapped one overlap for
+two — the step that clears the target card puts the chip on the hint, and the
+pass is already past it. It now proposes positions and takes the first that
+clears every box at once. And `sfxCannon`'s new distance colouring wrote
+`Math.min(1, NaN)` into a filter frequency, which is exactly the failure `num()`
+exists to prevent and does not spoil one voice but every filter downstream.
+
+**Verification.** A new check in `tools/systems.mjs` stages the enemy at a known
+120m — the separation left to the fight ranged 116m to 177m between runs, so an
+absolute threshold was measuring where the AI had got to — then asserts she
+fills enough of the frame, sits in the middle of it, and that the enemy is still
+in shot. Those last two pull against the first on purpose; either alone is easy
+and wrong. Reverted to `sep * 0.95 + 70` it reads 8.4% and fails; with the fix,
+11.0% and 11.4% across runs. Layout 0 problems, audio 28/28.
+
 ## 87. The sounding did not sound the first fourteen metres  (P1, from finding 85)
 
 **Symptom.** Chasing finding 85's open question — why a Greywake consort still

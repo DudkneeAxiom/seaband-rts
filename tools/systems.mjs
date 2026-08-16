@@ -726,6 +726,55 @@ ok(`an action drops the camera toward the water (${cam.calm} calm -> ${cam.pitch
   cam.mode === 'battle' && cam.heat > 0.6 && cam.pitch < cam.calm - 0.08);
 ok(`and swings the duel broadside-on across the frame (${cam.sq} rad off square, mark ${cam.mark})`,
   camStaged && cam.sq !== null && cam.sq < 0.35);
+
+/* And the ship is a ship, not a counter.
+   The battle camera stood 200m off because it opened to sep*0.95+70 to hold
+   both hulls, which left the player's own ship at seven per cent of the frame
+   height — the single thing most responsible for an action reading as a chart
+   rather than a fight.
+
+   The separation is staged, because it has to be. How much of the frame she
+   fills depends entirely on how far apart the two ships happen to be, and left
+   to the fight that ranged from 120m to 180m between runs — so an absolute
+   threshold was measuring where the AI had got to, and passed or failed on
+   that. Lay the enemy at a known 120m, let the rig settle, then ask. */
+await G(() => {
+  const g = window.__game, p = g.player, t = g.target;
+  if (!t || !t.alive) return;
+  const b = Math.atan2(t.x - p.x, t.z - p.z);
+  t.x = p.x + Math.sin(b) * 120; t.z = p.z + Math.cos(b) * 120;
+  t.speed = 0; t.throttle = 0;
+  p.speed = 0; p.throttle = 0; p.dest = null;
+});
+await ff(page, 4);
+const frame = await G(() => {
+  const g = window.__game, p = g.player, t = g.target;
+  const cam = g.rig.cam;
+  const rect = window.__renderer.domElement.getBoundingClientRect();
+  const W = window.__worldToScreen;
+  const a = W(cam, p.x, 0, p.z, rect);
+  const b = W(cam, p.x, 8 + p.cls.masts * 7, p.z, rect);
+  const c = t && t.alive ? W(cam, t.x, 0, t.z, rect) : null;
+  return {
+    frac: +(Math.abs(b.y - a.y) / rect.height).toFixed(3),
+    onScreen: !a.behind && a.x > 0 && a.x < rect.width && a.y > 0 && a.y < rect.height,
+    y: +(a.y / rect.height).toFixed(2),
+    foe: c ? (!c.behind && c.x > 0 && c.x < rect.width && c.y > 0 && c.y < rect.height) : null,
+    foeAt: c ? { x: +(c.x / rect.width).toFixed(2), y: +(c.y / rect.height).toFixed(2) } : null,
+    sep: t && t.alive ? Math.round(Math.hypot(t.x - p.x, t.z - p.z)) : null,
+    dist: +g.rig.distance.toFixed(0),
+  };
+});
+/* Assert the staging held before believing the measurement: if the pair have
+   drifted off 120m the numbers are about a different scene. */
+const staged = frame.sep !== null && Math.abs(frame.sep - 120) < 25;
+ok(`the player's ship has presence in an action `
+  + `(${(frame.frac * 100).toFixed(1)}% of frame height at a staged ${frame.sep}m, `
+  + `${(frame.y * 100).toFixed(0)}% down the frame, ${frame.dist}m lens, `
+  + `enemy in shot ${frame.foe} at ${JSON.stringify(frame.foeAt)})`,
+  staged && frame.onScreen && frame.frac > 0.095 && frame.y > 0.4 && frame.y < 0.8
+  && frame.foe === true);
+
 await leaveBattle(page);
 
 /* ---- a whole voyage survives the round trip ----
