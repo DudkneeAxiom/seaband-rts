@@ -58,17 +58,38 @@ export class Projectiles {
         resolved = this.resolve(p, ctx);
       }
       if (resolved) this.list.splice(i, 1);
-      else this.trace(p);
+      else this.trace(p, dt);
     }
   }
 
-  trace(p) {
+  /* Draw the ball, and the air it just went through.
+   *
+   * The trace was one dark dot — 0.16 grey, two metres, gone in a seventh of a
+   * second — which against deep blue water at a hundred metres is nothing at
+   * all. Being able to *watch* a volley cross the sea is most of what makes
+   * firing one feel like anything, so the ball keeps its dark head and now
+   * drags a pale trail behind it: laid down every frame and fading over about
+   * a third of a second, which draws the arc without drawing a laser.
+   *
+   * The trail is laid by *distance*, not once a frame. A ball covers a hundred
+   * and fifty metres a second, so one mark per frame is a tight line at sixty
+   * frames and a row of well-spaced dots at eight — and eight is what the QA
+   * renderer gives, and what a slow machine gives. Marking every few metres
+   * along the length actually travelled looks the same either way. */
+  trace(p, dt = 1 / 60) {
     if (p.ammo === 'grape') {
       if (Math.random() < 0.55) this.fx.debris.spawn(p.x, p.y, p.z, 0, 0, 0,
         { size0: 1.6, size1: 1.2, life: 0.12, drag: 0, color: [0.9, 0.88, 0.8] });
-    } else {
-      this.fx.shot.spawn(p.x, p.y, p.z, 0, 0, 0,
-        { size0: p.ammo === 'chain' ? 2.6 : 2.2, size1: 1.4, life: 0.14, drag: 0, color: [0.16, 0.15, 0.14] });
+      return;
+    }
+    this.fx.shot.spawn(p.x, p.y, p.z, 0, 0, 0,
+      { size0: p.ammo === 'chain' ? 2.6 : 2.2, size1: 1.4, life: 0.14, drag: 0, color: [0.16, 0.15, 0.14] });
+    const run = Math.hypot(p.vx, p.vy, p.vz) * dt;
+    const marks = Math.max(1, Math.min(8, Math.round(run / 4.5)));
+    for (let k = 0; k < marks; k++) {
+      const b = (k / marks) * dt;      // how far back along this frame's flight
+      this.fx.shot.spawn(p.x - p.vx * b, p.y - p.vy * b, p.z - p.vz * b, 0, 0, 0,
+        { size0: 1.4, size1: 0.4, life: 0.3, drag: 0, gravity: 0, color: [0.97, 0.98, 1] });
     }
   }
 

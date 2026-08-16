@@ -127,7 +127,7 @@ export class FX {
     this.smoke = new Particles(scene, { max: quality > 0.5 ? 420 : 200, hardness: 0.15 });
     this.spray = new Particles(scene, { max: quality > 0.5 ? 380 : 180, hardness: 0.35 });
     this.debris = new Particles(scene, { max: 160, hardness: 0.9 });
-    this.shot = new Particles(scene, { max: 120, hardness: 0.85, depthWrite: false });
+    this.shot = new Particles(scene, { max: quality > 0.5 ? 420 : 220, hardness: 0.85, depthWrite: false });
   }
   update(dt, windX, windZ) {
     this.smoke.update(dt, windX, windZ);
@@ -137,18 +137,44 @@ export class FX {
   }
   setScale(px) { this.smoke.setScale(px); this.spray.setScale(px); this.debris.setScale(px); this.shot.setScale(px); }
 
+  /* One gun going off, not the whole battery.
+   *
+   * The guns already fire in sequence — seventy-five milliseconds apart, each
+   * with its own muzzle — so the volley was always a run of separate reports.
+   * You could not see that, because each one grew to forty-six metres across
+   * in near-white and lived three seconds: six of those overlapping is a
+   * single opaque sphere wider than the ship, and at close range it swallowed
+   * the enemy whole. Smaller, greyer, quicker, and it reads as what it is —
+   * a bank of smoke rolling down her side, one gun at a time. */
   cannonSmoke(x, y, z, dx, dz, power = 1) {
-    const n = Math.round(4 * this.q) + 2;
+    const n = Math.round(3 * this.q) + 2;
     for (let i = 0; i < n; i++) {
-      const s = 0.5 + Math.random();
+      const s = 0.55 + Math.random() * 0.7;
       this.smoke.spawn(
         x + (Math.random() - .5) * 1.5, y + (Math.random() - .5) * 1.2, z + (Math.random() - .5) * 1.5,
-        dx * (5 + Math.random() * 9) * power, 1.4 + Math.random() * 2.4, dz * (5 + Math.random() * 9) * power,
-        { size0: 7 * s, size1: 34 * s, life: 1.6 + Math.random() * 1.4, drag: 1.1, gravity: 0.9, wind: 0.7, color: [0.93, 0.91, 0.87] }
+        dx * (6 + Math.random() * 10) * power, 1.2 + Math.random() * 2.0, dz * (6 + Math.random() * 10) * power,
+        { size0: 3.5 * s, size1: 15 * s, life: 1.0 + Math.random() * 0.9, drag: 1.5, gravity: 0.8, wind: 0.9, color: [0.80, 0.79, 0.77] }
       );
     }
-    this.smoke.spawn(x, y, z, dx * 3, 2, dz * 3, { size0: 16, size1: 46, life: 2.6, drag: 0.9, gravity: 0.5, wind: 0.9, color: [0.78, 0.77, 0.75] });
+    // the body of it, hanging off her side a moment longer
+    this.smoke.spawn(x, y, z, dx * 3, 1.6, dz * 3,
+      { size0: 7, size1: 22, life: 1.7, drag: 1.2, gravity: 0.4, wind: 1.1, color: [0.70, 0.69, 0.68] });
+    this.muzzleFlash(x, y, z, dx, dz);
   }
+  /** The moment of ignition: bright, tiny, and gone inside a tenth of a second. */
+  muzzleFlash(x, y, z, dx, dz) {
+    this.shot.spawn(x + dx * 1.2, y, z + dz * 1.2, dx * 6, 1, dz * 6,
+      { size0: 9, size1: 2, life: 0.085, drag: 3, gravity: 0, color: [1, 0.88, 0.52] });
+    this.shot.spawn(x + dx * 2.2, y, z + dz * 2.2, dx * 11, 1.5, dz * 11,
+      { size0: 5, size1: 1, life: 0.06, drag: 3, gravity: 0, color: [1, 0.97, 0.86] });
+  }
+  /* A ball going into the sea.
+   *
+   * Where a shot falls is how a gunner learns anything, so a miss has to be as
+   * legible as a hit — and at the ranges these are fired at, a low ring of
+   * spray is lost in the swell. It goes up as a column now: a tight plume that
+   * throws high and falls back, with a ring of lower spray thrown out around
+   * the foot of it and a little foam left sitting on the water afterwards. */
   splash(x, z, power = 1) {
     const n = Math.round((5 + power * 5) * this.q) + 2;
     for (let i = 0; i < n; i++) {
@@ -156,6 +182,16 @@ export class FX {
       this.spray.spawn(x, 0.3, z, Math.cos(a) * sp, 6 + Math.random() * 9 * power, Math.sin(a) * sp,
         { size0: 4 + Math.random() * 4, size1: 12 * power, life: 0.6 + Math.random() * 0.5, drag: 0.7, gravity: -22, color: [0.93, 0.98, 0.99] });
     }
+    // the column: narrow, fast, and tall enough to be seen over a wave
+    const col = Math.round(3 * this.q) + 2;
+    for (let i = 0; i < col; i++) {
+      this.spray.spawn(x + (Math.random() - .5) * 1.6, 0.4, z + (Math.random() - .5) * 1.6,
+        (Math.random() - .5) * 2.2, (13 + Math.random() * 9) * power, (Math.random() - .5) * 2.2,
+        { size0: 3, size1: 10 * power, life: 0.75 + Math.random() * 0.4, drag: 0.45, gravity: -24, color: [0.97, 1, 1] });
+    }
+    // and the disturbance it leaves behind
+    this.spray.spawn(x, 0.35, z, 0, 0.4, 0,
+      { size0: 5 * power, size1: 20 * power, life: 1.1, drag: 2.4, gravity: 0, color: [0.88, 0.95, 0.97] });
   }
   woodHit(x, y, z, power = 1) {
     const n = Math.round(5 * this.q) + 3;
