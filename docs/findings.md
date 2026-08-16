@@ -5,6 +5,46 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 93. The chapter chip came back over the fight after all  (P2, found by load)
+
+**How it was found.** The parallel harness built for finding 91 turns out to be
+a flake-finder as well as a measuring instrument: four suites at once is a fair
+imitation of a slow machine, which is the condition this project's testing rules
+are written about. Running campaign, trade, shore and playthrough three times
+each surfaced two checks that never fail alone.
+
+**The real one.** `setObjective` was fixed once already — it used to rewrite the
+chip and clear `hidden` every frame, fighting the HUD, which hides the chip
+during a battle on its own slow tick. The fix short-circuited when the text was
+unchanged, and the comment concluded "whoever owns the element's visibility
+keeps it."
+
+It did not. The short-circuit only holds while the text stands still. Any
+*change* still ran `o.classList.remove('hidden')` — so a chip the HUD had put
+away for an action came back the moment the story tick had something new to
+say: a quarry crossing the 1100m "she is in sight of you now" threshold, a
+rumour ageing another minute. The same fight as before, rarer and therefore
+harder to see. Under load the check reported the chip's class as `""` — visible,
+over a battle, exactly the screenshot that prompted the original fix.
+
+**Change.** `setObjective` no longer holds a view on visibility at all. The HUD
+owns it, on the one line that already decides it from the two facts that matter:
+is there anything to say, and are the guns out. One control per job. Under the
+same load the class now reads `hidden`.
+
+**The other one was a fixed sleep**, which this project's own rules call a latent
+flake in as many words. The DOCK check slept 400ms after placing the ship on the
+quay and then asked for the button; on a loaded machine that sleep can pass
+before a frame has run, so the check was about a game that had not yet noticed
+where she was. It polls for `dockablePort` now, and says what it saw when it
+fails.
+
+**What I did *not* do.** Three other checks timed out under the same 4× load —
+the pursuit panel, a save-guard staging, and the chip check's own twelve-second
+window. Those are timeouts against an artificial load I invented; CI runs one
+suite at a time. Re-tuning them would be churn measured against a proxy, so they
+are recorded here and left alone.
+
 ## 92. And the same mistake, in the other direction  (P3, self-correction)
 
 Right after finding 91 — which exists because twelve runs could not resolve a

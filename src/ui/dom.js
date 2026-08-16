@@ -137,11 +137,21 @@ export function setObjective(text, kicker = '') {
      was therefore visible through most of every action it was meant to be
      absent from. Nothing changed, nothing to say: whoever owns the element's
      visibility keeps it. */
+  /* …and that fix only held while the text stood still. Any change to it ran
+     `remove('hidden')` again, so a chip the HUD had put away for a battle came
+     straight back the moment the story tick had something new to say — a
+     distance crossing a threshold, a rumour ageing another minute. Same fight
+     as before, just rarer and so harder to see: it surfaced as a campaign
+     check failing only when four suites ran at once and the HUD's slow tick
+     was far enough apart to lose the race.
+
+     So this no longer holds a view on whether the chip is visible. The HUD
+     owns that, on one line, from the two facts that decide it — is there
+     anything to say, and are the guns out. */
   const key = `${kicker}\u0000${text}`;
   if (key === objLast) return;
   objLast = key;
-  if (!text) { o.classList.add('hidden'); return; }
-  o.classList.remove('hidden');
+  if (!text) { $('obj-text').innerHTML = ''; o.classList.add('hidden'); return; }
   /* Kicker and objective are separate elements so the objective can be
      line-clamped on a narrow screen without the chapter heading eating the
      allowance. Wrapped together they left "Make Ilo Vantu and…" — the kicker

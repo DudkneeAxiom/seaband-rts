@@ -331,10 +331,21 @@ await G(() => {
   }
   for (const q of g.quests) { q.active = false; q.done = false; }
 });
-await sleep(400);
+/* Wait for the world to agree she is somewhere dockable, rather than sleeping
+   a fixed four hundred milliseconds and hoping. On a loaded machine that sleep
+   can pass before a single frame has run, and then the check is about a game
+   that has not noticed where she is. */
+await waitFor(page, () => !!window.__game.dockablePort, 6000);
 await dismissModal(page);
 const dockUp = await waitFor(page, () => !!document.querySelector('.act-btn.dock'), 6000);
-ok('DOCK offers itself when you are hove to on a clear quay', dockUp);
+const dockWhy = await G(() => {
+  const g = window.__game;
+  return { dockable: g.dockablePort ? g.dockablePort.id : null, inPort: !!g.inPort,
+    mode: g.mode, spd: +g.player.speed.toFixed(1),
+    acts: [...document.querySelectorAll('.act-btn')].map(b => b.className).join(','),
+    modal: !!document.querySelector('.modal:not(.hidden)') };
+});
+ok(`DOCK offers itself when you are hove to on a clear quay (${JSON.stringify(dockWhy)})`, dockUp);
 if (!dockUp) {
   console.log('  why not:', JSON.stringify(await G(() => {
     const g = window.__game, p = g.player, port = g.PORTS[0];
