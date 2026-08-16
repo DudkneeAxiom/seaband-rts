@@ -3673,8 +3673,17 @@ class Markers {
        does she get a shot? Ships that would hunt you but have not committed
        stay off the water; the fighting-weight pip over the mast is what warns
        you about those. */
+    /* And it is a campaign affordance, so it stands down for an action — the
+       same rule the chapter chip follows, for the same reason. "If I hold this
+       course, does she get a shot?" is a question about whether to take the
+       fight. Once the fight is on it has no answer worth having, and drawing
+       it anyway is expensive: three of these are three 470-metre discs of red
+       laid over each other across the whole visible sea, with the player's own
+       gun arcs on top. Photographed in a four-against-three action, the water
+       was more ribbon than water and the ships were the least visible thing in
+       the frame. The pips over the masts still say who is dangerous. */
     const hunters = [];
-    for (const s of game.ships) {
+    for (const s of (game.mode === 'battle' ? [] : game.ships)) {
       if (s.isPlayer || game.fleet.includes(s)) continue;
       if (!s.alive || s.captured) continue;
       if (s.target !== p) continue;              // she has to be coming for you

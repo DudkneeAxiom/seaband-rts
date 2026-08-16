@@ -727,6 +727,28 @@ ok(`an action drops the camera toward the water (${cam.calm} calm -> ${cam.pitch
 ok(`and swings the duel broadside-on across the frame (${cam.sq} rad off square, mark ${cam.mark})`,
   camStaged && cam.sq !== null && cam.sq < 0.35);
 
+/* The hunting rings stand down for it too.
+   A raider's gun-range ring answers "if I hold this course, does she get a
+   shot" — a question about whether to take the fight, which is a campaign
+   question. Three of them are three 470-metre discs of red laid over each
+   other, and photographed in a four-against-three action the water was more
+   ribbon than water. Staged with hostiles actually hunting her, so the check
+   would see rings if they were being drawn. */
+const rings = await G(() => {
+  const g = window.__game, p = g.player;
+  let hunting = 0;
+  for (const s of g.ships) {
+    if (s.isPlayer || g.fleet.includes(s) || !s.alive) continue;
+    s.target = p; s.hostileToPlayer = true;    // every hull aboard is after her
+    hunting++;
+  }
+  g.markers.update(1 / 60, g);
+  return { mode: g.mode, hunting, shown: g.markers.hunts.filter(h => h.mesh.visible).length };
+});
+ok(`and the hunting rings stand down for it (${rings.hunting} hulls hunting her, `
+  + `${rings.shown} rings on the water, mode ${rings.mode})`,
+  rings.mode === 'battle' && rings.hunting > 0 && rings.shown === 0);
+
 /* And the ship is a ship, not a counter.
    The battle camera stood 200m off because it opened to sep*0.95+70 to hold
    both hulls, which left the player's own ship at seven per cent of the frame

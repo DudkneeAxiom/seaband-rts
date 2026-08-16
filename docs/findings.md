@@ -5,6 +5,39 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 94. The sea was more ribbon than water in a fleet action  (P2, from a claim I had not checked)
+
+**Why look.** I told the user that "battle atmosphere with several ships" needed
+nothing added — wakes, smoke, tracers and splashes were already per-ship and had
+only been invisible. That is a claim about a scene I had never photographed:
+every battle picture in the naval-feel pass was one hull against one.
+
+**Staging it was itself a finding.** The first attempt recruited no extra
+enemies at all — a battle splices everyone not in it out of `game.ships`, so
+there was nobody to recruit. They have to come off `battle.benched`, go back
+into the *same* ships array (never a new one; `Projectiles` and the AI world
+hold that exact reference), and onto the enemy list.
+
+**What the picture showed.** Three allies against four enemies, and the water
+covered in overlapping red bands. Up to three hunting rings are drawn at once,
+each a *470-metre* disc at gun range, with the player's own two firing arcs on
+top. The ships were the least visible thing in the frame.
+
+**The rule that was missing.** A hunting ring answers one question — "if I hold
+this course, does she get a shot?" That is a question about *whether to take the
+fight*, which makes it a campaign affordance. Once the action is on it has no
+answer worth having. It now stands down for a battle, which is exactly what the
+chapter chip does two findings ago, for exactly the same reason: `game.mode` is
+the one place that is written down, and everything that decides what the player
+sees should ask it first. The fighting-weight pips over the masts still say who
+is dangerous.
+
+**Verification.** A check in `tools/systems.mjs` stages every hull in the action
+hunting the player and asserts no rings are on the water. Reverted, it reads
+1 ring and fails. This was not something the naval-feel pass introduced — it has
+been true of every fleet action — but it is squarely what that brief asked for:
+the spectacle should come from the world, not from interface laid over it.
+
 ## 93. The chapter chip came back over the fight after all  (P2, found by load)
 
 **How it was found.** The parallel harness built for finding 91 turns out to be
