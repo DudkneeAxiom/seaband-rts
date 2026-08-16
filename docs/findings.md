@@ -5,6 +5,37 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 90. A pool I thought was overflowing, and what the honest measurement said  (P3, probe)
+
+**Why look.** The battle pass put much more into the particle pools — a trail
+mark every few metres of a ball's flight, a muzzle flash per gun, a bow wave off
+every hull, a column of spray at every miss. A pool is a fixed ring buffer, so
+the failure mode is not a crash but effects quietly vanishing in the busiest
+moment, which is exactly when they are wanted.
+
+**What the probe said first.** The `shot` pool at **100% of 420**, stealing
+slots from live sprites, with only one other hull in the action.
+
+**What was wrong with the probe.** It zeroed `reload.port` and `reload.stb`
+before every sample — thirty volleys in thirty seconds, something like ten times
+what a crew can actually load. Measured at the rate of fire the game allows, the
+same scene peaks at **3% of the shot pool and 2% of the trail pool, with zero
+live slots taken and never more than two balls in the air**. There was no bug.
+The harness was the load.
+
+**Kept anyway, for a reason that survives the correction.** The trail now has a
+pool of its own. Sharing one ring buffer between a *continuous* effect and a
+*discrete* one means the continuous one always wins when it does fill, and the
+discrete one — the muzzle flash, the readable event — is what would disappear.
+That is true whether or not this particular scene ever reaches the limit, and
+separating them costs nothing. `shot` dropped 420 → 220 in the same change,
+which the honest peak of 7 says is ample.
+
+**The lesson is the same one as finding 87's postscript.** A probe that drives
+the world by hand has to drive it the way the game does, or the numbers it
+produces are about a game nobody is playing. Zeroing a reload is the same class
+of error as teleporting a hull onto a hillside and calling it deep water.
+
 ## 89. The sweep found two things the battle screenshots did not  (P2, visual QA)
 
 **Symptom.** The battle pass looked right in `battlelook`'s own frames. `npm run

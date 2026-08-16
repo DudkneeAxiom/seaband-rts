@@ -88,7 +88,7 @@ export class Projectiles {
     const marks = Math.max(1, Math.min(8, Math.round(run / 4.5)));
     for (let k = 0; k < marks; k++) {
       const b = (k / marks) * dt;      // how far back along this frame's flight
-      this.fx.shot.spawn(p.x - p.vx * b, p.y - p.vy * b, p.z - p.vz * b, 0, 0, 0,
+      this.fx.trail.spawn(p.x - p.vx * b, p.y - p.vy * b, p.z - p.vz * b, 0, 0, 0,
         { size0: 1.4, size1: 0.4, life: 0.3, drag: 0, gravity: 0, color: [0.97, 0.98, 1] });
     }
   }

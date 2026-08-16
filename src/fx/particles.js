@@ -127,15 +127,28 @@ export class FX {
     this.smoke = new Particles(scene, { max: quality > 0.5 ? 420 : 200, hardness: 0.15 });
     this.spray = new Particles(scene, { max: quality > 0.5 ? 380 : 180, hardness: 0.35 });
     this.debris = new Particles(scene, { max: 160, hardness: 0.9 });
-    this.shot = new Particles(scene, { max: quality > 0.5 ? 420 : 220, hardness: 0.85, depthWrite: false });
+    this.shot = new Particles(scene, { max: quality > 0.5 ? 220 : 120, hardness: 0.85, depthWrite: false });
+    /* The trail gets a pool of its own, and this is the whole reason it does.
+       A pool is a ring buffer: when it wraps, the next spawn takes a slot from
+       a sprite that is still alive. Sharing one between a *continuous* effect
+       and a *discrete* one means the continuous effect always wins — measured,
+       shot marks filled all 420 slots with a single other hull in the action
+       and were stealing live ones, so the muzzle flashes would have been the
+       thing to disappear, and the flash is the readable event. Separate pools,
+       and each starves only itself. */
+    this.trail = new Particles(scene, { max: quality > 0.5 ? 600 : 260, hardness: 0.75, depthWrite: false });
   }
   update(dt, windX, windZ) {
     this.smoke.update(dt, windX, windZ);
     this.spray.update(dt, windX * 0.3, windZ * 0.3);
     this.debris.update(dt, 0, 0);
     this.shot.update(dt, 0, 0);
+    this.trail.update(dt, 0, 0);
   }
-  setScale(px) { this.smoke.setScale(px); this.spray.setScale(px); this.debris.setScale(px); this.shot.setScale(px); }
+  setScale(px) {
+    this.smoke.setScale(px); this.spray.setScale(px);
+    this.debris.setScale(px); this.shot.setScale(px); this.trail.setScale(px);
+  }
 
   /* One gun going off, not the whole battery.
    *
