@@ -44,11 +44,32 @@ swimmable water at both ends and ground in the middle — 38 of them in 68,944
 tried — and asserts none is called clear. The old walk passed 7 of the 38.
 Campaign 47/47, systems 64/64, audio 28/28.
 
-**What it did not fix.** The Greywake grounding rate itself: 2 in 12 before,
-3 in 12 after, which is noise at that sample size. The remaining signature is
-sharp and unexplained — every one is on the way *out*, at 195-205m from the
-port, at one or two knots. Finding 85's rule still stands: name it before
-changing anything else.
+**What it did not fix.** The Greywake grounding rate itself. Four more
+hypotheses were tested and none of them is the cause:
+
+- *The consorts drift aground while the flag is docked.* Refuted flat. All 24
+  docked legs park in about 76m of water, 200m off the port, and move one metre.
+- *`steerVia` drops a corner waypoint too early* — it shifts on `< 70m`, which is
+  wider than a grid cell. Not it here: two path changes in twelve runs, both at
+  91m and 138m off the mark, which are re-routes rather than shifts.
+- *The damage is gunfire, not the ground.* No: `(over * 9 + 2)` every 0.55s at
+  0.4m under a 4m draft is about ten a tick, which accounts for an 86% loss over
+  a 180-second leg exactly.
+- *`flagDocked` is `!!inPort`, so it clears while the player is still at the quay
+  and the consorts are sent at a station inside the moles.* The probe read 0 of
+  42,899 samples — but it asked whether she was outside guarded water aiming in,
+  and at 200m off she is already inside the ring, so the predicate could never
+  fire. Recorded as untested, not as refuted.
+
+**And the real lesson, which is about the instrument.** Two probes over the same
+twelve-run errand, on identical code, returned 3 of 12 and 4 of 12; earlier ones
+returned 1 and 2. I had been reading those differences as evidence that a change
+helped or hurt. They are not: twelve runs cannot resolve an effect of that size,
+and every conclusion drawn from a 2-versus-3 comparison in this investigation —
+including finding 85's four "made it worse" results — is within the noise. The
+next attempt needs a bigger n or a different instrument before it needs another
+idea. Judging progress over a window rather than against the best so far was one
+half of that lesson; this is the other half.
 
 ## 86. A harbour held one chord, and it was the wrong one  (P2, player report)
 
