@@ -829,11 +829,20 @@ export class Game {
          over a painted surface. A ship parts the sea in a V, so the spray goes
          out on both bows as well — and every hull gets it, because a fight the
          player is watching is mostly other people's ships. */
-      if (s.alive && s.speed > 2.2) {
+      /* Only for hulls near enough to see. The spray pool holds a few hundred
+         sprites and a splash competes for the same ones, so nineteen ships
+         each throwing a bow wave every frame would empty it on scenery and
+         leave nothing for the fall of shot — which is the effect that actually
+         has to be read. Beyond a few hundred metres a bow wave is a couple of
+         pixels anyway. */
+      const me = this.player;
+      const near = (s.isPlayer || !me) ? 0 : dist(s.x, s.z, me.x, me.z);
+      if (s.alive && s.speed > 2.2 && near < 460) {
         const bx = s.x + Math.sin(s.yaw) * s.cls.len * 0.45;
         const bz = s.z + Math.cos(s.yaw) * s.cls.len * 0.45;
         const vx = Math.sin(s.yaw) * s.speed, vz = Math.cos(s.yaw) * s.speed;
-        const p = clamp01((s.speed - 1.6) / (s.cls.speed * 0.8)) * (s.isPlayer ? 1 : 0.8);
+        const fade = 1 - clamp01(near / 460) * 0.6;
+        const p = clamp01((s.speed - 1.6) / (s.cls.speed * 0.8)) * (s.isPlayer ? 1 : 0.7) * fade;
         this.fx.bowSpray(bx, waveHeight(bx, bz), bz, vx, vz, p);
         // the two shoulders of the V, thrown out and a little aft
         const nx = Math.cos(s.yaw), nz = -Math.sin(s.yaw), off = s.cls.beam * 0.42;

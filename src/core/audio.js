@@ -9,6 +9,7 @@ let ctx = null, master = null, ambBus = null, sfxBus = null, musBus = null;
 let started = false, muted = false, soloed = false;
 let waveLFO = null, windGain = null, waveGain = null;
 let gullTimer = 0, creakTimer = 0, quayTimer = 0, harbourGain = null;
+let rushGain = null, rushFilt = null;
 let noiseBuf = null, echoIn = null, probe = null;
 
 /* A broadside is one call per gun, and a fleet action is several broadsides
@@ -167,6 +168,17 @@ export function initAudio() {
   const wlg = ctx.createGain(); wlg.gain.value = 0.05;
   wl.connect(wlg); wlg.connect(windGain.gain); wl.start();
 
+  /* --- water past the hull ---
+     The swell bed already rose a little with speed, but that is the sea being
+     bigger, not the ship going faster through it. This is the other thing: a
+     narrow band of hiss that comes up and brightens as she gathers way, so
+     the wake has something to sound like. Silent at rest by construction —
+     the gain is driven entirely from speed and starts at zero. */
+  const n5 = src(); rushFilt = ctx.createBiquadFilter();
+  rushFilt.type = 'bandpass'; rushFilt.frequency.value = 700; rushFilt.Q.value = 0.45;
+  rushGain = ctx.createGain(); rushGain.gain.value = 0;
+  n5.connect(rushFilt); rushFilt.connect(rushGain); rushGain.connect(ambBus); n5.start();
+
   // --- harbour murmur (faded in near port) ---
   const n3 = src(); const hb = ctx.createBiquadFilter();
   hb.type = 'bandpass'; hb.frequency.value = 480; hb.Q.value = 1.1;
@@ -223,14 +235,26 @@ export function updateAudio(dt, st) {
   if (waveGain) waveGain.gain.setTargetAtTime(0.34 + speedN * 0.30 + shallow * 0.18, t, 0.6);
   if (windGain) windGain.gain.setTargetAtTime(0.06 + speedN * 0.09, t, 0.8);
   if (harbourGain) harbourGain.gain.setTargetAtTime(nearPort * 0.30, t, 1.2);
+  /* The rush of water past her. Squared, because the ear reads speed that way
+     and because it keeps a ship barely moving genuinely quiet rather than
+     merely quiet; the band opens upward with it, so gathering way brightens as
+     well as loudens. A short time constant — this one should track the throttle
+     closely enough to be felt, unlike the swell behind it. */
+  if (rushGain) rushGain.gain.setTargetAtTime(speedN * speedN * 0.26, t, 0.25);
+  if (rushFilt) rushFilt.frequency.setTargetAtTime(520 + speedN * 900, t, 0.35);
 
   gullTimer -= step;
   if (gullTimer <= 0) {
     gullTimer = 2.2 + Math.random() * 6;
     if (nearShore > 0.25 && Math.random() < nearShore) gull();
   }
+  /* Hull creak, more often the harder she is working. A ship driving at speed
+     complains more than one ghosting along, and the interval was flat. */
   creakTimer -= step;
-  if (creakTimer <= 0) { creakTimer = 3 + Math.random() * 7; if (speedN > 0.15) creak(); }
+  if (creakTimer <= 0) {
+    creakTimer = (3 + Math.random() * 7) * (1 - speedN * 0.45);
+    if (speedN > 0.15) creak();
+  }
 
   /* The waterfront, heard. The murmur bed above says "people"; these say
      "harbour": a slack halyard knocking on wood, a mooring rope taking the
