@@ -1042,6 +1042,60 @@ ok(`a frigate's road is deep enough for a frigate (${nav.deep.routes} routes, `
   + `under a ${nav.deep.draft}m draft${nav.deep.worstAt ? ' at ' + nav.deep.worstAt : ''})`,
   nav.deep.routes > 0 && nav.deep.legs > 0 && nav.deep.shallowest >= nav.deep.draft);
 
+/* (a2) The sounding itself, before anything that depends on it.
+   Every road the AI checks is checked with `clearWater`, and it used to walk
+   `ceil(d / 14)` steps from 1 to steps-1 — so a line shorter than fourteen
+   metres took no cast at all and came back clear, and the first fourteen
+   metres of every longer one went unsounded. Stage it by construction: find
+   real ground, lay a short line straight across it, and ask. A function that
+   says "clear" about a line whose own middle is a rock is not a sounding. */
+const sound = await G(async () => {
+  const T = await import('/src/world/terrain.js');
+  const R = await import('/src/core/route.js');
+  const g = window.__game;
+  const need = 6.5;
+  /* The truth, cast every metre. Nothing may call a line clear that this calls
+     foul; the whole question is whether the sounding under test looks. */
+  const truthFoul = (ax, az, bx, bz) => {
+    const d = Math.hypot(bx - ax, bz - az);
+    for (let s = 1; s < d; s++) {
+      const t = s / d;
+      if (T.depthAt(ax + (bx - ax) * t, az + (bz - az) * t) <= need) return true;
+    }
+    return false;
+  };
+  /* Ground with swimmable water on both sides of it — a bar, a spit, the apron
+     of a mole — is rare: about forty short lines in seventy thousand tried.
+     They are also exactly the shape the AI meets in a harbour mouth, so sweep
+     for the whole population rather than hand-placing one and hoping. */
+  const missed = [];
+  let pairs = 0, straddle = 0;
+  for (const p of g.PORTS) {
+    for (let i = 0; i < 4000; i++) {
+      const a = (i * 2.399963) % (Math.PI * 2);          // golden angle: no banding
+      const rad = 40 + (i % 90) * 8;
+      const ax = p.x + Math.cos(a) * rad, az = p.z + Math.sin(a) * rad;
+      if (T.depthAt(ax, az) <= need) continue;
+      const dir = (i * 1.113) % (Math.PI * 2);
+      for (const L of [8, 12, 18, 26]) {
+        const bx = ax + Math.cos(dir) * L, bz = az + Math.sin(dir) * L;
+        if (T.depthAt(bx, bz) <= need) continue;
+        pairs++;
+        if (!truthFoul(ax, az, bx, bz)) continue;
+        straddle++;
+        if (R.clearWater(ax, az, bx, bz, need)) missed.push(L);
+      }
+    }
+  }
+  const by = {};
+  for (const L of missed) by[L] = (by[L] || 0) + 1;
+  return { pairs, straddle, missed: missed.length, by };
+});
+ok(`a short line laid across a rock is not called clear `
+  + `(${sound.straddle} found in ${sound.pairs} tried, ${sound.missed} passed as water`
+  + `${sound.missed ? ': ' + Object.entries(sound.by).map(([l, n]) => `${n}×${l}m`).join(', ') : ''})`,
+  sound.straddle >= 20 && sound.missed === 0);
+
 /* (b) A hull set down off a clear line notices the line has gone foul.
    `findRoute` returns null for "the rhumb line is already clear", and that
    answer was kept for the whole leg — so a merchant who left port on a good

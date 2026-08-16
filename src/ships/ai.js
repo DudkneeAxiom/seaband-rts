@@ -1023,35 +1023,43 @@ function consortAI(ship, dt, world, ctx) {
     ship.headingCmd = ship.yaw;
     return;
   }
-  // follow in echelon off the flagship's quarter
+  /* Follow in echelon off the flagship's quarter — but an echelon slot is a
+     courtesy, not a suicide pact: in a channel it can sit on the mole while
+     the flag's own track is the only proved water. Three candidates, in order
+     of how much they look like station-keeping, and each one asked the same
+     two questions: has the point water, and has the road to it water.
+     The road is the half that was missing. It was sounded for the slot and
+     then the fallback — steer at the flag herself — was taken on trust, on the
+     grounds that the flag had sailed it. She had: from where *she* was. Once
+     `clearWater` was fixed to actually sound short lines, that fallback line
+     turned out to be foul on 29% of the ticks it fired on inside Greywake,
+     and the consort sailed it anyway. */
   const slot = ship.formSlot || 1;
   const back = 46 + slot * 26, side = (slot % 2 ? 1 : -1) * (34 + slot * 8);
-  let fx = flag.x - Math.sin(flag.yaw) * back + Math.cos(flag.yaw) * side;
-  let fz = flag.z - Math.cos(flag.yaw) * back - Math.sin(flag.yaw) * side;
-  /* An echelon slot is a courtesy, not a suicide pact: in a channel the slot
-     can sit on the mole while the flag's own track is the only proved water.
-     When the slot has less water than she needs, fall in dead astern instead —
-     and if even dead astern is foul (the flag beating through a harbour mouth
-     swings that point across the arms), heave to and let her come back out. */
   const need = ship.draft * 1.9 + 3;
-  if (depthAt(fx, fz) < need) {
-    fx = flag.x - Math.sin(flag.yaw) * back;
-    fz = flag.z - Math.cos(flag.yaw) * back;
-    if (depthAt(fx, fz) < need) {
-      ship.throttle = 0.1;
-      ship.dest = null;
-      ship.headingCmd = ship.yaw;
-      return;
-    }
+  const cand = [
+    [flag.x - Math.sin(flag.yaw) * back + Math.cos(flag.yaw) * side,
+      flag.z - Math.cos(flag.yaw) * back - Math.sin(flag.yaw) * side],
+    [flag.x - Math.sin(flag.yaw) * back, flag.z - Math.cos(flag.yaw) * back],
+    [flag.x, flag.z],
+  ];
+  let fx = null, fz = null;
+  for (const [cx, cz] of cand) {
+    if (depthAt(cx, cz) < need) continue;
+    if (!clearWater(ship.x, ship.z, cx, cz, need)) continue;
+    fx = cx; fz = cz; break;
   }
-  /* And the road to the slot, sounded like the slot — the same lesson the
-     escorts learned, one rank along. As the flag clears the mouth and turns,
-     a deep slot swings round the arm head, and the straight line to it runs
-     along the breakwater's apron: 3.5m of water under a 4m keel for a whole
-     minute, measured on the Greywake errand. When the line is foul, the one
-     road always proved is the flag's own — fall in on her stern and take the
-     slot back up in open water. */
-  if (!clearWater(ship.x, ship.z, fx, fz, need)) { fx = flag.x; fz = flag.z; }
+  if (fx === null) {
+    /* No straight road to any of the three. This used to heave to, which is a
+       rung that can fail: a hull already touching the apron stops *on* it and
+       stays. The flag is afloat by definition, so there is water between here
+       and her — it simply is not a straight line, and the route grid is what
+       knows the shape of it. Give up to a road, not to a standstill. */
+    if (ship.brain) ship.brain.stationAim = { x: flag.x, z: flag.z };
+    steerVia(ship, flag.x, flag.z, dt, world);
+    ship.throttle = portGuarding(ship.x, ship.z) ? 0.4 : 0.6;
+    return;
+  }
   if (ship.brain) ship.brain.stationAim = { x: fx, z: fz };
   const d = dist(ship.x, ship.z, fx, fz);
   steerStation(ship, fx, fz, dt);

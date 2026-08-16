@@ -87,15 +87,52 @@ function nearestWater(i, j, need) {
   return null;
 }
 
-/** True if the straight line between two points never leaves water she can swim. */
+/** True if the straight line between two points never leaves water she can swim.
+ *
+ * The lead-in and the last few metres are left out on purpose: the start is
+ * where the ship already is, and answering "your own berth is foul" for every
+ * road makes a hull that is *already* touching declare the whole sea shut and
+ * heave to on the rock she is on; the end is often a mark laid deliberately
+ * close in — a berth, a quay, a mooring. Everything between them is sounded.
+ *
+ * It used to walk `ceil(d / 14)` steps from 1 to steps-1, which skipped both
+ * ends outright. A line under fourteen metres therefore took *no cast at all*
+ * and came back clear, and the first fourteen metres of every longer line went
+ * unsounded — the same hole `smooth()` had when it string-pulled from the grid
+ * cell nearest the ship rather than from the ship. It is how a consort came to
+ * be sitting in 3.6m of water with a 4m draft, twenty-two metres from a station
+ * in forty-three metres, with the road between the two reported clear.
+ *
+ * The two ends are not treated alike, and that asymmetry is the whole design.
+ * The near end is sounded finely, because that is water the hull is in now and
+ * will be in within seconds — it is where the fault above lives. The far end
+ * keeps a wide run-out and coarse casts, because a mark is very often laid
+ * deliberately close inshore: a berth, a quay, a mooring. Sounding the last
+ * fourteen metres of every line as strictly as the first twenty makes those
+ * marks unreachable — `smooth()` stops appending the destination, and a route
+ * carefully worked round every headland ends forty-six metres short in open
+ * water. Callers sound the *point* separately, which is the right place for
+ * that question; this one is about the road.
+ *
+ * The middle keeps its old fourteen-metre stride. Nothing measured says it was
+ * wrong, the grid has already vetted those cells, and `smooth()` string-pulls
+ * over legs that can be kilometres long — a fine cast the whole way would be a
+ * metre-by-metre walk of the entire sea, several times a second.
+ */
+const NEAR = 20, FINE = 2, COARSE = 14;
 export function clearWater(x0, z0, x1, z1, need = KEEL) {
   const d = Math.hypot(x1 - x0, z1 - z0);
-  const steps = Math.ceil(d / 14);
-  for (let s = 1; s < steps; s++) {
-    const t = s / steps;
-    if (depthAt(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t) <= need) return false;
+  if (!(d > 0.001)) return true;
+  const dx = (x1 - x0) / d, dz = (z1 - z0) / d;
+  /* Both pads shrink with the line, or a short one is all pad and nothing gets
+     sounded at all — which is exactly how the old walk let an eight-metre line
+     across a bar pass as water. */
+  const from = Math.min(4, d * 0.2), to = d - Math.min(14, d * 0.25);
+  for (let s = from; ;) {
+    if (depthAt(x0 + dx * s, z0 + dz * s) <= need) return false;
+    if (s >= to - 1e-6) return true;
+    s = Math.min(s + (s - from < NEAR ? FINE : COARSE), to);
   }
-  return true;
 }
 
 /* A* over the grid. Eight-way, with the diagonals costed properly so the

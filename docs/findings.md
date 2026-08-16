@@ -5,6 +5,51 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 87. The sounding did not sound the first fourteen metres  (P1, from finding 85)
+
+**Symptom.** Chasing finding 85's open question — why a Greywake consort still
+grounds — the probe caught one in the act and printed a contradiction: hull in
+3.6m of water with a 4.0m draft, her station 22m away in 42.8m, and
+`clearWater` reporting the road between the two clear to 10.6m.
+
+**Root cause.** `clearWater` walked `ceil(d / 14)` steps from `1` to `steps-1`.
+That skips both endpoints, so **a line shorter than fourteen metres took no cast
+at all** and returned true unconditionally, and the first fourteen metres of
+every longer line went unsounded. Nearly every caller passes `ship.x, ship.z` as
+the start, so the unsounded stretch was always the water the hull was about to
+sail. It is the same hole `smooth()` had when it string-pulled from the grid cell
+nearest the ship rather than from the ship — one level further down, and it had
+been under all of it the whole time.
+
+**Change.** Casts every two metres for the first twenty, every fourteen after
+that, with both pads scaled to the line's length so a short one is not all pad.
+The two ends are deliberately not alike: the near end is water she is in now, the
+far end is very often a mark laid close inshore on purpose. Sounding the far end
+as strictly cost six checks in campaign and systems — `smooth()` stopped
+appending the destination and routes ended 46m short in open water — which is
+what the wide run-out is for. Callers sound the *point* separately; this asks
+about the road.
+
+**And what it revealed.** With the sounding honest, the consort's last-resort
+station — steer at the flagship — turned out to lay a foul line on 29% of the
+ticks it fired on inside Greywake. It had been taken on trust ("the flag sailed
+it"), and she had: from where *she* was, not from where the consort is. That is
+finding 60's rule at one more remove. The three candidate stations are now a
+ladder where each rung is asked both questions, point and road, and the rung
+below the last is `steerVia` to the flag rather than heaving to — because a hull
+already touching the apron heaves to *on* it, which is a last rung that fails.
+
+**Verification.** A new check sweeps the whole world for short lines with
+swimmable water at both ends and ground in the middle — 38 of them in 68,944
+tried — and asserts none is called clear. The old walk passed 7 of the 38.
+Campaign 47/47, systems 64/64, audio 28/28.
+
+**What it did not fix.** The Greywake grounding rate itself: 2 in 12 before,
+3 in 12 after, which is noise at that sample size. The remaining signature is
+sharp and unexplained — every one is on the way *out*, at 195-205m from the
+port, at one or two knots. Finding 85's rule still stands: name it before
+changing anything else.
+
 ## 86. A harbour held one chord, and it was the wrong one  (P2, player report)
 
 **Symptom.** "The audio sounds flat and doesn't blend well at all." The sea got
