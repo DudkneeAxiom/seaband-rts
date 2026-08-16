@@ -5,6 +5,50 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 89. The sweep found two things the battle screenshots did not  (P2, visual QA)
+
+**Symptom.** The battle pass looked right in `battlelook`'s own frames. `npm run
+sweep`, which walks every screen at every size, disagreed twice.
+
+**The wake tore in a turn.** One normal per *segment*. That is fine on a straight
+trail and comes apart in a hard turn: the points are barely three metres apart,
+the direction between them swings a long way from one pair to the next, and the
+ribbon is metres wide — so consecutive quads splayed outward on the outside of
+the turn and folded through each other on the inside. On screen, a fan of hard
+white spikes. Widening the ribbon with the rate of turn, added in the same pass,
+made it worse. Fixed with per-point averaged tangents, which is the ordinary way
+to build a ribbon and costs one pass over the trail.
+
+Then the tail: `pow(f, 0.55)` rises fastest exactly where the trail runs out —
+nought to nearly a fifth across one segment — so the oldest cross-section, which
+is also the widest, terminated in a straight edge. A hard white shard lying on
+the sea behind the ship. The fade now spreads over the final fifth.
+
+**And on a phone the ship was behind her own panel.** Masts up, hull hidden by
+the speed strip. The closer lens plus the broadside swing lays the pair across a
+frame whose left and right columns, on a landscape handset, take about half the
+width between them. The rig now asks how much clear glass it has — measured from
+the real elements, because the left stack grows a fleet bar the moment a consort
+joins — and stands off by however much the furniture has taken. There is no free
+version: a smaller screen holds less sea, and the phone framing is wider than
+the desktop one as a result.
+
+The first attempt at that measurement counted any furniture in the middle 58% of
+the height, which on desktop included the bottom panels, drove the lens back out
+to 218m and put the player's ship at 7.1% of the frame — precisely the framing
+the whole pass had just undone. Only what sits *beside* the ships counts.
+
+**Two harness faults with the same shape.** `touch.mjs` cleared `player.dest`
+before dragging and asserted no course was ordered — but `route` still held the
+rest of the passage and the next tick popped the following waypoint back into
+`dest`. It only began failing when finding 87's finer sounding meant the player
+carried real routes where the rhumb line used to be judged clear: a precondition
+changing under a check that never asserted it. And `seaPoint` asked only "is
+this pixel bare canvas, clear of hulls" — never whether the world point behind
+it was water, so it could pick a beach, `commandMove` rightly refused, and it
+read downstream as "tapping the water sets no destination". Both were flaky
+about one run in five, and mine to fix: seven clean runs after.
+
 ## 88. The battle was framed like a chart  (P1, player request)
 
 **Symptom.** Asked to make an action *feel* like the reference footage — camera,

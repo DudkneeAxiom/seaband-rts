@@ -54,6 +54,13 @@ const seaPoint = () => page.evaluate(() => {
       const p = proj(g.player.x + Math.sin(a) * d, g.player.z + Math.cos(a) * d);
       if (p.z >= 1) continue;                                   // behind the camera
       if (p.x < 8 || p.y < 8 || p.x > r.width - 8 || p.y > r.height - 8) continue;
+      /* And it has to be water she could actually be sent to. The helper only
+         ever asked "is this pixel bare canvas and clear of hulls" — but the
+         world point behind it can be a beach, and commandMove rightly refuses
+         a course into the sand, which reads downstream as "tapping the water
+         sets no destination". Ask the terrain. */
+      const wx = g.player.x + Math.sin(a) * d, wz = g.player.z + Math.cos(a) * d;
+      if (window.__terrain.depthAt(wx, wz) < 15) continue;
       let clear = Infinity;
       for (const h of hulls) clear = Math.min(clear, Math.hypot(h.x - p.x, h.y - p.y) - h.r);
       if (clear <= 0) continue;
@@ -220,7 +227,17 @@ await page.evaluate(() => window.__game.clearTarget());
 
 /* ---- drag swings the view, and does not issue a move order ---- */
 const az0 = await page.evaluate(() => window.__game.rig.azimuth);
-await page.evaluate(() => { window.__game.player.dest = null; });
+/* Clear the whole standing order, not just the leg she is on. Nulling `dest`
+   alone leaves `route` holding the rest of the passage, and the next tick pops
+   the following waypoint straight back into `dest` — so the check read "she has
+   a destination" and called it an order the drag had issued. It only started
+   failing when the sounding got finer and the player began carrying real routes
+   where the rhumb line used to be judged clear, which is the precondition
+   changing under a check that never asserted it. */
+await page.evaluate(() => {
+  const g = window.__game;
+  g.player.dest = null; g.player.route = null; g.moveGoal = null;
+});
 await page.touchscreen.tap(1, 1).catch(() => { });
 await page.mouse.move(box.w * 0.5, box.h * 0.5);
 await page.mouse.down();
@@ -228,9 +245,16 @@ for (let i = 0; i < 10; i++) { await page.mouse.move(box.w * 0.5 + i * 14, box.h
 await page.mouse.up();
 await sleep(250);
 const az1 = await page.evaluate(() => window.__game.rig.azimuth);
-const destAfterDrag = await page.evaluate(() => !!window.__game.player.dest);
+const destAfterDrag = await page.evaluate(() => {
+  const g = window.__game;
+  return g.player.dest
+    ? { x: Math.round(g.player.dest.x), z: Math.round(g.player.dest.z),
+      goal: !!g.moveGoal, route: g.player.route ? g.player.route.length : 0,
+      chasing: !!g.chasing, target: !!g.target }
+    : null;
+});
 ok(`dragging swings the camera (${az0.toFixed(2)} -> ${az1.toFixed(2)})`, Math.abs(az1 - az0) > 0.1);
-ok('a drag does not also order a course change', !destAfterDrag);
+ok(`a drag does not also order a course change (${destAfterDrag ? JSON.stringify(destAfterDrag) : 'no dest'})`, !destAfterDrag);
 
 /* ---- wheel/pinch zooms ---- */
 const z0 = await page.evaluate(() => window.__game.rig.targetDistance);
