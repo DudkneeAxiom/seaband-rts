@@ -5,6 +5,48 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 91. The Greywake consort, found and fixed  (P2, closes 85)
+
+**The instrument first.** Finding 87 concluded that twelve runs could not resolve
+the effect sizes this investigation had been comparing, and that the next attempt
+needed a better instrument rather than another idea. So: the same errand,
+parameterised, four browsers at once against one shared server, **sixty runs**.
+
+**Baseline: 10 of 60 (16.7%) — and not noisy at all once there were enough of
+them to look at.** Every single grounding was the same: the *outbound* leg, the
+*second* consort and never the first, at 198–201m from the port, in 2.2–3.4m of
+water under a 4.0m draft. One place, one hull, one moment.
+
+**Root cause.** A track of slot two over the forty samples before she touched:
+
+    x=-1609 z=-1006  depth 47.4   throttle 0.25, station 3m away
+    x=-1610 z=-1006  depth 10.5   <- one metre of travel
+    ...
+    x=-1618 z=-1011  depth  2.8
+
+She had *arrived*. Her station was 0–4m away in sixty-four metres of water and
+the road to it was clear. What she was doing was **loitering at a flat quarter
+throttle**, which is a knot and a half, and twenty seconds of that carried her
+thirty metres sideways across a bank that falls from 47m to 10m in a single
+metre. Nothing in the AI sounds the water a hull is *already sitting in*: the
+station is sounded, the road to it is sounded, and the place she drifts to is
+neither.
+
+**Change.** `if (d < 22) throttle = 0.25` becomes a proper arrival —
+`clamp01((d - 6) / 28) * 0.3` inside thirty-four metres — so she takes the way
+off as she comes in and lies there. Not a third sounding: no drift, nothing to
+carry her. She still picks up the moment the flag draws ahead, because the
+throttle outside that ring is already a function of the gap.
+
+This is the rule `ai.js` carries twice in its own comments — *arriving means
+stopping*, learned once for a hull reaching a mark and once for a station-keeper
+orbiting a ring — and the consort was the one place still missing it.
+
+**Verification. 0 of 60, against 10 of 60 before**, same instrument, same runs.
+Not a judgement between 2-in-12 and 3-in-12 this time. Finding 85's four failed
+attempts and finding 87's "no measurable improvement" were all made with an
+instrument that could not have seen this either way.
+
 ## 90. A pool I thought was overflowing, and what the honest measurement said  (P3, probe)
 
 **Why look.** The battle pass put much more into the particle pools — a trail

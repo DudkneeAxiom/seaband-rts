@@ -1065,7 +1065,24 @@ function consortAI(ship, dt, world, ctx) {
   steerStation(ship, fx, fz, dt);
   // press on harder the further astern she is, so a slower hull can still keep station
   ship.throttle = clamp01(d / 60) * 0.65 + 0.35 + clamp01((d - 80) / 140) * 0.95;
-  if (d < 22) ship.throttle = 0.25;
+  /* Arriving means stopping — the rule this file already carries twice, and the
+     one place still missing it.
+   *
+     A flat quarter throttle inside twenty-two metres is not "on station", it is
+     a knot and a half going nowhere in particular. Traced over sixty errands
+     into Greywake, every single grounding was the same hull in the same place:
+     slot two, outbound, two hundred metres off the port, having *reached* her
+     station in sixty-four metres of water and then drifted thirty metres across
+     the edge of a bank while nominally holding it. The bank falls from 47m to
+     10m in one metre of travel, so twenty seconds of loitering is the whole
+     distance between deep water and the ground.
+
+     Nothing sounds the water a hull is already sitting in — the station is
+     sounded, and the road to it, and neither is the place she ends up. Rather
+     than add a third sounding, take the way off her as she comes in, so there
+     is no drift to carry her anywhere. She still picks up the moment the flag
+     draws ahead, because the throttle above is a function of that gap. */
+  if (d < 34) ship.throttle = Math.min(ship.throttle, clamp01((d - 6) / 28) * 0.3);
   /* Harbour water is entered the way harbours are entered — slowly. Half sail
      keeps the probe short and the sampling fine through exactly the water
      where the walls are, and takes the way off her if she still touches. */
