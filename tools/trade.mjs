@@ -798,22 +798,43 @@ const ruined = await G(async () => {
   for (const k in p.crew) p.crew[k] = 0;
   p.crew.sailor = p.cls.crewMin;
   p.hungry = 1;
+  /* Hunger alone, and now actually alone. Heaving her to was not enough: over
+     five minutes of world a raider can still find a stationary ship, and
+     boarding and gunnery take crew past a *lower* floor than hunger's by
+     design. So the check read 4 hands of a minimum 5 and blamed the barrels a
+     second time. Send everyone else away and shut the encounter door, then
+     prove afterwards that nothing but want touched her. */
+  g.encounterCooling = 9e5;
+  for (const s of g.ships) {
+    if (s.isPlayer || g.fleet.includes(s)) continue;
+    s.hostileToPlayer = false; s.target = null; s.chaseHold = 9e5;
+  }
   const before = p.crewTotal;
+  const hull0 = p.hull;
+  let minDepth = 1e9;
   for (let i = 0; i < 60 * 60 * 5; i++) {
     g.paused = false;
     p.provisions = 0; p.hungry = 1;      // held at the worst it can be
     g.update(1 / 60);
+    if (i % 60 === 0) minDepth = Math.min(minDepth, window.__terrain.depthAt(p.x, p.z));
   }
   return { far: Math.round(far.d), port: near.name, laid,
     ran: +(g.time - t0).toFixed(1),
     maxSpeed: way.maxSpeed, moved: way.moving,
-    crewBefore: before, crewAfter: p.crewTotal, min: p.cls.crewMin, alive: p.alive };
+    crewBefore: before, crewAfter: p.crewTotal, min: p.cls.crewMin, alive: p.alive,
+    // the staging, so a failure can say whether hunger was even the cause
+    untouched: p.hull >= hull0 - 0.5, afloat: minDepth > p.draft,
+    minDepth: +minDepth.toFixed(1), boarded: !!p.boarding };
 });
 ok(`the world was running for it (${ruined.ran}s)`, ruined.ran > 60);
 ok(`a course home can be laid from the worst berth in the Shoals `
   + `(${ruined.far}m off ${ruined.port})`, ruined.laid);
 ok(`and a ruined ship still makes way (no rigging, 5% hull, starving: `
   + `${ruined.maxSpeed} knots of her own)`, ruined.maxSpeed > 0.5 && ruined.moved);
+ok(`hunger was the only thing that could have taken them `
+  + `(hull untouched ${ruined.untouched}, afloat ${ruined.afloat} at ${ruined.minDepth}m, `
+  + `boarded ${ruined.boarded})`,
+ruined.untouched && ruined.afloat && !ruined.boarded);
 ok(`while hunger never takes the last of the watch (${ruined.crewBefore} hands `
   + `starving for five minutes -> ${ruined.crewAfter}, minimum ${ruined.min})`,
 ruined.crewAfter >= ruined.min && ruined.crewAfter === ruined.crewBefore && ruined.alive);

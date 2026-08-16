@@ -5,6 +5,44 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 97. "Charge", and a name  (player request, jam submission)
+
+**The ask.** The itch.io jam's theme is *Charge*, and the theming should run
+through the demo so the player knows their goal — without changing the game.
+
+**Nothing mechanical changed.** The word was already true of this game three
+times over and was simply never said out loud: the debt **charged** against a
+cutter the captain did not run up, **taking charge** of her and then of a fleet,
+and the **charge** across the last two hundred metres to somebody's rail, which
+is the one thing the rules insist on — guns are cold until you close.
+
+- Title screen: *A cutter you inherited. A debt you did not run up. Take charge
+  of both.*
+- The questionnaire ends on **TAKE CHARGE**, because that is what the button
+  does. So does the opening card.
+- The fleet order reads **CHARGE**. The id stays `engage`: saves and every rule
+  that reads a fleet order go by the id, and only the glass changed.
+- A boarding stance is **CHARGE THE RAIL**.
+- Every objective now carries the kicker **IN YOUR CHARGE**. That one is the
+  point of the exercise rather than decoration — the chip is the single place a
+  player looks to ask "what am I doing?", and the answer used to arrive with no
+  frame at all on the chapters and no kicker whatever on everything else.
+
+**Renamed to *Commodore*** — the rank a captain holds the moment a second ship
+answers to him, which is precisely the arc. The save and mixer keys keep the old
+string on purpose: a change of sign over the door is no reason to empty the
+building.
+
+**And the suite caught a real fault while it was at it**, unrelated to any of
+the above. "Hunger never takes the last of the watch" failed at 4 hands of a
+minimum 5 — and its own comment records the same failure once before, fixed by
+heaving the ship to. Heaving to was never enough: over five minutes of world a
+raider can find a stationary ship, and boarding and gunnery take crew past a
+*lower* floor than hunger's by design. The check now sends everyone else away,
+shuts the encounter door, and **asserts the staging held** — hull untouched,
+afloat, not boarded — so the next failure has to say whether hunger was even
+involved. Three clean runs.
+
 ## 96. Harbour traffic, probed four ways, and no fault in it  (P3, negative result)
 
 **Why look.** A loss-screen sweep shot had six or seven hulls bunched off one
