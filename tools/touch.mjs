@@ -23,24 +23,46 @@ const seaPoint = () => page.evaluate(() => {
   const g = window.__game, cam = g.rig.cam;
   const r = document.getElementById('scene').getBoundingClientRect();
   const V = Object.getPrototypeOf(cam.position).constructor;
-  const proj = (x, z) => {
-    const v = new V(x, 0, z); v.project(cam);
+  const proj2 = (x, y, z) => {
+    const v = new V(x, y, z); v.project(cam);
     return { x: (v.x * 0.5 + 0.5) * r.width, y: (-v.y * 0.5 + 0.5) * r.height, z: v.z };
   };
-  const hulls = g.ships.filter(s => s.alive).map(s => proj(s.x, s.z));
+  const proj = (x, z) => proj2(x, 0, z);
+  /* How much room each hull actually takes on the glass, rather than a flat
+     ninety pixels. That constant was measured when the battle camera stood
+     200m off and a ship was seven per cent of the frame; the camera came in
+     for the naval-feel pass and hulls are now twice that, so "well outside the
+     pick radius" became a point on the ship's own deck — and tapping a marked
+     ship unmarks her, which is what this check is watching for. Ask the hull
+     how big she is: her masthead against her waterline, plus the 64px pick. */
+  const hulls = g.ships.filter(s => s.alive).map(s => {
+    const base = proj(s.x, s.z);
+    const top = proj2(s.x, 8 + s.cls.masts * 7, s.z);
+    return { ...base, r: 64 + Math.min(320, Math.abs(top.y - base.y) * 1.15) };
+  });
+  /* Take the *emptiest* point, not the first acceptable one. The camera now
+     trails astern of the ship, so it is slowly turning whenever she is under
+     way — which means a screen coordinate worked out here has drifted a little
+     by the time the tap lands, and a point that merely cleared a hull can have
+     slid onto her. Tapping a marked ship unmarks her, so that drift showed up
+     as "setting a course keeps the ship you are tracking" failing about one
+     run in five. Scoring every candidate and keeping the one furthest from any
+     hull costs nothing and leaves no margin to drift across. */
+  let best = null, bestClear = 0;
   for (let d = 120; d <= 240; d += 40) {
     for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
       const p = proj(g.player.x + Math.sin(a) * d, g.player.z + Math.cos(a) * d);
       if (p.z >= 1) continue;                                   // behind the camera
       if (p.x < 8 || p.y < 8 || p.x > r.width - 8 || p.y > r.height - 8) continue;
-      // the pick radius is 64px, so stay well outside it
-      if (hulls.some(h => Math.hypot(h.x - p.x, h.y - p.y) < 90)) continue;
+      let clear = Infinity;
+      for (const h of hulls) clear = Math.min(clear, Math.hypot(h.x - p.x, h.y - p.y) - h.r);
+      if (clear <= 0) continue;
       const el = document.elementFromPoint(p.x, p.y);           // and not under a control
       if (!el || el.id !== 'scene') continue;
-      return { x: p.x, y: p.y };
+      if (clear > bestClear) { bestClear = clear; best = { x: p.x, y: p.y }; }
     }
   }
-  return null;
+  return best;
 });
 
 /* ---- a tap on open water sets a course ---- */
@@ -190,8 +212,9 @@ await page.touchscreen.tap(helmPoint.x, helmPoint.y);
 await waitFor(page, () => !!window.__game.player.dest, 3000);
 const keptWhileSteering = await page.evaluate(() => ({
   target: !!window.__game.target, dest: !!window.__game.player.dest,
+  name: window.__game.target ? window.__game.target.name : null,
 }));
-ok('setting a course keeps the ship you are tracking',
+ok(`setting a course keeps the ship you are tracking (target ${keptWhileSteering.name}, dest ${keptWhileSteering.dest}, tapped ${helmPoint ? Math.round(helmPoint.x) + ',' + Math.round(helmPoint.y) : 'nowhere'})`,
   keptWhileSteering.target && keptWhileSteering.dest);
 await page.evaluate(() => window.__game.clearTarget());
 
