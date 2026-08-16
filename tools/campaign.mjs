@@ -357,7 +357,18 @@ const worldBefore = await G(() => ({
 await G(() => { const g = window.__game; if (g.mode === 'encounter') g.chooseEncounter('fight'); });
 await waitFor(page, () => window.__game.mode === 'battle', 6000);
 let ended = false;
-for (let i = 0; i < 200 && !ended; i++) {
+/* Count what the driver actually did, so a failure says why rather than only
+   that. Two runs in seven ended with the enemy barely scratched and two more
+   with her at 1% and running: those are different faults and the message could
+   not tell them apart. */
+await G(() => { window.__duel = { fired: 0, noSide: 0, inRange: 0, steps: 0 }; });
+/* A budget that covers the slow tail, not just the median. A run that ends
+   takes 28 to 125 of these, and the loop exits the moment it does — so a
+   larger cap costs a passing run nothing and only buys the rare long one room.
+   Two hundred was not enough for the failures actually seen: one enemy at 1%
+   hull, fleeing, needing to make 320m at a crawl to trigger the routed rule,
+   and one grinding fight still going at the bell. */
+for (let i = 0; i < 460 && !ended; i++) {
   await ff(page, 1.2);
   ended = await G(() => {
     const g = window.__game;
@@ -376,6 +387,15 @@ for (let i = 0; i < 200 && !ended; i++) {
       const p = g.player;
       const d = Math.hypot(t.x - p.x, t.z - p.z);
       const b = Math.atan2(t.x - p.x, t.z - p.z);
+      /* Take the helm properly before laying a heading on it. `setHeading` is
+         only obeyed by a ship with nowhere she has been told to go — a standing
+         destination or a chase wins, and both survive from earlier sections of
+         this suite. When one did, the beam never came round, no side ever bore,
+         and the driver spent all two hundred iterations not firing: measured,
+         the enemy went from her staged 45% to 41% in two hundred and forty
+         seconds, which is a check watching a ship it is not actually steering.
+         Two runs in seven. */
+      p.dest = null; p.route = null; g.moveGoal = null; g.chasing = null;
       p.throttle = 1;
       /* Turn onto the beam INSIDE gun range, not outside it. Steering at her
          until 230m and only then presenting the broadside is a standoff: her
@@ -385,9 +405,18 @@ for (let i = 0; i < 200 && !ended; i++) {
          at 26% hull — a driver that can neither shoot nor catch. Close to
          well inside the range and hold the beam; the guns do the rest, and
          the guns are what bounds this. */
-      p.setHeading(d > 190 ? b : b + Math.PI / 2);
+      /* Present the beam anywhere inside gun range, not only inside 190m. The
+         190 was chosen to avoid a standoff at the 235m edge, and it left a
+         forty-five metre band where the guns reach her and no side bears —
+         which is where the 1%-and-fleeing failure sat. 215 keeps the margin
+         against drifting back out and closes the band. */
+      p.setHeading(d > 215 ? b : b + Math.PI / 2);
       p.ammo = 'round';
-      if (g.fireSide && p.reload[g.fireSide] <= 0) g.playerFire();
+      const D = window.__duel;
+      D.steps++;
+      if (d < 235) D.inRange++;
+      if (!g.fireSide) D.noSide++;
+      if (g.fireSide && p.reload[g.fireSide] <= 0) { g.playerFire(); D.fired++; }
     }
     return false;
   });
@@ -402,8 +431,11 @@ const won = await G(() => ({
   sunk: window.__game.battleLastSunk || 0,
   title: document.getElementById('enc-title').textContent,
   alive: window.__game.player.alive,
+  duel: window.__duel,
 }));
-ok(`fighting her out ends the action (${ended ? 'ended' : 'still running'}, ${won.mode}, ${won.enemy})`,
+ok(`fighting her out ends the action (${ended ? 'ended' : 'still running'}, ${won.mode}, ${won.enemy}`
+  + `${won.duel ? `, ${won.duel.fired} broadsides in ${won.duel.steps} steps, `
+    + `${won.duel.noSide} with no side bearing, ${won.duel.inRange} in range` : ''})`,
   ended && won.mode === 'campaign' && won.alive);
 ok(`and the campaign world is whole again (${worldBefore.ships} sail before, ${won.ships} after, ${won.sunk} sunk)`,
   won.ships === worldBefore.ships - won.sunk);

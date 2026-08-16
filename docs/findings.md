@@ -5,6 +5,32 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 92. And the same mistake, in the other direction  (P3, self-correction)
+
+Right after finding 91 — which exists because twelve runs could not resolve a
+16% effect — I watched the campaign duel check fail twice, reverted my consort
+change on a hunch, saw it pass **once**, and concluded I had caused it.
+
+I had not. With the change back in it then passed five times running, and
+fifteen runs put its failure rate at two in fifteen against two in seven before.
+Those are the same number. The check has a documented history of exactly this
+("roughly one run in four did exactly that") and the two failures were its own.
+
+**What the failures actually were**, once the driver was made to say what it
+did rather than only whether it worked: one enemy stuck near her staged 45% with
+the driver firing almost not at all, and one at **1% hull, fleeing, 220m off**.
+The second is the one that names a real fault in the check. It presented the
+broadside only inside 190m — chosen to avoid a standoff at the 235m edge — which
+leaves a forty-five metre band where the guns reach her and no side bears. A
+crawling hull sitting in that band cannot be shot and cannot be caught. The beam
+comes round at 215m now, and the iteration budget goes from 200 to 460, which a
+passing run never touches (they finish in 28 to 125) and the slow tail needs.
+
+**The lesson is not "measure more".** It is that the correction in finding 87
+applies to *disconfirming* evidence too. A single passing run after a revert is
+one sample, and I accepted it as proof because it agreed with what I expected —
+which is precisely the failure mode I had written up two findings earlier.
+
 ## 91. The Greywake consort, found and fixed  (P2, closes 85)
 
 **The instrument first.** Finding 87 concluded that twelve runs could not resolve
