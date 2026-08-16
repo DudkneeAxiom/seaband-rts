@@ -5,6 +5,38 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 96. Harbour traffic, probed four ways, and no fault in it  (P3, negative result)
+
+**Why look.** A loss-screen sweep shot had six or seven hulls bunched off one
+island, and "ships milling about in the harbour" is a fault this project has
+chased more than once.
+
+**Nothing is wrong.** Twenty simulated minutes of unwatched world: **no hull
+loitering** (seven-plus minutes inside a port's approaches, sailing hard, ending
+no further out), **none parked** there, **none aground**. Recorded because the
+route to that answer had four traps in it, three of which I walked into.
+
+- *The player at 9e4.* Culling is measured from the player, so parking her in the
+  far corner makes every hull in the world too distant: two-thirds of the fleet
+  turned over in twenty minutes and the traffic measured was cull-and-respawn
+  churn. She has to sit where a captain would sit. Same family as finding 90.
+- *"Ended no further from the port."* Flags every ship that is simply arriving.
+- *Straightness — net displacement over distance sailed.* A trader running A to B
+  and back has a long track and no net displacement **by working correctly**.
+  Ten of nineteen traders read 0.08–0.12; all of them were doing their job.
+- *Visits to a quay: 3 of 21.* This one looked decisive and is not. `runRoute`
+  counts arrival at `dockR + 30`, not `dockR` — and `newTradeRoute` draws from
+  the ports **plus `edge_w`, `edge_n`, `edge_e`, `edge_s`**, so something like
+  two legs in five are bound for a map edge and touch no port at all. A trader
+  that never sees a quay in twenty minutes may be perfectly employed.
+
+**The lesson, and it is the third time it has come up.** Every one of these
+metrics was well-formed, cheap and wrong, and each was wrong by measuring the
+design rather than a departure from it. Reading `runRoute` — thirty seconds —
+settled what four probes could not. When a metric keeps not meaning what you
+want, the fault is usually in the question, and the answer is usually already
+written down in the code.
+
 ## 95. The band stopped at the harbour mouth  (P2, from a promise I had not kept)
 
 **Why look.** After rebuilding the sea's score and then the harbours', I told the
