@@ -54,7 +54,7 @@ export async function isUp(port = PORT) {
 
 if (IS_ENTRY) {
   await serve(PORT);
-  console.log(`Salt & Tally — http://localhost:${PORT}`);
+  console.log(`Commodore — http://localhost:${PORT}`);
   console.log('Ctrl-C to stop.');
 }
 function pathToHref(p) {

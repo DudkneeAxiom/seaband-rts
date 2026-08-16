@@ -1,5 +1,5 @@
 /* ===========================================================
-   Salt & Tally — where a captain comes from.
+   Commodore — where a captain comes from.
 
    Five questions asked before the first sail is set. Each answer
    is a real modifier, not flavour: standing with a faction, coin

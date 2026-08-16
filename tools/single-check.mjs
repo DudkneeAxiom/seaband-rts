@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-const FILE = pathToFileURL(path.join(ROOT, 'dist-single', 'salt-and-tally.html')).href;
+const FILE = pathToFileURL(path.join(ROOT, 'dist-single', 'commodore.html')).href;
 // screenshots land beside the repo unless QA_OUT says otherwise, so a clone
 // on any machine writes somewhere that exists
 const OUT = process.env.QA_OUT || path.join(ROOT, 'shots');

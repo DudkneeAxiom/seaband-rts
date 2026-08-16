@@ -28,7 +28,7 @@ function copy(rel) {
 for (const f of INCLUDE) copy(f);
 
 // itch.io serves the zip contents at the root; nothing else needed.
-const zipPath = path.join(ROOT, 'salt-and-tally-web.zip');
+const zipPath = path.join(ROOT, 'commodore-web.zip');
 fs.rmSync(zipPath, { force: true });
 execSync(`cd "${DIST}" && zip -qr "${zipPath}" .`);
 const zipSize = fs.statSync(zipPath).size;

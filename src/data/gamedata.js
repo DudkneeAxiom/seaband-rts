@@ -1,5 +1,5 @@
 /* ===========================================================
-   Salt & Tally — world data
+   Commodore — world data
    The Vantu Shoals: a contested archipelago at the western
    edge of the Coruvian sea-lanes.
    =========================================================== */

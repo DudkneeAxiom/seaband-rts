@@ -1,6 +1,6 @@
 # The score — "The Long Water"
 
-Salt & Tally's music is one original eight-bar folk tune arranged many ways,
+Commodore's music is one original eight-bar folk tune arranged many ways,
 not a playlist. This document is (1) the map of the adaptive system as built,
 and (2) generation briefs for replacing the procedural instruments with
 composed recordings later, without code changes to gameplay.

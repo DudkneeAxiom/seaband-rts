@@ -1,4 +1,4 @@
-# Salt & Tally — working notes
+# Commodore — working notes
 
 A maritime sandbox: one battered cutter, an ocean of sails, trade or fight your way
 to a fleet. Plain ES modules, one vendored copy of three.js, **no bundler and no
@@ -11,7 +11,7 @@ npm run setup     # npm install + playwright's chromium (first time only)
 npm start         # http://localhost:8080
 npm test          # every suite, against a server it starts itself
 npm run test:fast # same, minus the two slow calibration runs
-npm run bundle    # dist-single/salt-and-tally.html — one file, then plays it
+npm run bundle    # dist-single/commodore.html — one file, then plays it
 npm run build     # dist/ + the itch.io zip
 ```
 

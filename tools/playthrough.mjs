@@ -266,9 +266,13 @@ log.push(`      fleet: ${JSON.stringify(fleet)}`);
 if (fleet.n > 1) {
   ok('fleet bar appears with a consort',
     await G(() => !document.getElementById('fleetbar').classList.contains('hidden')));
-  await page.evaluate(() => [...document.querySelectorAll('.fleet-btn')].find(b => b.textContent.includes('ENGAGE')).click());
+  /* The button reads CHARGE and the order is still `engage` — the label is what
+   the jam theme leans on, the id is what saves and rules go by. Find it by the
+   word on the glass, assert the order by its id: that is the pairing that
+   would catch either of them drifting from the other. */
+await page.evaluate(() => [...document.querySelectorAll('.fleet-btn')].find(b => b.textContent.includes('CHARGE')).click());
   await sleep(400);
-  ok('fleet order set to ENGAGE', await G(() => window.__game.fleetOrder === 'engage'));
+  ok('the CHARGE button sets the engage order', await G(() => window.__game.fleetOrder === 'engage'));
   /* Station-keeping, measured in peace. She has just been taken and her hull
      shows it, and leaving her in the middle of the action meant she was
      sometimes at the bottom before the thirty seconds were up — which failed

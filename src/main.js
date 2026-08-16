@@ -1,5 +1,5 @@
 /* ===========================================================
-   Salt & Tally — boot, render loop, input wiring.
+   Commodore — boot, render loop, input wiring.
    =========================================================== */
 import * as THREE from 'three';
 import { Game } from './game.js';
@@ -110,7 +110,7 @@ function crewBox(node, ship, lost) {
 }
 
 const STANCES = [
-  { id: 'press', label: 'PRESS THE ATTACK', sub: 'Ground fast, and pay for it' },
+  { id: 'press', label: 'CHARGE THE RAIL', sub: 'Ground fast, and pay for it' },
   { id: 'steady', label: 'STEADY', sub: 'Hold the rail and grind' },
   { id: 'marines', label: 'SEND THE MARINES', sub: 'The best fighters aboard, once' },
   { id: 'fallback', label: 'FALL BACK', sub: 'Cut the grapples and get off her' },

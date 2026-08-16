@@ -1,4 +1,4 @@
-# Handoff — Salt & Tally
+# Handoff — Commodore
 
 Read this first, then `CLAUDE.md`, then `docs/findings.md`.
 
@@ -17,7 +17,7 @@ through an importmap. The whole game ships as one HTML file.
 npm run setup     # first time only
 npm start         # http://localhost:8080
 npm test          # all 16 suites, against a server it starts itself
-npm run bundle    # dist-single/salt-and-tally.html, then verifies it
+npm run bundle    # dist-single/commodore.html, then verifies it
 ```
 
 Suites drive **the real game in a real browser** through the real UI. Two rules

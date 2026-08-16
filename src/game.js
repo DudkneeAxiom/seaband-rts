@@ -1,5 +1,5 @@
 /* ===========================================================
-   Salt & Tally — game state, world simulation and rules.
+   Commodore — game state, world simulation and rules.
    =========================================================== */
 import * as THREE from 'three';
 import {
@@ -45,6 +45,9 @@ function seedFrom(name) {
   return h >>> 0;
 }
 
+/* The key keeps the old name on purpose. It is invisible, and changing it
+   would silently orphan every voyage already saved in a browser — a rename is
+   a change of sign over the door, not a reason to empty the building. */
 const SAVE_KEY = 'salt-and-tally-v1';
 const TRAFFIC = { merchant: 4, fisher: 3, pirate: 3, patrol: 2, sable: 2, veyra: 2 };
 
@@ -422,8 +425,10 @@ export class Game {
           + `What is left is a tired cutter called the <em>Marlin’s Debt</em>, `
           + `${crewCount(this.player.crew)} hands who have not been paid yet, and `
           + `<em>${amb ? amb.line : 'a reason to go'}</em>.<br><br>`
+          + 'The debt is not yours. The hull, the hands and every charge against '
+          + 'her are, from this morning on.<br><br>'
           + 'Ilo Vantu is under your lee. Start there.',
-        actions: [{ label: 'MAKE SAIL', cls: 'gold', fn: () => { this.paused = false; } }],
+        actions: [{ label: 'TAKE CHARGE', cls: 'gold', fn: () => { this.paused = false; } }],
       });
       this.paused = true;
       setTimeout(() => hint('Tap the water to set your course.', 6500), 400);
@@ -3096,23 +3101,31 @@ export class Game {
   poiById(id) { return POIS.find(p => p.id === id); }
 
   refreshObjective() {
+    /* Every one of these carries the same kicker: IN YOUR CHARGE.
+       The chip is the one place a player looks to ask "what am I doing?", and
+       until now the answer arrived with no frame around it — a task from
+       nowhere on the chapters, and nothing at all on everything else. Naming
+       the through-line on the line above the task means the goal and the
+       reason for it are read together, every time: the hull, the hands and
+       the debt are yours, and this is the next thing they need. */
+    const CHARGE = 'In your charge';
     // the story comes first — it is the thread the whole voyage hangs on
     const ch = this.currentChapter;
     if (ch) {
       // the chapter's name over its task, so the objective chip reads as a
       // place in the story rather than an instruction from nowhere
       setObjective(this.chapterText(ch, 'obj') + this.quarryHint(),
-        `Chapter ${this.chapter + 1} of ${CHAPTERS.length} · ${this.chapterText(ch, 'title')}`);
+        `${CHARGE} · Chapter ${this.chapter + 1} of ${CHAPTERS.length} · ${this.chapterText(ch, 'title')}`);
       return;
     }
     const q = this.quests.find(x => x.active && !x.done);
-    if (q) { setObjective(this.questStatus(q)); return; }
+    if (q) { setObjective(this.questStatus(q), CHARGE); return; }
     if (this.prizes.length) {
-      setObjective('Your prize is waiting at <b>Ilo Vantu</b>. Dock there, open the <b>SHIPYARD</b>, and give her a captain.');
+      setObjective('Your prize is waiting at <b>Ilo Vantu</b>. Dock there, open the <b>SHIPYARD</b>, and give her a captain.', CHARGE);
       return;
     }
     if (!this.hintState.docked) {
-      setObjective('Sail to <b>Ilo Vantu</b> and dock. Buy shot and provisions before you go hunting.');
+      setObjective('Sail to <b>Ilo Vantu</b> and dock. Buy shot and provisions before you go hunting.', CHARGE);
       return;
     }
     if (this.stats.captured === 0) {
@@ -3121,17 +3134,17 @@ export class Game {
       const near = this.ships.find(s => s.alive && s.faction === 'pirate' && !s.captured
         && dist(p.x, p.z, s.x, s.z) < 700);
       if (near) {
-        setObjective(`A <b>Tally</b> raider is close — <b>${near.name}</b>. Tap her to mark her, then work up onto her beam and fire.`);
+        setObjective(`A <b>Tally</b> raider is close — <b>${near.name}</b>. Tap her to mark her, then work up onto her beam and fire.`, CHARGE);
       } else {
-        setObjective('Hunt a <b>Tally</b> raider: black hull, red trim, a red flag. Follow the arrow, then <b>tap her</b> to mark her.');
+        setObjective('Hunt a <b>Tally</b> raider: black hull, red trim, a red flag. Follow the arrow, then <b>tap her</b> to mark her.', CHARGE);
       }
       return;
     }
     if (this.fleet.length > 1) {
-      setObjective('Two ships under your flag. Try <b>ENGAGE</b>, and take something bigger than you could alone.');
+      setObjective('Two ships under your flag. Give them the <b>CHARGE</b> order and take something bigger than you could alone.', CHARGE);
       return;
     }
-    setObjective('Ask after work at the harbourmaster, or a name at the tavern.');
+    setObjective('Ask after work at the harbourmaster, or a name at the tavern.', CHARGE);
   }
 
   /* =========================================================

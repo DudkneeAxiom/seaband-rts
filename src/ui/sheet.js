@@ -1470,7 +1470,7 @@ function settingsTab(n) {
     });
   });
   n.appendChild(nv);
-  n.appendChild(el('div', 'note', `<span style="opacity:.5">Salt &amp; Tally — a vertical slice. ${G.buildTag}</span>`));
+  n.appendChild(el('div', 'note', `<span style="opacity:.5">Commodore — a vertical slice. ${G.buildTag}</span>`));
 }
 
 export { refresh as refreshSheet };

@@ -540,7 +540,13 @@ export class HUD {
     clear(bar);
     const orders = [
       { id: 'follow', ic: '⚑', label: 'FOLLOW' },
-      { id: 'engage', ic: '✕', label: 'ENGAGE' },
+      /* CHARGE, not ENGAGE. The order has always meant "go at her" — a
+         squadron laying alongside is a charge in every sense the word has at
+         sea, and it is the one button on the glass where the player is
+         plainly taking charge of a fleet rather than sailing a boat. The id
+         stays `engage`; only what it says changes, because save files and
+         every rule that reads a fleet order go by the id. */
+      { id: 'engage', ic: '✕', label: 'CHARGE' },
       { id: 'hold', ic: '⚓', label: 'HOLD' },
     ];
     for (const o of orders) {

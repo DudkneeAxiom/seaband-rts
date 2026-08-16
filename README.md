@@ -1,4 +1,4 @@
-# Salt & Tally
+# Commodore
 
 **A maritime sandbox for phones.** One battered cutter, a handful of sailors, and an
 ocean full of sails. Trade, hunt pirates, shoot away a rival's rigging, throw grapples
@@ -28,7 +28,7 @@ npm start          # the game
 npm test           # every suite, against a server it starts itself  (~10 min)
 npm run test:fast  # the same minus the two slow calibration runs    (~7 min)
 npm run sweep      # walk every screen and write screenshots to shots/
-npm run bundle     # dist-single/salt-and-tally.html — the whole game in one file
+npm run bundle     # dist-single/commodore.html — the whole game in one file
 npm run build      # dist/ + the itch.io zip
 ```
 
@@ -43,7 +43,7 @@ conventions are, and which mistakes this codebase has already made once.
 ### Without a server
 
 ```bash
-npm run bundle     # writes dist-single/salt-and-tally.html — the whole game in one file
+npm run bundle     # writes dist-single/commodore.html — the whole game in one file
 ```
 
 That single ~1 MB file has three.js, every module, the stylesheet and the markup
@@ -56,7 +56,7 @@ for hosts that supply their own document skeleton.
 ### For itch.io
 
 ```bash
-npm run build      # writes dist/ and salt-and-tally-web.zip
+npm run build      # writes dist/ and commodore-web.zip
 ```
 
 Upload the zip, tick *"This file will be played in the browser"*, set the viewport to
@@ -474,8 +474,8 @@ src/ui/               DOM helpers, HUD, bottom-sheet port screens, the questionn
 tools/                the QA harnesses, the dev server, the build and the bundler
 CLAUDE.md             working notes: test discipline, conventions, past mistakes
 vendor/three.module.min.js   three.js r180, vendored — no CDN, no network at runtime
-dist/ + salt-and-tally-web.zip   the static build
-dist-single/salt-and-tally.html  the whole game as one self-contained file
+dist/ + commodore-web.zip   the static build
+dist-single/commodore.html  the whole game as one self-contained file
 ```
 
 No bundler, no transpiler, no runtime dependencies beyond three.js.

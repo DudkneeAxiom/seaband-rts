@@ -1,4 +1,4 @@
-# Salt & Tally — handoff
+# Commodore — handoff
 
 Context for an agent picking this up cold. `CLAUDE.md` has the working notes and
 conventions; this file is what happened, what was measured, and what is still open.
@@ -21,7 +21,7 @@ npm run setup     # npm install + playwright's chromium (first time only)
 npm start         # http://localhost:8080
 npm test          # all 12 suites, against a server it starts itself (~11 min)
 npm run test:fast # same, minus the two slow calibration runs
-npm run bundle    # dist-single/salt-and-tally.html — the whole game in one file
+npm run bundle    # dist-single/commodore.html — the whole game in one file
 npm run build     # dist/ + the itch.io zip
 npm run sweep     # walk every screen and write screenshots to shots/
 ```
@@ -29,7 +29,7 @@ npm run sweep     # walk every screen and write screenshots to shots/
 Node 18+. The game itself needs nothing installed; `npm install` is only for the
 QA harnesses.
 
-**To test without any of that**: open `salt-and-tally.html` (the single-file
+**To test without any of that**: open `commodore.html` (the single-file
 build) directly in a browser. It runs from `file://` with no server — that is
 what `tools/single-check.mjs` verifies, 8 checks.
 

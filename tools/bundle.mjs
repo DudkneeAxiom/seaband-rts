@@ -216,10 +216,10 @@ const script =
   `})();\n`;
 
 const HEAD =
-  `<title>Salt &amp; Tally</title>\n` +
+  `<title>Commodore</title>\n` +
   `<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">\n` +
   `<meta name="theme-color" content="#0b2a3a">\n` +
-  `<meta name="description" content="Salt &amp; Tally — a maritime sandbox: one battered cutter, a handful of sailors, and an ocean full of sails.">\n` +
+  `<meta name="description" content="Commodore — take charge of a cutter, a crew and a debt you did not run up, and work your way to a fleet.">\n` +
   `<meta name="apple-mobile-web-app-capable" content="yes">\n` +
   `<meta name="mobile-web-app-capable" content="yes">\n` +
   `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n` +
@@ -232,11 +232,11 @@ fs.mkdirSync(OUT_DIR, { recursive: true });
 // for the hosted artifact: content only, the host supplies doctype/head/body
 fs.writeFileSync(path.join(OUT_DIR, 'artifact.html'), HEAD + BODY);
 // for saving to a device and opening straight from Files
-fs.writeFileSync(path.join(OUT_DIR, 'salt-and-tally.html'),
+fs.writeFileSync(path.join(OUT_DIR, 'commodore.html'),
   `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n${HEAD}</head>\n<body>\n${BODY}</body>\n</html>\n`);
 
 const kb = f => (fs.statSync(path.join(OUT_DIR, f)).size / 1024).toFixed(0);
 console.log(`modules bundled : ${order.length} + three.js`);
 console.log(`artifact.html   : ${kb('artifact.html')} KB`);
-console.log(`standalone      : ${kb('salt-and-tally.html')} KB`);
+console.log(`standalone      : ${kb('commodore.html')} KB`);
 console.log(`load order      : ${order.join(' ')}`);

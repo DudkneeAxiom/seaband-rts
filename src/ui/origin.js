@@ -153,7 +153,10 @@ function renderSummary() {
     right.appendChild(el('p', 'og-amb', `You sail <em>${amb.line}</em>.<br><span>${amb.tip}</span>`));
   }
 
-  const go = el('button', 'og-go', 'MAKE SAIL');
+  /* TAKE CHARGE, because that is exactly what this button does: five questions
+   answered, a captain assembled, and the next tap makes her yours. The class
+   is what the suite clicks, so the words are free to say what the moment is. */
+  const go = el('button', 'og-go', 'TAKE CHARGE');
   onTap(go, () => { sfxBell(); finish(); }, 520);
   right.appendChild(go);
 }
