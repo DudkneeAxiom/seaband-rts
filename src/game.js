@@ -817,11 +817,25 @@ export class Game {
       // she went down or struck to somebody else while you were doing the work
       if ((!s.alive || s.captured) && !s.rewarded && s.dmgMine > 0) this.settleSharedKill(s);
       if (s.alive && s.hullFrac < 0.42) this.fx.burning(s.x, 4, s.z, dt, 1 - s.hullFrac);
-      if (s.alive && s.speed > 3) {
+      /* The bow, throwing water. It used to be one thin plume dead ahead at
+         half strength for everybody but the player, which is a hull sliding
+         over a painted surface. A ship parts the sea in a V, so the spray goes
+         out on both bows as well — and every hull gets it, because a fight the
+         player is watching is mostly other people's ships. */
+      if (s.alive && s.speed > 2.2) {
         const bx = s.x + Math.sin(s.yaw) * s.cls.len * 0.45;
         const bz = s.z + Math.cos(s.yaw) * s.cls.len * 0.45;
-        this.fx.bowSpray(bx, waveHeight(bx, bz), bz, Math.sin(s.yaw) * s.speed, Math.cos(s.yaw) * s.speed,
-          clamp01(s.speed / s.cls.speed) * (s.isPlayer ? 1 : 0.5));
+        const vx = Math.sin(s.yaw) * s.speed, vz = Math.cos(s.yaw) * s.speed;
+        const p = clamp01((s.speed - 1.6) / (s.cls.speed * 0.8)) * (s.isPlayer ? 1 : 0.8);
+        this.fx.bowSpray(bx, waveHeight(bx, bz), bz, vx, vz, p);
+        // the two shoulders of the V, thrown out and a little aft
+        const nx = Math.cos(s.yaw), nz = -Math.sin(s.yaw), off = s.cls.beam * 0.42;
+        for (const side of [1, -1]) {
+          const sx = bx + nx * off * side - Math.sin(s.yaw) * 2.5;
+          const sz = bz + nz * off * side - Math.cos(s.yaw) * 2.5;
+          this.fx.bowSpray(sx, waveHeight(sx, sz), sz,
+            vx * 0.55 + nx * side * s.speed * 0.5, vz * 0.55 + nz * side * s.speed * 0.5, p * 0.8);
+        }
       }
     }
     // reap

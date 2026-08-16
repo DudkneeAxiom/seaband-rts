@@ -29,7 +29,11 @@ float n2(vec2 p){
 void main(){
   float edge = 1.0 - abs(vUv.x*2.0-1.0);
   float churn = n2(vec2(vUv.x*6.0, vUv.y*26.0 - uTime*1.2));
-  float a = vA * smoothstep(0.0,0.45,edge) * (0.45 + churn*0.85);
+  /* Foam with texture in it, not foam made of texture. At a 0.45 floor against
+     0.85 of noise the ribbon was more gap than water and read as glitter on
+     the surface rather than as disturbed sea; the churn belongs on top of a
+     solid wake, so most of the brightness is the wake and the rest is churn. */
+  float a = vA * smoothstep(0.0,0.42,edge) * (0.72 + churn*0.42);
   if(a < 0.01) discard;
   gl_FragColor = vec4(vec3(0.94,0.99,1.0), a);
 }`;
@@ -117,7 +121,14 @@ export class WakeField {
       const nx = -dz, nz = dx;
       const w0 = p0.w * (1 + (1 - f0) * 2.8);
       const w1 = p1.w * (1 + (1 - f1) * 2.8);
-      const a0 = p0.a * f0 * f0 * 0.7, a1 = p1.a * f1 * f1 * 0.7;
+      /* Fade along the trail, not off the stern. This was `f * f * 0.7`, and
+         since f is 0 at the oldest point the wake was down to a tenth of its
+         strength within a hull-length astern — so the wide, old, interesting
+         part of the ribbon was written every frame and never seen, and what
+         reached the screen was a pale smudge under the counter. A gentler
+         curve shows the whole trail, which is most of what makes a moving ship
+         look like it is moving. */
+      const a0 = p0.a * Math.pow(f0, 0.55), a1 = p1.a * Math.pow(f1, 0.55);
       const y0 = waveHeight(p0.x, p0.z) + 0.22, y1 = waveHeight(p1.x, p1.z) + 0.22;
       const quad = [
         [p0.x + nx * w0, y0, p0.z + nz * w0, a0, 0, t0],
