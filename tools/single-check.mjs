@@ -196,6 +196,29 @@ const told = await blind.evaluate(() => {
 ok(`a browser with no 3D says so instead of hanging (${told.said ? 'told' : told.stuck ? 'still making sail' : 'blank'})`,
   told.said && !told.stuck);
 ok('and it names the likely cause and the facts to send on', told.named3d);
+
+/* And the commonest way to reach that card, where nothing is broken at all:
+   the multi-file build opened straight off a disk. A browser will not load a
+   page's modules over file:// — the origin is opaque and the script is blocked
+   — so boot never starts, and the card used to print `page: file:` and `the
+   module never ran` and leave the reader to join them up. It was reported from
+   a screenshot, which is exactly the support round-trip a card can save.
+   Checked against the real dist/, over a real file:// URL, waiting out the
+   fifteen-second stall watchdog rather than guessing at it. */
+const distFile = pathToFileURL(path.join(ROOT, 'dist', 'index.html')).href;
+if (fs.existsSync(path.join(ROOT, 'dist', 'index.html'))) {
+  const disk = await ctx.newPage();
+  await disk.goto(distFile, { waitUntil: 'load' }).catch(() => { });
+  await sleep(18000);
+  const said = await disk.evaluate(() => (document.body.innerText || ''));
+  ok('the folder build, opened from a disk, says why and what to open instead',
+    /would not answer the helm/.test(said)
+    && /opened straight from a folder/.test(said)
+    && /commodore\.html/.test(said));
+  await disk.close();
+} else {
+  ok('the folder build, opened from a disk, says why and what to open instead (no dist/ — run npm run build)', false);
+}
 await blind.screenshot({ path: `${OUT}/single-no-webgl.png` });
 await blind.close();
 

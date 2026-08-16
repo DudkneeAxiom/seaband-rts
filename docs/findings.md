@@ -5,6 +5,37 @@ Newest first. Trivia omitted deliberately.
 
 ---
 
+## 98. The card had the answer and would not say it  (P1, player report)
+
+**Symptom.** A screenshot of the boot failure card: *She would not answer the
+helm*, `error: none reported — it simply never finished`, `got as far as:
+nothing yet — the module never ran`, `page: file:`.
+
+**Nothing was broken.** The multi-file build had been opened straight off a
+disk. A browser will not load a page's modules over `file://` — the origin is
+opaque, the script is blocked by CORS, and boot never starts. Reproduced: over
+`file://`, `dist/index.html` logs *"Access to script … blocked by CORS policy"*
+and never boots; `dist-single/commodore.html` boots to `ready` with no errors at
+all, because everything in it is inlined. Served over http — which is what
+itch.io does, and what `npm start` does — the folder build is fine.
+
+**The actual fault is that the card knew and did not say.** It printed
+`page: file:` and `the module never ran` on adjacent lines and left the reader
+to join them up, which cost a screenshot and a round-trip. Every other case on
+that card names its cause and its fix: no 3D canvas names hardware
+acceleration and where the setting lives; Safari names the version. This one —
+the commonest of the three, and the only one where the game is entirely healthy
+— named nothing.
+
+**Change.** `guess()` gains the case: opened from a folder, so open the
+single-file build instead, or put it behind a web server, and it runs as-is once
+uploaded.
+
+**Verification.** A check in `tools/single-check.mjs` loads the real `dist/`
+over a real `file://` URL, waits out the fifteen-second stall watchdog rather
+than guessing at it, and asserts the card names both the cause and the file to
+open instead. 17/17.
+
 ## 97. "Charge", and a name  (player request, jam submission)
 
 **The ask.** The itch.io jam's theme is *Charge*, and the theming should run

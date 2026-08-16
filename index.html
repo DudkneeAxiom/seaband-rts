@@ -347,6 +347,20 @@
         + 'Settings › System, in Firefox under Settings › General › Performance. '
         + 'Turn it on, restart the browser and open the file again.';
     }
+    /* The commonest way to see this card, and the one case where nothing is
+       broken at all. A browser will not load a page's modules over file://
+       — the origin is opaque, so the script is blocked by CORS and boot never
+       starts. The facts already carried `page: file:` and `the module never
+       ran`; printing them and leaving the reader to join them up is a support
+       round-trip that the card can just as easily save. */
+    if (detail.indexOf('page: file:') >= 0 && detail.indexOf('the module never ran') >= 0) {
+      return 'This copy was opened straight from a folder. Browsers will not load '
+        + 'a page\u2019s modules over file:// \u2014 so nothing has gone wrong with the '
+        + 'game, it was never allowed to start. Two ways on: open the single-file '
+        + 'build instead (commodore.html), which needs no server at all \u2014 or put '
+        + 'this folder behind a web server, which is what `npm start` does. '
+        + 'Uploaded to itch.io or any host, this copy runs exactly as it is.';
+    }
     return 'The game stopped while it was starting up. The lines below say where; '
       + 'sending them on is enough to fix it.';
   }
