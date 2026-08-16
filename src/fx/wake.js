@@ -118,6 +118,25 @@ export class WakeField {
     const base = idx * VPS;
     let v = 0;
     const n = pts.length;
+    /* One normal per point, from the average of the segments either side of
+       it, rather than one per segment.
+     *
+     * A per-segment normal is fine on a straight wake and comes apart in a
+     * hard turn: the trail points are barely three metres apart, the direction
+     * between them swings a long way between one pair and the next, and the
+     * ribbon is many metres wide — so consecutive quads splay outward on the
+     * outside of the turn and fold through each other on the inside. On screen
+     * that is a fan of hard white triangular spikes where the wake should be,
+     * and widening the ribbon with the rate of turn made it worse. Averaging
+     * the tangent at each point is the ordinary fix and it costs one pass. */
+    if (n > 1) {
+      for (let i = 0; i < n; i++) {
+        const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+        let dx = b.x - a.x, dz = b.z - a.z;
+        const l = Math.hypot(dx, dz) || 1;
+        pts[i].nx = -dz / l; pts[i].nz = dx / l;
+      }
+    }
     for (let i = 0; i < n - 1; i++) {
       const p0 = pts[i], p1 = pts[i + 1];
       const t0 = i / (SEG - 1), t1 = (i + 1) / (SEG - 1);
@@ -125,11 +144,11 @@ export class WakeField {
       // A wake is narrow and bright where the hull just cut it, then spreads
       // wide and dies away behind — so width falls with f and alpha rises with it.
       const f0 = i / Math.max(1, n - 1), f1 = (i + 1) / Math.max(1, n - 1);
-      let dx = p1.x - p0.x, dz = p1.z - p0.z;
-      const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
-      const nx = -dz, nz = dx;
-      const w0 = p0.w * (1 + (1 - f0) * 2.8);
-      const w1 = p1.w * (1 + (1 - f1) * 2.8);
+      const n0x = p0.nx, n0z = p0.nz, n1x = p1.nx, n1z = p1.nz;
+      // spread astern, but not into a sheet — the widest part is also the
+      // faintest, and a very wide faint plate is what catches the light wrong
+      const w0 = p0.w * (1 + (1 - f0) * 2.1);
+      const w1 = p1.w * (1 + (1 - f1) * 2.1);
       /* Fade along the trail, not off the stern. This was `f * f * 0.7`, and
          since f is 0 at the oldest point the wake was down to a tenth of its
          strength within a hull-length astern — so the wide, old, interesting
@@ -137,7 +156,14 @@ export class WakeField {
          reached the screen was a pale smudge under the counter. A gentler
          curve shows the whole trail, which is most of what makes a moving ship
          look like it is moving. */
-      const a0 = p0.a * Math.pow(f0, 0.55), a1 = p1.a * Math.pow(f1, 0.55);
+      /* …and end somewhere, rather than stopping. `pow(f, 0.55)` rises fastest
+         exactly where the trail runs out — nought to nearly a fifth across one
+         three-metre segment — so the oldest cross-section, which is also the
+         widest, terminated in a straight edge. On screen that is a hard white
+         shard lying on the sea behind the ship. The extra ramp spreads the last
+         of the fade over the final fifth of the trail so the ribbon dissolves. */
+      const tail = f => Math.pow(f, 0.55) * Math.min(1, f / 0.22);
+      const a0 = p0.a * tail(f0), a1 = p1.a * tail(f1);
       /* Every corner sits on the swell under it, not on the swell under the
          middle of the ribbon. The height used to be sampled once per trail
          point and applied across the whole width — and the ribbon is up to
@@ -145,10 +171,10 @@ export class WakeField {
          water on one side of a wave and sank under it on the other. At the old
          alpha that was invisible; brightened, it turned the wake into a row of
          flat white plates lying on the sea at angles to it. */
-      const ax0 = p0.x + nx * w0, az0 = p0.z + nz * w0;
-      const bx0 = p0.x - nx * w0, bz0 = p0.z - nz * w0;
-      const ax1 = p1.x + nx * w1, az1 = p1.z + nz * w1;
-      const bx1 = p1.x - nx * w1, bz1 = p1.z - nz * w1;
+      const ax0 = p0.x + n0x * w0, az0 = p0.z + n0z * w0;
+      const bx0 = p0.x - n0x * w0, bz0 = p0.z - n0z * w0;
+      const ax1 = p1.x + n1x * w1, az1 = p1.z + n1z * w1;
+      const bx1 = p1.x - n1x * w1, bz1 = p1.z - n1z * w1;
       const ya0 = waveHeight(ax0, az0) + 0.2, yb0 = waveHeight(bx0, bz0) + 0.2;
       const ya1 = waveHeight(ax1, az1) + 0.2, yb1 = waveHeight(bx1, bz1) + 0.2;
       const quad = [

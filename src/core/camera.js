@@ -36,7 +36,14 @@ export class SeaCamera {
     this.heat = 0;         // 0 campaign … 1 battle, damped so the move is a move
     this.orbitHold = 0;    // seconds left of "the player is steering the camera"
     this.pitch = 0.6;      // published for anything that wants to know the angle
+    /* What fraction of the frame's width the HUD leaves clear between its two
+       columns. Written by the render loop from the real elements rather than
+       guessed from the viewport, because the columns grow — a fleet bar
+       appears the moment you take a consort. 1 means nothing is in the way. */
+    this.clear = 1;
   }
+  /** Tell the rig how much of the glass it may actually use. */
+  setClear(f) { this.clear = clamp(Number.isFinite(f) ? f : 1, 0.35, 1); }
   resize(aspect) { this.cam.aspect = aspect; this.cam.updateProjectionMatrix(); }
 
   orbit(dx) { this.azimuth -= dx * 0.0055; this.orbitHold = 5; }
@@ -109,7 +116,17 @@ export class SeaCamera {
     let want = this.targetDistance;
     if (interest) {
       const sep = Math.hypot(interest.x - target.x, interest.z - target.z);
-      want = clamp(Math.max(this.targetDistance * 0.5, sep * 0.92 + 30), this.minD, this.maxD);
+      /* The frame is not all usable. On a landscape phone the left column and
+         the action column between them eat something like half the width, and
+         the ships are laid across the frame by the broadside swing — so a pair
+         that sits comfortably inside a desktop window puts the player's own
+         hull behind her condition panel on a handset. Measured on the sweep:
+         she was almost entirely hidden by the speed strip, masts up. Widen by
+         however much of the width the furniture has taken. There is no free
+         version of this — a smaller screen holds less — but a ship you cannot
+         see is worse than a ship that is slightly further off. */
+      want = clamp(Math.max(this.targetDistance * 0.5, (sep * 0.92 + 30) / clamp(this.clear, 0.45, 1)),
+        this.minD, this.maxD);
     }
     want *= 1 + wideness * 0.12;
     this.distance = damp(this.distance, want, 1.8, dt);

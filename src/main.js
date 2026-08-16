@@ -289,6 +289,36 @@ function boot() {
   window.__cam = rig;                         // the camera rig, for framing shots
 }
 
+/* The width of glass the sea actually gets.
+ *
+ * The two HUD columns are measured, not assumed: the left stack grows a fleet
+ * bar when a consort joins and the action column changes with what is on
+ * offer, so a constant would be wrong the moment either did. Only the bands
+ * that overlap the middle third vertically count — the top bar and the
+ * compass sit above the water the ships are on and take nothing from it. */
+let clearTick = 0;
+function clearWidth() {
+  const W = window.innerWidth || 1;
+  const H = window.innerHeight || 1;
+  let left = 0, right = W;
+  for (const id of ['leftstack', 'actions', 'targetcard']) {
+    const n = document.getElementById(id);
+    if (!n || n.classList.contains('hidden')) continue;
+    const r = n.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    /* Only what is actually beside the ships. They sit a little below the
+       middle of the frame — around three-fifths down — so the band that
+       matters is narrow, and a panel along the bottom of a desktop window is
+       nowhere near it. Testing against most of the height instead counted
+       those panels, drove the lens out to 218m and put the player's ship back
+       at seven per cent of the frame: the exact thing this pass undid. */
+    if (r.bottom < H * 0.45 || r.top > H * 0.75) continue;
+    if (r.left < W * 0.5) left = Math.max(left, r.right);
+    else right = Math.min(right, r.left);
+  }
+  return Math.max(0.35, (right - left) / W);
+}
+
 /** New voyages go through the questionnaire first; a saved one resumes. */
 function startGame(loadSave) {
   initAudio();
@@ -352,6 +382,15 @@ function frame(now) {
       const t = game.target;
       const interest = t && t.alive && !t.captured &&
         Math.hypot(t.x - p.x, t.z - p.z) < 420 ? { x: t.x, z: t.z } : null;
+      /* How much width the HUD leaves the sea, measured from the real columns
+         rather than assumed from the viewport — the left stack grows a fleet
+         bar the moment a consort joins, and a landscape phone has both columns
+         nearly meeting in the middle. The rig stands further off when there is
+         less clear glass, so a duel laid across the frame does not put the
+         player's own hull behind her condition panel. Recomputed on a slow
+         tick: it changes when the layout changes, not every frame. */
+      clearTick -= dt;
+      if (clearTick <= 0) { clearTick = 0.5; rig.setClear(clearWidth()); }
       rig.update(dt, { x: p.x, z: p.z, yaw: p.yaw, speed: p.speed }, interest, game.combatHeat > 0 ? 1 : 0, game.cameraBattle());
     } else {
       // attract mode: a slow pass across the roads of Ilo Vantu
